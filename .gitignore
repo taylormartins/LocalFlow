@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Runtime
+localflow.log*
+src/localflow/pwa/localflow.ico
+
+# Local config - holds the server token
+config.toml
+
+# Third-party data: NRC lexicon licence forbids redistribution - never commit
+data/
+
+# Runtime crash dumps
+crash.log

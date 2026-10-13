@@ -1,0 +1,147 @@
+# LocalFlow configuration TEMPLATE.
+#
+# install.ps1 copies this to config.toml on first run (or: copy it yourself).
+# config.toml is gitignored: it is yours, and may hold your server token.
+# Most settings can also be changed from the tray icon's right-click menu.
+# Every value here matches a default in src/localflow/config.py; delete a line
+# to fall back to that default.
+
+[audio]
+# Case-insensitive substring of the input device name.
+# Run `uv run localflow devices` to see the list. Leave "" for the Windows default.
+# Example: "Scarlett Solo" matches "Microphone (Scarlett Solo USB)"; the
+# resolver prefers the WASAPI copy of whichever device matches.
+device = ""
+# Hard cap on one recording. Generous because toggle mode makes it easy to
+# start a recording and get distracted; the capture is truncated, not lost.
+max_seconds = 600
+min_seconds = 0.35
+# Raise if your mic is quiet and transcripts come back empty.
+gain = 1.0
+
+[whisper]
+# large-v3-turbo is the sweet spot on an NVIDIA GPU: near large-v3 accuracy at
+# roughly 4x the speed. Alternatives: "large-v3" (most accurate, slower),
+# "distil-large-v3" (English only, faster), "medium.en", "small.en".
+# No NVIDIA GPU: model = "small.en" (or "base.en"), device = "cpu",
+# compute_type = "int8". install.ps1 sets these for you.
+model = "large-v3-turbo"
+device = "cuda"
+compute_type = "float16"
+language = "en"
+beam_size = 1
+vad_filter = true
+
+[cleanup]
+enabled = true
+# "llm"   = Ollama cleanup (best); falls back to the algorithmic rules whenever
+#           Ollama or the model is unavailable.
+# "rules" = algorithmic cleanup only: filler, stutters, "no wait" corrections,
+#           spoken punctuation, casing. No Ollama, no GPU, ~2 ms.
+method = "llm"
+host = "http://127.0.0.1:11434"
+# Head-to-head on a real dictation, warm, nothing else on the GPU:
+#   qwen2.5:3b  436ms  but keeps "So", leaves the self-correction unresolved,
+#                      and misses spoken "new paragraph"
+#   qwen2.5:7b  607ms  resolves all three
+# The extra 171ms buys the behaviour that makes this better than raw Whisper,
+# so 7b stays the default. Switch to 3b if you want the latency back and mostly
+# dictate short, tidy sentences. Both hold at 0/21 on "answered instead of
+# cleaned", so the guardrail is not what you trade away.
+model = "qwen2.5:7b"
+keep_alive = "30m"
+min_chars = 12
+# Skip the LLM entirely when the transcript has no filler, stutter, spoken
+# punctuation, or self-correction. Short crisp dictation then costs 0 ms.
+skip_if_clean = true
+# Extra house style, appended to the built-in prompt. Keep it short.
+instructions = ""
+
+[inject]
+# "paste" = clipboard + Ctrl+V (fast, Unicode-safe).
+# "type" = simulated keystrokes (slower; use if an app ignores paste).
+method = "paste"
+restore_clipboard = true
+paste_delay = 0.08
+
+[hotkeys]
+# pynput syntax: "<f9>", "<ctrl>+<alt>+d", "<ctrl>+<shift>+<space>".
+# Named keys always go in angle brackets; plain letters do not.
+#
+# "toggle" = tap F9 to start, go do other things, tap F9 again to stop.
+# "hold"   = push-to-talk; records only while the key is held down.
+mode = "toggle"
+# A list gives several shortcuts that act as one switch. Caps Lock is
+# suppressed (stops toggling caps). Modifier-only chords like Ctrl+Win fire on a
+# clean tap, so Ctrl+Win+D/arrows still work and Start never opens.
+dictate = ["<caps_lock>", "<ctrl>+<cmd>", "<f9>"]
+dictate_raw = ["<shift>+<caps_lock>", "<ctrl>+<cmd>+<shift>", "<f10>"]
+# Aborts an in-progress recording without transcribing it. Worth having in
+# toggle mode, where a forgotten recording has no other way out. Never
+# suppressed, so Escape keeps working normally everywhere else.
+cancel = "<esc>"
+
+[server]
+# Phone dictation over HTTPS (see README). Off by default: when on, it listens
+# on your network, so set a token first.
+enabled = false
+host = "0.0.0.0"
+port = 8123
+# Shared secret for the phone. Generate your own and paste it into the PWA's
+# settings screen:
+#   python -c "import secrets; print(secrets.token_urlsafe(24))"
+# Leaving this empty disables auth entirely - only safe if you also set
+# host = "127.0.0.1".
+token = ""
+
+[overlay]
+# Floating pill above the taskbar: live level bars while recording (bright =
+# speech, dim = silence), a spinner while transcribing/cleaning, a check when
+# the text is pasted. Click-through and never takes focus.
+enabled = true
+margin = 18
+# Per-block RMS that counts as speech (bright bars). Typical room noise ~0.005.
+speech_rms = 0.009
+# Live transcript under the waveform (display only; pasted text is the full pass).
+live_text = true
+live_interval = 1.0        # seconds between updates (one GPU Whisper pass each)
+live_window = 30.0         # only the newest this-many seconds are re-transcribed
+live_context_words = 5     # dimmed words kept from the previous sentence
+live_max_words = 30        # hard cap; longer shows "..." + newest words
+
+[sounds]
+# Cues when recording starts, stops, and the text is pasted. Pick them from the
+# tray menu (Start / Stop / Paste sound - choosing one plays a preview and saves here), or set by hand:
+# tick, pop, faint pop, blip, click, chime up, chime down, soft, none, or a .wav path.
+# The start cue is silenced out of the recording so Whisper never transcribes it.
+enabled = true
+start = "tick"
+stop = "pop"
+paste = "faint pop"   # once the text has been inserted
+volume = 0.5
+
+[style]
+# Rewrite in a voice and/or emotional tone (pick from the tray; they stack).
+character = "none"   # humanize, professional, tech professional, doctor, rogue,
+                     # robot, caring mother, defiant worker, or one of yours below
+tone = "neutral"     # a Plutchik level: serenity/joy/ecstasy, acceptance/trust/admiration,
+                     # apprehension/fear/terror, distraction/surprise/amazement,
+                     # pensiveness/sadness/grief, boredom/disgust/loathing,
+                     # annoyance/anger/rage, interest/anticipation/vigilance
+model = ""           # "" = cleanup model; "gemma4:12B" = stronger voices, ~2.8 s
+
+[style.characters]
+# pirate = "a salty pirate captain; nautical slang, gruff but cheerful"
+
+[vocabulary]
+# Proper nouns and jargon Whisper tends to mangle. These are fed to Whisper as
+# a decoding hint and to the cleanup model as a spelling authority.
+terms = [
+  # "Kubernetes",
+  # "PostgreSQL",
+  # "Your Company Name",
+]
+
+# Literal spoken -> written fixes applied last, after cleanup.
+[vocabulary.replacements]
+"local flow" = "LocalFlow"

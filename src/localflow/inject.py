@@ -1,0 +1,128 @@
+"""Put text into whatever window currently has focus (Windows)."""
+
+from __future__ import annotations
+
+import logging
+import time
+
+from .config import InjectConfig
+
+log = logging.getLogger(__name__)
+
+
+class InjectError(RuntimeError):
+    pass
+
+
+def _clipboard_retry(fn, attempts: int = 8, delay: float = 0.02):
+    """Clipboard ops fail transiently while another process holds the lock."""
+    import pywintypes
+
+    last: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return fn()
+        except pywintypes.error as exc:
+            last = exc
+            time.sleep(delay)
+    raise InjectError(f"clipboard unavailable: {last}")
+
+
+def get_clipboard_text() -> str | None:
+    import win32clipboard as cb
+    import win32con
+
+    def _read():
+        cb.OpenClipboard()
+        try:
+            if cb.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+                return cb.GetClipboardData(win32con.CF_UNICODETEXT)
+            return None
+        finally:
+            cb.CloseClipboard()
+
+    return _clipboard_retry(_read)
+
+
+def set_clipboard_text(text: str) -> None:
+    import win32clipboard as cb
+    import win32con
+
+    def _write():
+        cb.OpenClipboard()
+        try:
+            cb.EmptyClipboard()
+            cb.SetClipboardData(win32con.CF_UNICODETEXT, text)
+        finally:
+            cb.CloseClipboard()
+
+    _clipboard_retry(_write)
+
+
+class Injector:
+    def __init__(self, cfg: InjectConfig):
+        self.cfg = cfg
+        self._kb = None
+
+    @property
+    def keyboard(self):
+        if self._kb is None:
+            from pynput.keyboard import Controller
+
+            self._kb = Controller()
+        return self._kb
+
+    def send(self, text: str) -> None:
+        if not text:
+            return
+        if self.cfg.method == "type":
+            self._type(text)
+            return
+
+        try:
+            self._paste(text)
+        except Exception as exc:
+            log.warning("paste failed (%s)", exc)
+            if self.cfg.clipboard_fallback:
+                try:
+                    set_clipboard_text(text)
+                    log.info("text left on clipboard - press Ctrl+V to insert")
+                    return
+                except Exception:
+                    pass
+            raise
+
+    def _type(self, text: str) -> None:
+        kb = self.keyboard
+        for ch in text:
+            kb.type(ch)
+            if self.cfg.type_interval:
+                time.sleep(self.cfg.type_interval)
+
+    def _paste(self, text: str) -> None:
+        from pynput.keyboard import Key
+
+        previous = None
+        if self.cfg.restore_clipboard:
+            try:
+                previous = get_clipboard_text()
+            except InjectError:
+                log.debug("could not read clipboard; skipping restore")
+
+        set_clipboard_text(text)
+        # The target app needs a beat to observe the new clipboard contents
+        # before it services the Ctrl+V, or it pastes the previous value.
+        time.sleep(self.cfg.paste_delay)
+
+        kb = self.keyboard
+        with kb.pressed(Key.ctrl):
+            kb.press("v")
+            kb.release("v")
+
+        if self.cfg.restore_clipboard and previous is not None:
+            # Restoring too eagerly races the paste for the same reason.
+            time.sleep(max(self.cfg.paste_delay, 0.15))
+            try:
+                set_clipboard_text(previous)
+            except InjectError:
+                log.debug("could not restore clipboard")

@@ -1,0 +1,585 @@
+"""Command line entrypoint."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+import threading
+import time
+from pathlib import Path
+
+from . import config as config_mod
+
+
+def _specs(value: str | list[str]) -> list[str]:
+    """A hotkey setting is one spec or a list of them; "" disables it."""
+    items = [value] if isinstance(value, str) else list(value)
+    return [x for x in items if x]
+
+
+def _detach_hidden_console() -> None:
+    """Drop the invisible console the tray app is born with, and write to NUL.
+
+    The venv's pythonw.exe is a launcher that starts the console python.exe, so
+    the "windowless" tray app still owns a hidden conhost that nobody reads.
+    Every print, log line, uvicorn access line and tqdm bar goes to it. On
+    2026-10-11, soon after the Tk overlay arrived, a WriteConsoleW to it blocked
+    forever. The hotkey worker was stuck mid-log-line, F9 died, and the process
+    otherwise looked healthy. With no console attached, nothing can block on one.
+    The log file keeps everything.
+
+    Keyed on how we were launched, not on the console window: on this Windows 11
+    box the hidden console's HWND reports IsWindowVisible() == True even though
+    nothing is on screen. Launched as pythonw.exe means "no console wanted";
+    `uv run localflow run` from a terminal keeps its output.
+    """
+    if os.name != "nt" or not sys.executable.lower().endswith("pythonw.exe"):
+        return
+    import ctypes
+
+    ctypes.windll.kernel32.FreeConsole()
+    devnull = open(os.devnull, "w", encoding="utf-8")
+    # Point the C-level fds at NUL as well, so native libraries that write to
+    # fd 1/2 directly get a sink instead of a dead handle.
+    for fd in (1, 2):
+        try:
+            os.dup2(devnull.fileno(), fd)
+        except OSError:
+            pass
+    sys.stdout = sys.stderr = devnull
+    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+
+
+def _setup_logging(verbose: bool, log_file: Path | None = None) -> None:
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(name)-22s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    if log_file:
+        # Launched at login there is no console, so without this a failure is
+        # completely invisible. Rotating, because it runs all day every day.
+        from logging.handlers import RotatingFileHandler
+
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(
+                log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+            )
+            handler.setFormatter(fmt)
+            root.addHandler(handler)
+        except OSError as exc:
+            root.warning("could not open log file %s: %s", log_file, exc)
+
+        # A native crash (abort() inside a C++ library, code 0xC0000409) kills the
+        # process before logging can say anything; on 2026-10-01 the app just
+        # vanished mid-transcription. faulthandler dumps every thread's Python
+        # stack on the way down. Separate file because rotation would close the
+        # handle faulthandler writes to. Kept open for the life of the process.
+        import faulthandler
+
+        try:
+            crash_file = open(log_file.with_name("crash.log"), "a", encoding="utf-8")
+            crash_file.write(f"--- started {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()}\n")
+            crash_file.flush()
+            faulthandler.enable(crash_file, all_threads=True)
+        except OSError as exc:
+            root.warning("could not open crash log: %s", exc)
+
+    logging.getLogger("faster_whisper").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+def cmd_devices(args, cfg) -> int:
+    from .audio import list_input_devices, resolve_device
+
+    devices = list_input_devices()
+    if not devices:
+        print("No input devices found.")
+        return 1
+
+    print("Input devices:\n")
+    for d in devices:
+        print(f"  {d}")
+
+    print()
+    try:
+        chosen = resolve_device(cfg.audio.device)
+        label = f"audio.device = {cfg.audio.device!r}" if cfg.audio.device else "system default"
+        print(f"Selected ({label}):\n  {chosen or 'system default'}")
+    except Exception as exc:
+        print(f"Selection failed: {exc}")
+        return 1
+    return 0
+
+
+def cmd_check(args, cfg) -> int:
+    """Verify every moving part before trusting the thing with real work."""
+    ok = True
+
+    print("== GPU / CTranslate2 ==")
+    try:
+        from . import _cuda
+
+        dirs = _cuda.register()
+        print(f"  bundled CUDA dirs: {len(dirs)}")
+        import ctranslate2
+
+        count = ctranslate2.get_cuda_device_count()
+        print(f"  ctranslate2 {ctranslate2.__version__}, CUDA devices: {count}")
+        if count == 0:
+            print("  ! no CUDA device visible; will fall back to CPU")
+            ok = False
+    except Exception as exc:
+        print(f"  ! {exc}")
+        ok = False
+
+    print("\n== Microphone ==")
+    try:
+        from .audio import resolve_device
+
+        print(f"  {resolve_device(cfg.audio.device) or 'system default'}")
+    except Exception as exc:
+        print(f"  ! {exc}")
+        ok = False
+
+    print("\n== Cleanup ==")
+    if not cfg.cleanup.enabled:
+        print("  disabled in config")
+    elif cfg.cleanup.method == "rules":
+        print("  algorithmic (no LLM) - nothing to check")
+    else:
+        from .cleanup import Cleaner
+
+        cleaner = Cleaner(cfg.cleanup, cfg.vocabulary)
+        if cleaner.available():
+            import httpx
+
+            try:
+                tags = httpx.get(f"{cfg.cleanup.host}/api/tags", timeout=5).json()
+                names = {m["name"] for m in tags.get("models", [])}
+                mark = "ok" if cfg.cleanup.model in names else "! NOT PULLED"
+                print(f"  server up, {len(names)} models; {cfg.cleanup.model}: {mark}")
+                if cfg.cleanup.model not in names:
+                    print(f"    run: ollama pull {cfg.cleanup.model}")
+                    print("    until then, algorithmic cleanup is used instead")
+            except Exception as exc:
+                print(f"  ! {exc}")
+                ok = False
+        else:
+            # Not fatal: every dictation falls back to the algorithmic cleanup.
+            print(f"  ! cannot reach Ollama at {cfg.cleanup.host}")
+            print('    algorithmic cleanup is used instead (or set cleanup.method = "rules")')
+        cleaner.close()
+
+    print("\n== Hotkeys ==")
+    from .hotkey import parse_spec
+
+    for name, spec in [("dictate", x) for x in _specs(cfg.hotkeys.dictate)] + [
+        ("dictate_raw", x) for x in _specs(cfg.hotkeys.dictate_raw)
+    ]:
+        try:
+            parse_spec(spec)
+            print(f"  {name}: {spec}")
+        except ValueError as exc:
+            print(f"  ! {exc}")
+            ok = False
+
+    print("\n== Server ==")
+    if cfg.server.enabled:
+        state = "set" if cfg.server.token else "! EMPTY (unauthenticated)"
+        print(f"  {cfg.server.host}:{cfg.server.port}, token: {state}")
+    else:
+        print("  disabled")
+
+    print("\n" + ("All checks passed." if ok else "Some checks failed - see ! lines above."))
+    return 0 if ok else 1
+
+
+def cmd_transcribe(args, cfg) -> int:
+    """Transcribe an audio file. Exercises the pipeline without a microphone."""
+    import numpy as np
+
+    from .audio import decode_upload
+    from .engine import Engine
+
+    path = Path(args.path)
+    if not path.exists():
+        print(f"no such file: {path}")
+        return 1
+
+    if args.rules:
+        cfg.cleanup.method = "rules"
+    engine = Engine(cfg)
+    audio = decode_upload(path.read_bytes())
+    print(f"decoded {len(audio) / 16000:.2f}s of audio")
+    if audio.size == 0:
+        return 1
+
+    result = engine.process(np.asarray(audio), cleanup=not args.raw, source="file")
+    print(f"\nraw:     {result.raw}")
+    print(f"cleaned: {result.text}")
+    print(
+        f"\nwhisper {result.transcribe_seconds:.2f}s, "
+        f"cleanup {result.cleanup_seconds:.2f}s, {result.speedup:.0f}x realtime"
+    )
+    engine.shutdown()
+    return 0
+
+
+def cmd_clean(args, cfg) -> int:
+    """Run the cleanup on typed text: the fastest way to see what the rules do."""
+    from .cleanup import Cleaner
+
+    if not args.llm:
+        cfg.cleanup.method = "rules"
+    cleaner = Cleaner(cfg.cleanup, cfg.vocabulary)
+    started = time.perf_counter()
+    text = cleaner.clean(args.text)
+    print(text)
+    print(f"\n({cleaner.last_outcome}, {(time.perf_counter() - started) * 1000:.1f} ms)")
+    cleaner.close()
+    return 0
+
+
+def cmd_record(args, cfg) -> int:
+    """Record from the mic for N seconds and transcribe. Console-only smoke test."""
+    from .engine import Engine
+
+    if args.rules:
+        cfg.cleanup.method = "rules"
+    engine = Engine(cfg)
+    engine.transcriber.load()
+
+    print(f"Recording {args.seconds}s from the microphone - speak now...")
+    engine.recorder.start()
+    time.sleep(args.seconds)
+    audio = engine.recorder.stop()
+
+    if audio.size == 0:
+        print("Nothing captured. Check the input device and that the mic is unmuted.")
+        return 1
+
+    peak = float(abs(audio).max())
+    print(f"captured {len(audio) / 16000:.2f}s, peak level {peak:.3f}")
+    if peak < 0.01:
+        print("! signal is nearly silent - check the mic gain (and INST/LINE switch on an interface)")
+
+    result = engine.process(audio, cleanup=not args.raw, source="record")
+    print(f"\nraw:     {result.raw}")
+    print(f"cleaned: {result.text}")
+    engine.shutdown()
+    return 0
+
+
+def cmd_level(args, cfg) -> int:
+    """Live input meter. The fastest way to tell a dead mic from a dead pipeline."""
+    import numpy as np
+    import sounddevice as sd
+
+    from .audio import QUIET_PEAK, SILENCE_PEAK, resolve_candidates
+
+    candidates = resolve_candidates(cfg.audio.device)
+    device = candidates[0] if candidates else None
+    print(f"Reading {device or 'system default'}")
+    print("Speak normally. Ctrl+C to stop.\n")
+
+    rate = int(device.default_samplerate) if device else 44100
+    peak_seen = 0.0
+    try:
+        with sd.InputStream(
+            device=device.index if device else None,
+            channels=1,
+            samplerate=rate,
+            dtype="float32",
+        ) as stream:
+            while True:
+                block, _ = stream.read(int(rate * 0.1))
+                block = block.reshape(-1)
+                if cfg.audio.gain != 1.0:
+                    block = np.clip(block * cfg.audio.gain, -1.0, 1.0)
+                peak = float(np.abs(block).max())
+                peak_seen = max(peak_seen, peak)
+
+                # Log scale: speech sits far too close to zero to see linearly.
+                db = 20 * np.log10(peak) if peak > 1e-6 else -100.0
+                filled = int(max(0.0, min(1.0, (db + 60) / 60)) * 40)
+                verdict = "silent" if peak < SILENCE_PEAK else "quiet " if peak < QUIET_PEAK else "good  "
+                print(f"\r[{'#' * filled}{'-' * (40 - filled)}] {db:6.1f} dB  {verdict}", end="", flush=True)
+    except KeyboardInterrupt:
+        pass
+
+    print(f"\n\nLoudest peak seen: {peak_seen:.4f}")
+    if peak_seen < SILENCE_PEAK:
+        print("  -> No signal. Check the mic gain, the 48V switch if your mic")
+        print("     needs phantom power, the cable, and Windows mic privacy settings.")
+        return 1
+    if peak_seen < QUIET_PEAK:
+        print(f"  -> Too quiet; Whisper's VAD will discard this. Turn up the mic gain,")
+        print(f"     or set audio.gain = {max(2.0, round(0.3 / max(peak_seen, 0.001))):.0f} in config.toml as a workaround.")
+        return 1
+    print("  -> Healthy. Speech should transcribe fine.")
+    return 0
+
+
+def _startup_shortcut_path() -> Path:
+    return (
+        Path(os.environ["APPDATA"])
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+        / "LocalFlow.lnk"
+    )
+
+
+def cmd_install_startup(args, cfg) -> int:
+    """Create (or remove) a Startup shortcut so the tray app runs at login."""
+    from .config import PROJECT_ROOT
+
+    link = _startup_shortcut_path()
+
+    if args.remove:
+        if link.exists():
+            link.unlink()
+            print(f"Removed {link}")
+        else:
+            print("Not installed; nothing to remove.")
+        return 0
+
+    pythonw = PROJECT_ROOT / ".venv" / "Scripts" / "pythonw.exe"
+    if not pythonw.exists():
+        print(f"No virtualenv at {pythonw}\nRun `uv sync` first.")
+        return 1
+
+    # A .lnk needs a real .ico; reuse the tray artwork so it is recognisable.
+    icon = PROJECT_ROOT / "src" / "localflow" / "pwa" / "localflow.ico"
+    if not icon.exists():
+        try:
+            from .tray import STATE_COLOURS, _icon
+            from .engine import State
+
+            _icon(STATE_COLOURS[State.IDLE]).save(
+                icon, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)]
+            )
+        except Exception:
+            icon = None
+
+    import os
+
+    import win32com.client
+
+    # restart.vbs -> restart.ps1, not pythonw directly: that script supervises
+    # the app (relaunch on crash) and starts it with no console window at all.
+    launcher = PROJECT_ROOT / "restart.vbs"
+    shell = win32com.client.Dispatch("WScript.Shell")
+    shortcut = shell.CreateShortCut(str(link))
+    shortcut.TargetPath = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
+    shortcut.Arguments = f'"{launcher}"'
+    shortcut.WorkingDirectory = str(PROJECT_ROOT)
+    shortcut.Description = "LocalFlow dictation (tray app)"
+    if icon and Path(icon).exists():
+        shortcut.IconLocation = str(icon)
+    shortcut.save()
+
+    print(f"Installed {link}")
+    print(f"  target : wscript {launcher}")
+    print(f"  workdir: {PROJECT_ROOT}")
+    print(f"  logs   : {PROJECT_ROOT / 'localflow.log'}")
+    print("\nIt will start at your next login. To start it now without logging out:")
+    print(f"  wscript \"{launcher}\"")
+    print("\nTo undo: uv run localflow install-startup --remove")
+    return 0
+
+
+def cmd_serve(args, cfg) -> int:
+    """Run only the HTTP server (no hotkeys, no tray)."""
+    from .engine import Engine
+    from .server import serve
+
+    engine = Engine(cfg)
+    engine.warmup()
+    print(f"Serving on http://{cfg.server.host}:{cfg.server.port}")
+    if not cfg.server.token:
+        print("! no server.token set - anyone on the network can use this")
+    try:
+        serve(engine)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        engine.shutdown()
+    return 0
+
+
+def cmd_run(args, cfg) -> int:
+    """The real thing: tray icon, global hotkeys, and the phone server."""
+    from .engine import Engine, State
+    from .hotkey import Binding, HotkeyManager
+    from .tray import Tray
+
+    engine = Engine(cfg)
+    hotkeys = HotkeyManager()
+    stopping = threading.Event()
+
+    hold = cfg.hotkeys.mode == "hold"
+    # Each action can have several shortcuts (e.g. Caps Lock and Ctrl+Win);
+    # sharing a group makes them one switch, so either can stop the recording.
+    for spec in _specs(cfg.hotkeys.dictate):
+        hotkeys.bind(
+            Binding(
+                spec=spec,
+                on_press=lambda: engine.start_recording(cleanup=True),
+                on_release=lambda: engine.stop_recording(),
+                mode=cfg.hotkeys.mode,
+                group="dictate",
+            )
+        )
+    for spec in _specs(cfg.hotkeys.dictate_raw):
+        hotkeys.bind(
+            Binding(
+                spec=spec,
+                on_press=lambda: engine.start_recording(cleanup=False),
+                on_release=lambda: engine.stop_recording(),
+                mode=cfg.hotkeys.mode,
+                group="dictate_raw",
+            )
+        )
+    if cfg.hotkeys.cancel:
+        # Matters most in toggle mode, where a recording left running has no
+        # other way out. Never suppressed - swallowing Escape globally would
+        # break every other application.
+        hotkeys.bind(
+            Binding(
+                spec=cfg.hotkeys.cancel,
+                on_press=lambda: engine.cancel_recording(),
+                mode="action",
+                suppress=False,
+            )
+        )
+
+    from .sounds import SoundCues
+
+    cues = SoundCues(engine, cfg.sounds)
+    tray = Tray(engine, on_quit=stopping.set, sounds=cues)
+
+    if cfg.overlay.enabled:
+        from .overlay import Overlay
+
+        live = None
+        if cfg.overlay.live_text:
+            from .live import LivePreview
+
+            live = LivePreview(engine, cfg.overlay)
+        Overlay(engine, cfg.overlay, live=live).start()
+
+    def boot() -> None:
+        engine.warmup()
+        hotkeys.start()
+        if hold:
+            hint = f"Hold {' or '.join(_specs(cfg.hotkeys.dictate))} to dictate"
+            if cfg.hotkeys.dictate_raw:
+                hint += f", {' or '.join(_specs(cfg.hotkeys.dictate_raw))} for raw"
+        else:
+            hint = f"Tap {' or '.join(_specs(cfg.hotkeys.dictate))} to start, tap again to stop"
+            if cfg.hotkeys.cancel:
+                hint += f". {cfg.hotkeys.cancel} cancels"
+        tray.notify(hint, "LocalFlow ready")
+
+    threading.Thread(target=boot, daemon=True, name="localflow-boot").start()
+
+    if cfg.server.enabled:
+        from .server import serve
+
+        threading.Thread(
+            target=serve, args=(engine,), daemon=True, name="localflow-server"
+        ).start()
+        print(f"phone endpoint: http://localhost:{cfg.server.port}")
+
+    try:
+        tray.run()  # blocks on the main thread until Quit
+    except KeyboardInterrupt:
+        pass
+    finally:
+        hotkeys.stop()
+        engine.shutdown()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Shared so that both "localflow -v run" and "localflow run -v" work; argparse
+    # otherwise only accepts global flags ahead of the subcommand.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-c", "--config", type=Path, default=None, help="path to config.toml")
+    common.add_argument("-v", "--verbose", action="store_true")
+    common.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        help="also write logs here (defaults to localflow.log for `run`)",
+    )
+
+    parser = argparse.ArgumentParser(prog="localflow", description=__doc__, parents=[common])
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("run", help="tray app with global hotkeys (default)", parents=[common])
+    sub.add_parser("check", help="verify GPU, mic, Ollama, hotkeys", parents=[common])
+    sub.add_parser("devices", help="list audio input devices", parents=[common])
+    sub.add_parser("level", help="live microphone level meter", parents=[common])
+
+    p_start = sub.add_parser(
+        "install-startup", help="run the tray app at login", parents=[common]
+    )
+    p_start.add_argument("--remove", action="store_true", help="uninstall instead")
+    sub.add_parser("serve", help="run only the phone server", parents=[common])
+
+    p_rec = sub.add_parser("record", help="record N seconds and transcribe", parents=[common])
+    p_rec.add_argument("-s", "--seconds", type=float, default=5.0)
+    p_rec.add_argument("--raw", action="store_true", help="skip cleanup")
+    p_rec.add_argument("--rules", action="store_true", help="algorithmic cleanup, no LLM")
+
+    p_tr = sub.add_parser("transcribe", help="transcribe an audio file", parents=[common])
+    p_tr.add_argument("path")
+    p_tr.add_argument("--raw", action="store_true", help="skip cleanup")
+    p_tr.add_argument("--rules", action="store_true", help="algorithmic cleanup, no LLM")
+
+    p_cl = sub.add_parser("clean", help="clean a line of text (no audio)", parents=[common])
+    p_cl.add_argument("text")
+    p_cl.add_argument("--llm", action="store_true", help="use the LLM instead of the rules")
+
+    args = parser.parse_args(argv)
+
+    log_file = args.log_file
+    if log_file is None and (args.command or "run") == "run":
+        log_file = config_mod.PROJECT_ROOT / "localflow.log"
+        _detach_hidden_console()
+    _setup_logging(args.verbose, log_file)
+
+    cfg, warnings = config_mod.load(args.config)
+    for w in warnings:
+        logging.getLogger("localflow.config").warning(w)
+
+    handlers = {
+        "run": cmd_run,
+        "check": cmd_check,
+        "clean": cmd_clean,
+        "devices": cmd_devices,
+        "level": cmd_level,
+        "install-startup": cmd_install_startup,
+        "serve": cmd_serve,
+        "record": cmd_record,
+        "transcribe": cmd_transcribe,
+    }
+    return handlers[args.command or "run"](args, cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

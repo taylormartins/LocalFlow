@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LocalFlow">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<title>LocalFlow</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d1d9e0;
+    --card: #f6f8fa; --accent: #0969da; --rec: #cf222e; --ok: #1a7f37;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #30363d;
+      --card: #161b22; --accent: #4493f8; --rec: #f85149; --ok: #3fb950;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overscroll-behavior: none;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 7px; vertical-align: 1px; }
+  .dot.ok { background: var(--ok); }
+  .dot.err { background: var(--rec); }
+  .iconbtn {
+    background: none; border: none; color: var(--muted); font-size: 20px;
+    padding: 4px 8px; cursor: pointer; border-radius: 6px;
+  }
+  main { flex: 1; display: flex; flex-direction: column; padding: 16px; gap: 14px; min-height: 0; }
+  #out {
+    flex: 1; min-height: 120px; width: 100%; resize: none; padding: 14px;
+    background: var(--card); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 12px; font-size: 17px; line-height: 1.55; font-family: inherit;
+    -webkit-user-select: text; user-select: text;
+  }
+  #out:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 10px; }
+  .btn {
+    flex: 1; padding: 13px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); font-size: 15px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:active { opacity: .6; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .4; }
+  #status { font-size: 13px; color: var(--muted); text-align: center; min-height: 18px; }
+  #status.err { color: var(--rec); }
+  .miczone { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 8px; }
+  #mic {
+    width: 132px; height: 132px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 600;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer; touch-action: none; transition: transform .12s, background .12s;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16);
+  }
+  #mic svg { width: 34px; height: 34px; fill: currentColor; }
+  #mic.rec { background: var(--rec); transform: scale(1.06); animation: pulse 1.6s ease-in-out infinite; }
+  #mic.busy { background: var(--muted); }
+  #mic:disabled { opacity: .5; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(207,34,46,.45); } 50% { box-shadow: 0 0 0 18px rgba(207,34,46,0); } }
+  @media (prefers-reduced-motion: reduce) { #mic.rec { animation: none; } }
+  dialog {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--fg);
+    padding: 20px; width: min(92vw, 380px);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.5); }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); font-size: 16px; font-family: inherit;
+  }
+  .check { display: flex; align-items: center; gap: 9px; margin-top: 16px; font-size: 15px; }
+  .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 14px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="dot"></span>LocalFlow</h1>
+  <button class="iconbtn" id="settingsBtn" aria-label="Settings">&#9881;</button>
+</header>
+
+<main>
+  <textarea id="out" placeholder="Hold the button and speak. Your PC does the transcription." spellcheck="false"></textarea>
+  <div class="row">
+    <button class="btn" id="copyBtn" disabled>Copy</button>
+    <button class="btn" id="clearBtn" disabled>Clear</button>
+  </div>
+  <div id="status">checking connection&hellip;</div>
+  <div class="miczone">
+    <button id="mic" aria-label="Hold to dictate">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M18 12a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V21a1 1 0 1 0 2 0v-3.09A6 6 0 0 0 18 12z"/></svg>
+      <span id="micLabel">Hold</span>
+    </button>
+  </div>
+</main>
+
+<dialog id="settings">
+  <strong style="font-size:16px">Settings</strong>
+  <label for="tokenInput">Access token</label>
+  <input type="password" id="tokenInput" autocomplete="off" placeholder="from config.toml">
+  <label for="serverInput">Server URL</label>
+  <input type="text" id="serverInput" autocomplete="off" placeholder="leave blank to use this origin" inputmode="url">
+  <div class="check">
+    <input type="checkbox" id="cleanupInput" checked>
+    <label for="cleanupInput" style="margin:0;color:var(--fg)">LLM cleanup</label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="appendInput">
+    <label for="appendInput" style="margin:0;color:var(--fg)">Append to existing text</label>
+  </div>
+  <p class="hint">The mic needs an HTTPS origin. If the button is disabled, reach this page over your Tailscale <code>https://&hellip;ts.net</code> address rather than a bare LAN IP.</p>
+  <div class="row" style="margin-top:18px">
+    <button class="btn" id="closeSettings">Close</button>
+    <button class="btn primary" id="saveSettings">Save</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const out = $('out'), mic = $('mic'), micLabel = $('micLabel'), statusEl = $('status'), dot = $('dot');
+
+const cfg = {
+  token:   localStorage.getItem('lf.token')   || '',
+  server:  localStorage.getItem('lf.server')  || '',
+  cleanup: localStorage.getItem('lf.cleanup') !== '0',
+  append:  localStorage.getItem('lf.append')  === '1',
+};
+const base = () => (cfg.server || location.origin).replace(/\/+$/, '');
+
+let recorder = null, chunks = [], stream = null, busy = false, startedAt = 0;
+
+function setStatus(msg, isErr) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function updateButtons() {
+  const has = out.value.trim().length > 0;
+  $('copyBtn').disabled = !has;
+  $('clearBtn').disabled = !has;
+}
+
+async function health() {
+  try {
+    const r = await fetch(base() + '/api/health', { headers: authHeaders() });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    dot.className = 'dot ok';
+    setStatus(`ready · ${j.whisper_model} on ${j.whisper_device}${j.cleanup_enabled ? ' · cleanup on' : ''}`);
+  } catch (e) {
+    dot.className = 'dot err';
+    setStatus('cannot reach PC — is LocalFlow running?', true);
+  }
+}
+
+function authHeaders() {
+  return cfg.token ? { 'X-LocalFlow-Token': cfg.token } : {};
+}
+
+// iOS Safari produces audio/mp4; everything else prefers webm/opus.
+function pickMime() {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'];
+  for (const t of types) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return '';
+}
+
+async function startRec() {
+  if (busy || recorder) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('microphone needs HTTPS — see settings', true);
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  } catch (e) {
+    setStatus('microphone permission denied', true);
+    return;
+  }
+  const mime = pickMime();
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = upload;
+  recorder.start();
+  startedAt = Date.now();
+  mic.classList.add('rec');
+  micLabel.textContent = 'Release';
+  setStatus('listening…');
+  if (navigator.vibrate) navigator.vibrate(12);
+}
+
+function stopRec() {
+  if (!recorder) return;
+  mic.classList.remove('rec');
+  if (recorder.state !== 'inactive') recorder.stop();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+}
+
+async function upload() {
+  const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+  recorder = null; stream = null;
+  const secs = (Date.now() - startedAt) / 1000;
+
+  if (secs < 0.35 || blob.size < 1200) {
+    micLabel.textContent = 'Hold';
+    setStatus('too short');
+    return;
+  }
+
+  busy = true;
+  mic.classList.add('busy');
+  micLabel.textContent = '…';
+  setStatus(`transcribing ${secs.toFixed(1)}s…`);
+
+  const fd = new FormData();
+  const ext = blob.type.includes('mp4') || blob.type.includes('aac') ? 'm4a' : 'webm';
+  fd.append('audio', blob, 'clip.' + ext);
+  fd.append('cleanup', cfg.cleanup ? 'true' : 'false');
+
+  try {
+    const r = await fetch(base() + '/api/transcribe', { method: 'POST', headers: authHeaders(), body: fd });
+    if (r.status === 401) throw new Error('bad token — check settings');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    if (!j.text) {
+      setStatus('no speech detected');
+    } else {
+      out.value = cfg.append && out.value.trim() ? out.value.replace(/\s*$/, ' ') + j.text : j.text;
+      const took = (j.transcribe_seconds + j.cleanup_seconds).toFixed(1);
+      setStatus(`${j.audio_seconds}s audio in ${took}s`);
+      if (navigator.vibrate) navigator.vibrate([8, 40, 8]);
+    }
+  } catch (e) {
+    setStatus(e.message || 'transcription failed', true);
+  } finally {
+    busy = false;
+    mic.classList.remove('busy');
+    micLabel.textContent = 'Hold';
+    updateButtons();
+  }
+}
+
+// Pointer events cover touch and mouse; the pointercancel case matters on iOS
+// where a system gesture can steal the touch mid-recording.
+mic.addEventListener('pointerdown', (e) => { e.preventDefault(); mic.setPointerCapture(e.pointerId); startRec(); });
+mic.addEventListener('pointerup', (e) => { e.preventDefault(); stopRec(); });
+mic.addEventListener('pointercancel', () => stopRec());
+mic.addEventListener('contextmenu', (e) => e.preventDefault());
+
+$('copyBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(out.value);
+    setStatus('copied');
+  } catch {
+    out.select();
+    document.execCommand('copy');
+    setStatus('copied');
+  }
+});
+$('clearBtn').addEventListener('click', () => { out.value = ''; updateButtons(); setStatus(''); });
+out.addEventListener('input', updateButtons);
+
+$('settingsBtn').addEventListener('click', () => {
+  $('tokenInput').value = cfg.token;
+  $('serverInput').value = cfg.server;
+  $('cleanupInput').checked = cfg.cleanup;
+  $('appendInput').checked = cfg.append;
+  $('settings').showModal();
+});
+$('closeSettings').addEventListener('click', () => $('settings').close());
+$('saveSettings').addEventListener('click', () => {
+  cfg.token = $('tokenInput').value.trim();
+  cfg.server = $('serverInput').value.trim();
+  cfg.cleanup = $('cleanupInput').checked;
+  cfg.append = $('appendInput').checked;
+  localStorage.setItem('lf.token', cfg.token);
+  localStorage.setItem('lf.server', cfg.server);
+  localStorage.setItem('lf.cleanup', cfg.cleanup ? '1' : '0');
+  localStorage.setItem('lf.append', cfg.append ? '1' : '0');
+  $('settings').close();
+  health();
+});
+
+if (!window.isSecureContext) {
+  mic.disabled = true;
+  setStatus('needs HTTPS for microphone access', true);
+} else {
+  health();
+}
+updateButtons();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

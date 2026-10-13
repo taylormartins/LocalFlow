@@ -1,0 +1,43 @@
+[project]
+name = "localflow"
+version = "1.0.0"
+description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Taylor Martins" }]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "faster-whisper>=1.2.1",
+    "httpx>=0.28.1",
+    "numpy>=2.5.1",
+    "nvidia-cublas-cu12>=12.9.2.10",
+    "nvidia-cudnn-cu12>=9,<10",
+    "pillow>=12.3.0",
+    "pynput>=1.8.2",
+    "pystray>=0.19.5",
+    "python-multipart>=0.0.32",
+    "pywin32>=312",
+    "sounddevice>=0.5.5",
+    "soxr>=1.1.0",
+    "uvicorn>=0.52.0",
+]
+
+[project.scripts]
+localflow = "localflow.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/taylormartins/LocalFlow"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/localflow"]
+
+[dependency-groups]
+dev = [
+    "wordfreq>=3.1.1",
+]
