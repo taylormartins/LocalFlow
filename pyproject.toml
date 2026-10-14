@@ -1,6 +1,6 @@
 [project]
 name = "localflow"
-version = "1.4.0"
+version = "1.5.0"
 description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"

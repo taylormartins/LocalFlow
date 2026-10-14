@@ -305,6 +305,62 @@ It fails in three different ways, and `models.py` handles each one:
   Each path is retried once, because a dropped connection mid-download really
   happened during testing.
 
+### 10. Always-on mode: false triggers are the enemy
+
+`always_on.Listener` holds its own mic stream. It resamples to 16 kHz into a
+30 s `Ring` (addressed by absolute sample index) and splits speech into bursts
+with an RMS-vs-adaptive-floor check per 30 ms frame. A burst ends after 0.5 s
+of quiet, or is cut every 6 s with 2 s of overlap. A detector thread runs
+`wake.Detector` (base.en, CPU int8, 2 threads, Silero VAD first) on each burst
+for timed words, and asks whether the start phrase (when idle) or the stop
+phrase (while dictating) is among them.
+
+- **Dictation reuses the recorder.** `Recorder.start_external()` and
+  `feed()` make the listener's audio look like an ordinary recording, so the
+  overlay meter, live preview, cues, mic boost and `stop()` all work
+  unchanged. The start cue's mute became a frame window (`_mute`), not "the
+  first N seconds", because a fed recording starts pre-filled with whatever
+  was said right after the start phrase.
+- **No initial prompt for the detector.** Priming Whisper with the phrase
+  makes it hear the phrase in noise.
+- **Text match (`wake.find`) decides.** The score is the *worst* word's
+  similarity under the best alignment with any spelling, and every word must
+  reach 0.85. Whole-phrase letter similarity was tried first: it let one
+  different word ride on three matching ones (an everyday word one letter
+  off the phrase's name scored 0.93).
+  - The alignment allows Whisper to split or merge a word, but only with
+    identical letters (`MERGE_FLOOR` 0.95). Setup learned "mary gold" for
+    "Marigold", and "okay listen, Mary **told** me" then scored 0.875 as a
+    string, and 0.857 at the cleverest split ("maryg|old" vs "mary|told").
+    Letters cannot separate those; requiring an exact merge can.
+- **The voice can only veto.** DTW over log-mel features against the setup
+  takes. As a rescue for near-miss text it let "Mary told" through, because
+  it genuinely sounds like "marigold". The veto threshold is max(2.5x the
+  takes' own spread, 0.2). The floor matters: three near-identical takes
+  gave a limit of 0.10, and the real stop phrase cut from running speech
+  measured 0.13 (word times blur the edges), so it was refused. Other
+  sentences measure 0.17-0.33.
+- **Spellings come from setup.** What base.en heard for each take is saved as
+  a variant: it's what it will hear next time. Typed alternatives shorter
+  than the phrase are spliced into it (`wake.expand`). A one-word variant
+  would fire whenever the name came up in conversation.
+- **Cuts.** Whisper's end time for the *last word of a burst* runs short:
+  cutting there left "...gold" in the dictation as "Old." So if the phrase
+  ends its burst (you paused), dictation starts at the burst's end.
+  Otherwise it starts just before the next word, never more than 0.6 s after
+  the phrase. The stop cut is at the stop phrase's first word -0.05 s, but
+  never before the previous word's end. Anything left over
+  (Whisper word times are good to about 0.1 s) is removed by
+  `wake.strip_phrases` through `Engine.process(transform=...)`. It strips only
+  a tail of the start phrase or a head of the stop phrase, and a lone word
+  only if it's long and close.
+- **Setup is a separate process** (`localflow enroll`), so its Tk window never
+  shares an interpreter with the overlay's Tk. The tray pauses the listener
+  while it's open, so the takes don't trigger anything.
+- `tests/always_on.py` checks the whole loop with TTS: enrol, a conversation,
+  no pause after the start phrase, and four near-miss sentences. Measured on
+  this PC: about 1% of one core and about 160 MB while listening.
+
 ## Testing
 
 There is no unit-test suite. These are integration scripts that need a GPU,
@@ -317,6 +373,8 @@ uv run python tests/rules_quality.py        # algorithmic cleanup, exact outputs
 uv run localflow clean "text"               # see what the rules do (--llm for Ollama)
 uv run python tests/bench_models.py         # latency vs quality across models
 uv run python tests/hotkeys.py              # hold/toggle/cancel state machine
+uv run python tests/always_on.py            # always-on end to end with TTS (CPU)
+uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
 uv run localflow transcribe clip.wav        # pipeline without a microphone
 ```

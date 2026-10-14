@@ -210,6 +210,53 @@ push-to-talk instead, set `hotkeys.mode = "hold"` in `config.toml` and the same
 keys record only while held. Other key combinations can be set by hand under
 `[hotkeys]`. The tray menu lists them and leaves them alone.
 
+### Always-on mode (hands-free)
+
+Say a **start phrase** to begin dictating and a **stop phrase** to finish, with
+no keys at all. For example, say *"Okay listen, Marigold"*, dictate, then say
+*"That will be all"*. The text is pasted just as if you'd used a hotkey, minus
+both phrases.
+
+**Setting it up.** Right-click the tray icon ▸ **Set up always-on
+phrases...**:
+
+1. Type a start phrase and a stop phrase. Pick ones you'd never say by
+   accident: three or four words, ideally with a name in them.
+2. Under **Other spellings**, add other ways a word could be written
+   (`Marygold, Merrigold`). A single word replaces the closest word in your phrase,
+   so it never becomes a trigger on its own.
+3. Record each phrase **3 times**. Press **Space** (or click **Record**). The
+   button turns amber for a moment, then **green**: speak, then press Space
+   again. The pause before green, and a trim at the end, keep the keyboard or
+   mouse click out of the take.
+4. Under each take you'll see what LocalFlow heard. Those spellings are learned
+   too, because the listener will hear your voice the same way next time.
+   Click a take to record it again.
+5. **Save**. Listening starts right away. Turn it on or off with tray ▸
+   **Always-on listening**.
+
+While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
+seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
+can't record the room indefinitely.
+
+**How it decides, and what it costs.** The mic stays open. Between phrases, the
+only work is a loudness check on each 30 ms of sound, and audio lives in a
+30-second buffer that is constantly overwritten. Nothing is saved or logged.
+Only bursts of speech are passed to a small speech model (`base.en`, 2 CPU
+threads, about 160 MB of RAM). A phrase counts when what it hears matches one
+of the accepted spellings closely, word for word. A similar word doesn't
+count: with "Marigold" in the phrase, "okay listen, Mary told me" is refused.
+It must also sound like your recorded takes. In testing, near misses like
+that, and the stop phrase said in passing, did not trigger it. If your real
+phrase is sometimes missed, run `localflow listen` to see how it was heard,
+and add that spelling in setup. Measured: about 1% of one CPU core
+while listening.
+
+Your phrases and voice takes are stored in `wake\` inside the LocalFlow folder,
+on your PC only. To try phrases out without pasting anything, run
+`uv run localflow listen`. It prints what it hears and when the phrases are
+caught.
+
 While recording, a small pill appears just above the taskbar. Its bars scroll
 with your voice, bright while you speak and dim in silence, beside a timer. A
 spinner shows while it transcribes and cleans up, and a check mark appears when
@@ -313,6 +360,8 @@ uv run localflow transcribe clip.wav  # transcribe a file (--rules: no LLM)
 uv run localflow clean "some text"    # run the cleanup on typed text (--llm: Ollama)
 uv run localflow serve                # phone server only, no hotkeys
 uv run localflow install-startup      # run at login (--remove to undo)
+uv run localflow enroll               # set up always-on start/stop phrases
+uv run localflow listen               # try always-on in the console (--file clip.wav)
 ```
 
 Working on the code? Read **[ARCHITECTURE.md](ARCHITECTURE.md)** — it covers the
@@ -322,6 +371,7 @@ real debugging time. Integration checks live in `tests/`:
 ```powershell
 uv run python tests/cleanup_quality.py   # gate any prompt or model change on this
 uv run python tests/rules_quality.py     # algorithmic cleanup; no GPU or Ollama needed
+uv run python tests/always_on.py         # always-on mode end to end (Windows TTS voice)
 uv run python tests/bench_models.py      # latency vs quality across models
 uv run python tests/hotkeys.py           # hold / toggle / cancel state machine
 ```

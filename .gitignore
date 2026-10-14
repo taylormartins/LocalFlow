@@ -24,3 +24,6 @@ crash.log
 
 # Sideloaded Whisper models (localflow import-model)
 models/
+
+# Always-on voice templates (your recorded phrases)
+wake/

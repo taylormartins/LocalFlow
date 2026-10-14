@@ -183,10 +183,15 @@ class Recorder:
         self._blacklist: set[tuple[str, str]] = set()
         self.last_peak = 0.0
         self.last_rms = 0.0
-        #: Seconds at the start of the current recording to silence. Set by the
+        #: Frames [from, to) of the current recording to silence. Set by the
         #: start cue so its own sound, picked up by the mic, never reaches
         #: Whisper: a "pop" followed by silence transcribed as "1. 2. 1. 2. 3..."
-        self._mute_head = 0.0
+        #: A window rather than "the first N seconds" because an always-on
+        #: recording starts pre-filled with speech, and the cue plays after it.
+        self._mute = (0, 0)
+        #: True while audio arrives through feed() (always-on mode) instead of
+        #: this recorder's own stream.
+        self.external = False
         self._live: list[np.ndarray] = []
         #: RMS of the most recent block (mic channel, gain applied), for live
         #: metering. A plain float write, so readers on other threads need no lock.
@@ -266,11 +271,7 @@ class Recorder:
             # to record - the endpoint may have recovered.
             candidates = usable or candidates
 
-            self._chunks = queue.Queue()
-            self._live: list[np.ndarray] = []
-            self._mute_head = 0.0
-            self._frames = 0
-            self._overflowed = False
+            self._reset()
 
             # A device can briefly refuse to open if another process is still
             # releasing it, so retry the preferred host API before moving on to
@@ -293,6 +294,47 @@ class Recorder:
 
             raise AudioError("could not open any matching input device:\n  " + "\n  ".join(errors))
 
+    def _reset(self) -> None:
+        self._chunks = queue.Queue()
+        self._live = []
+        self._mute = (0, 0)
+        self._frames = 0
+        self._overflowed = False
+
+    def start_external(self, rate: int = TARGET_RATE) -> bool:
+        """Begin a recording fed by feed() rather than a stream of our own.
+
+        Always-on mode already holds the mic open; it hands its audio over so
+        the overlay meter, live preview, cues and gain all work unchanged.
+        """
+        with self._lock:
+            if self._stream is not None:
+                return False
+            self._reset()
+            self._stream = _External()
+            self.external = True
+            self.device = None  # never blacklist a real device over a fed take
+            self._rate = rate
+            self._max_frames = int(rate * self.cfg.max_seconds)
+            return True
+
+    def feed(self, block: np.ndarray) -> None:
+        if self.external and self._stream is not None and block.size:
+            self._callback(block.reshape(-1, 1), len(block), None, None)
+
+    @property
+    def overflowed(self) -> bool:
+        return self._overflowed
+
+    def _muted(self, audio: np.ndarray, first_frame: int) -> np.ndarray:
+        """Zero the cue window in ``audio``, which starts at ``first_frame``."""
+        lo, hi = self._mute[0] - first_frame, self._mute[1] - first_frame
+        lo, hi = max(lo, 0), min(hi, len(audio))
+        if hi > lo:
+            audio = audio.copy()
+            audio[lo:hi] = 0.0
+        return audio
+
     def snapshot(self, max_seconds: float) -> np.ndarray:
         """The last ``max_seconds`` captured so far, mono float32 @ 16 kHz,
         without stopping. For the live preview; the final transcript still
@@ -312,9 +354,7 @@ class Recorder:
         if audio.ndim > 1:
             audio = audio[:, 0]
         audio = audio[-need:].astype(np.float32)
-        head = int(self._mute_head * rate) - (self._frames_in(blocks) - len(audio))
-        if head > 0:
-            audio[:head] = 0.0
+        audio = self._muted(audio, self._frames_in(blocks) - len(audio))
         audio, _ = self.apply_gain(audio)
         if rate != TARGET_RATE:
             audio = soxr.resample(audio, rate, TARGET_RATE, quality="LQ")
@@ -325,14 +365,16 @@ class Recorder:
         return sum(len(b) for b in blocks)
 
     def mute_head(self, seconds: float) -> None:
-        """Silence the first ``seconds`` of this recording (see _mute_head)."""
-        self._mute_head = max(self._mute_head, seconds)
+        """Silence the next ``seconds`` of this recording (see _mute)."""
+        now = self._frames
+        self._mute = (now, max(self._mute[1], now + int(seconds * self._rate)))
 
     def stop(self) -> np.ndarray:
         """Stop capture and return the recording. Empty array if nothing usable."""
         with self._lock:
             stream, self._stream = self._stream, None
             self.level = 0.0
+            self.external = False
             if stream is None:
                 return np.zeros(0, dtype=np.float32)
             try:
@@ -361,12 +403,9 @@ class Recorder:
             # Mixing both Scarlett inputs would fold in the unused instrument
             # channel's noise floor, so take the mic channel only.
             audio = audio[:, 0]
-        audio = audio.astype(np.float32, copy=False)
-        if self._mute_head > 0:
-            # Zeroed rather than dropped: the start cue overlaps the moment the
-            # user begins, so keep timing intact and let Whisper's VAD skip it.
-            audio = audio.copy()
-            audio[: int(self._mute_head * self._rate)] = 0.0
+        # Zeroed rather than dropped: the start cue overlaps the moment the
+        # user begins, so keep timing intact and let Whisper's VAD skip it.
+        audio = self._muted(audio.astype(np.float32, copy=False), 0)
 
         if self._overflowed:
             log.warning("recording hit the %ss cap and was truncated", self.cfg.max_seconds)
@@ -419,6 +458,16 @@ class Recorder:
 
     def cancel(self) -> None:
         self.stop()
+
+
+class _External:
+    """Stands in for the sounddevice stream while a recording is fed externally."""
+
+    def stop(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
 
 
 def decode_upload(data: bytes) -> np.ndarray:

@@ -141,6 +141,14 @@ model = ""           # "" = cleanup model; "gemma4:12B" = stronger voices, ~2.8 
 [style.characters]
 # pirate = "a salty pirate captain; nautical slang, gruff but cheerful"
 
+[always_on]
+# Hands-free: say a start phrase to dictate, a stop phrase to finish. Set the
+# phrases up from the tray (Set up always-on phrases...); they and your voice
+# takes live in wake\, on this PC only.
+enabled = false
+model = "base.en"          # listens for the phrases only; CPU, ~160 MB
+idle_stop_seconds = 45.0   # finish on our own after this much silence
+
 [vocabulary]
 # Proper nouns and jargon Whisper tends to mangle. These are fed to Whisper as
 # a decoding hint and to the cleanup model as a spelling authority.

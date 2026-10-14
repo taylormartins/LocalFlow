@@ -165,6 +165,23 @@ class SoundsConfig:
 
 
 @dataclass
+class AlwaysOnConfig:
+    #: Listen continuously; say the start phrase to begin dictating and the
+    #: stop phrase to finish. Set the phrases up from the tray first.
+    enabled: bool = False
+    #: Small model that only listens for the phrases, on the CPU so the GPU
+    #: stays free. base.en hears names far better than tiny.en for ~2x the cost.
+    model: str = "base.en"
+    #: Stop on our own if nothing has been said for this long while dictating,
+    #: so a forgotten stop phrase can't record the room for ten minutes.
+    idle_stop_seconds: float = 45.0
+    #: How close every word of a heard phrase must be to a known spelling, 0-1.
+    #: Lower catches more mishearings and more lookalikes ("Mary told" for
+    #: "marigold"); add spellings in setup rather than lowering this.
+    accept: float = 0.85
+
+
+@dataclass
 class VocabularyConfig:
     #: Proper nouns and jargon Whisper mangles. Fed to Whisper as a prompt hint
     #: and to the cleanup model as a spelling authority.
@@ -184,6 +201,7 @@ class Config:
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     sounds: SoundsConfig = field(default_factory=SoundsConfig)
     style: StyleConfig = field(default_factory=StyleConfig)
+    always_on: AlwaysOnConfig = field(default_factory=AlwaysOnConfig)
     vocabulary: VocabularyConfig = field(default_factory=VocabularyConfig)
 
 
@@ -224,7 +242,9 @@ def load(path: Path | None = None) -> tuple[Config, list[str]]:
     return cfg, warnings
 
 
-def save_setting(section: str, key: str, value: str | list[str], path: Path | None = None) -> None:
+def save_setting(
+    section: str, key: str, value: str | bool | list[str], path: Path | None = None
+) -> None:
     """Set one string (or list of strings) in config.toml, leaving every other line untouched.
 
     Used by the tray menu. A targeted line edit rather than a TOML rewrite, so

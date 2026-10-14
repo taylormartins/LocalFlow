@@ -331,6 +331,73 @@ def cmd_import_model(args, cfg) -> int:
     return 0
 
 
+def cmd_enroll(args, cfg) -> int:
+    """Set up the always-on start/stop phrases (opens a window)."""
+    from .enroll import main as enroll_main
+
+    return enroll_main(cfg)
+
+
+def cmd_listen(args, cfg) -> int:
+    """Always-on mode in the console: shows what it hears and catches, and the
+    finished dictation, but pastes nothing. The way to try phrases out."""
+    import numpy as np
+
+    from .always_on import Listener
+    from .engine import Engine
+
+    if args.rules:
+        cfg.cleanup.method = "rules"
+    engine = Engine(cfg)
+    stamp = lambda: time.strftime("%H:%M:%S")  # noqa: E731
+
+    def event(kind: str, text: str) -> None:
+        if kind == "heard" and not args.quiet:
+            print(f"{stamp()}  heard: {text}")
+        elif kind == "start":
+            print(f"{stamp()}  >>> START phrase ({text}) - dictating")
+        elif kind == "stop":
+            print(f"{stamp()}  <<< STOP phrase ({text})")
+
+    engine.on_result(lambda r: print(f"{stamp()}  DICTATION: {r.text!r}  (raw: {r.raw!r})"))
+    listener = Listener(engine, cfg, inject=False, on_event=event)
+    if not listener.ready:
+        print("No phrases set up yet: run `uv run localflow enroll` first.")
+        return 1
+    p = listener.detector.phrases
+    print(f"start phrase: {p.start.text!r}  (accepts: {'; '.join(p.start.variants)})")
+    print(f"stop phrase:  {p.stop.text!r}  (accepts: {'; '.join(p.stop.variants)})")
+    print("loading models...")
+    listener.detector.load()
+    engine.transcriber.load()
+
+    if args.file:
+        from .audio import decode_upload
+
+        audio = decode_upload(Path(args.file).read_bytes())
+        print(f"playing {len(audio) / 16000:.1f}s from {args.file}\n")
+        listener.run_file(np.asarray(audio, dtype=np.float32))
+        # finish_external hands the pipeline to a thread; let it complete.
+        for _ in range(600):
+            if engine.state.value == "idle" and not engine.recording:
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
+        return 0
+
+    listener.start()
+    print("\nListening. Say the start phrase, dictate, then the stop phrase. Ctrl+C to quit.\n")
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        listener.stop()
+        time.sleep(0.3)
+    return 0
+
+
 def cmd_record(args, cfg) -> int:
     """Record from the mic for N seconds and transcribe. Console-only smoke test."""
     from .engine import Engine
@@ -590,7 +657,12 @@ def cmd_run(args, cfg) -> int:
     from .sounds import SoundCues
 
     cues = SoundCues(engine, cfg.sounds)
-    tray = Tray(engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind)
+    from .always_on import Listener
+
+    listener = Listener(engine, cfg)
+    tray = Tray(
+        engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind, always_on=listener
+    )
 
     if cfg.overlay.enabled:
         from .overlay import Overlay
@@ -609,7 +681,14 @@ def cmd_run(args, cfg) -> int:
         # hand while Caps Lock is a dictation key (the key is swallowed).
         if caps_is_a_hotkey():
             caps_lock_off()
-        tray.notify(_hint(cfg), "LocalFlow ready")
+        hint = _hint(cfg)
+        if cfg.always_on.enabled and listener.ready:
+            try:
+                listener.start()
+                hint += f'. Always-on: say "{listener.detector.phrases.start.text}"'
+            except Exception as exc:
+                logging.getLogger("localflow.always_on").error("always-on failed: %s", exc)
+        tray.notify(hint, "LocalFlow ready")
 
     threading.Thread(target=boot, daemon=True, name="localflow-boot").start()
 
@@ -626,6 +705,7 @@ def cmd_run(args, cfg) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        listener.stop()
         hotkeys.stop()
         engine.shutdown()
     return 0
@@ -687,6 +767,14 @@ def main(argv: list[str] | None = None) -> int:
     p_im.add_argument("path")
     p_im.add_argument("--name", default="", help="model name (default: from the folder)")
 
+    sub.add_parser("enroll", help="set up always-on start/stop phrases", parents=[common])
+    p_li = sub.add_parser(
+        "listen", help="try always-on mode in the console (pastes nothing)", parents=[common]
+    )
+    p_li.add_argument("--file", default="", help="feed a recording instead of the mic")
+    p_li.add_argument("--quiet", action="store_true", help="don't print everything heard")
+    p_li.add_argument("--rules", action="store_true", help="algorithmic cleanup, no LLM")
+
     p_cl = sub.add_parser("clean", help="clean a line of text (no audio)", parents=[common])
     p_cl.add_argument("text")
     p_cl.add_argument("--llm", action="store_true", help="use the LLM instead of the rules")
@@ -712,6 +800,8 @@ def main(argv: list[str] | None = None) -> int:
         "check": cmd_check,
         "clean": cmd_clean,
         "devices": cmd_devices,
+        "enroll": cmd_enroll,
+        "listen": cmd_listen,
         "fetch-model": cmd_fetch_model,
         "import-model": cmd_import_model,
         "level": cmd_level,

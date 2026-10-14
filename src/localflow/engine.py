@@ -77,6 +77,9 @@ class Engine:
         # Whisper and the recorder are not reentrant; one dictation at a time.
         self._pipeline_lock = threading.Lock()
         self._cleanup_enabled_for_run = True
+        #: Set by always-on mode: finishes its dictation when a hotkey is used
+        #: mid-way, so the key acts as a manual stop.
+        self.external_stop: Callable[[], None] | None = None
 
     # -- observers ---------------------------------------------------------
 
@@ -135,6 +138,9 @@ class Engine:
         return self._cleanup_enabled_for_run and self.cfg.cleanup.enabled
 
     def start_recording(self, cleanup: bool = True) -> None:
+        if self.recorder.external and self.external_stop is not None:
+            self.external_stop()
+            return
         if self.recorder.recording:
             return
         self._cleanup_enabled_for_run = cleanup
@@ -167,9 +173,46 @@ class Engine:
             name="localflow-pipeline",
         ).start()
 
-    def _process_and_inject(self, audio: np.ndarray, cleanup: bool, inject: bool) -> None:
+    # -- always-on (audio fed in by always_on.Listener) ---------------------
+
+    def start_external(self, prefill: np.ndarray, detail: str = "listening (always-on)") -> bool:
+        """Begin a dictation whose audio is fed in rather than recorded here."""
+        if not self.recorder.start_external():
+            return False
+        self._cleanup_enabled_for_run = True
+        self.recorder.feed(prefill)
+        self._set_state(State.RECORDING, detail)
+        return True
+
+    def feed(self, block: np.ndarray) -> None:
+        self.recorder.feed(block)
+
+    def finish_external(
+        self, keep: int | None = None, transform: Callable[[str], str] | None = None,
+        inject: bool = True,
+    ) -> None:
+        """End a fed dictation. ``keep``: samples to keep (cuts the stop phrase)."""
+        if not self.recorder.external:
+            return
+        audio = self.recorder.stop()
+        if keep is not None:
+            audio = audio[: max(0, keep)]
+        if audio.size < 0.3 * 16000:
+            self._set_state(State.IDLE, "nothing said")
+            return
+        threading.Thread(
+            target=self._process_and_inject,
+            args=(audio, True, inject, "always-on", transform),
+            daemon=True,
+            name="localflow-pipeline",
+        ).start()
+
+    def _process_and_inject(
+        self, audio: np.ndarray, cleanup: bool, inject: bool, source: str = "desktop",
+        transform: Callable[[str], str] | None = None,
+    ) -> None:
         try:
-            result = self.process(audio, cleanup=cleanup, source="desktop")
+            result = self.process(audio, cleanup=cleanup, source=source, transform=transform)
         except Exception as exc:
             log.exception("pipeline failed")
             self._set_state(State.ERROR, str(exc))
@@ -219,14 +262,22 @@ class Engine:
 
     # -- core pipeline -----------------------------------------------------
 
-    def process(self, audio: np.ndarray, cleanup: bool = True, source: str = "desktop") -> Result:
-        """Transcribe and clean an audio buffer. Blocking; safe from any thread."""
+    def process(
+        self, audio: np.ndarray, cleanup: bool = True, source: str = "desktop",
+        transform: Callable[[str], str] | None = None,
+    ) -> Result:
+        """Transcribe and clean an audio buffer. Blocking; safe from any thread.
+
+        ``transform`` edits the raw transcript before cleanup (always-on uses it
+        to strip any trace of the start/stop phrases)."""
         with self._pipeline_lock:
             duration = len(audio) / 16000
 
             self._set_state(State.TRANSCRIBING, f"{duration:.1f}s")
             t0 = time.perf_counter()
             raw = self.transcriber.transcribe(audio)
+            if transform is not None and raw:
+                raw = transform(raw)
             transcribe_s = time.perf_counter() - t0
 
             text = raw

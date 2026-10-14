@@ -50,10 +50,14 @@ def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
 
 
 class Tray:
-    def __init__(self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None):
+    def __init__(
+        self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None, always_on=None
+    ):
         import pystray
 
         self.engine = engine
+        self.always_on = always_on  # always_on.Listener, or None
+        self._setup_open = False
         self._on_quit = on_quit
         self._on_keys_changed = on_keys_changed
         self.sounds = sounds  # SoundCues, or None when cues are not wired up
@@ -88,6 +92,17 @@ class Tray:
                     pystray.Menu(lambda: self._style_model_items(pystray)),
                 ),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(
+                    "Always-on listening",
+                    self._toggle_always_on,
+                    checked=lambda _: bool(self.always_on and self.always_on.running),
+                    visible=lambda _: self.always_on is not None,
+                ),
+                pystray.MenuItem(
+                    "Set up always-on phrases...",
+                    lambda icon, item: self._open_setup(),
+                    visible=lambda _: self.always_on is not None,
+                ),
                 pystray.MenuItem(lambda _: self._keys_label(), self._keys_menu(pystray)),
                 pystray.MenuItem(
                     "Turn Caps Lock off",
@@ -151,6 +166,75 @@ class Tray:
             )
         )
         return pystray.Menu(*items)
+
+    # -- always-on ---------------------------------------------------------
+
+    def _save_always_on(self, on: bool) -> None:
+        self.engine.cfg.always_on.enabled = on
+        try:
+            from .config import save_setting
+
+            save_setting("always_on", "enabled", on)
+        except OSError as exc:
+            log.warning("could not save always-on: %s", exc)
+
+    def _toggle_always_on(self, icon, item) -> None:
+        lis = self.always_on
+        if lis is None:
+            return
+        if lis.running:
+            lis.stop()
+            self._save_always_on(False)
+            self.notify("Always-on listening is off")
+        elif not lis.ready:
+            self._open_setup()
+        else:
+            try:
+                lis.start()
+            except Exception as exc:
+                self.notify(f"Always-on could not start: {exc}")
+                return
+            self._save_always_on(True)
+            self.notify(f'Listening. Say "{lis.detector.phrases.start.text}" to dictate, '
+                        f'"{lis.detector.phrases.stop.text}" to finish.')
+        icon.update_menu()
+
+    def _open_setup(self) -> None:
+        """Run the setup window as its own process; reload when it saves."""
+        if self._setup_open or self.always_on is None:
+            return
+        import subprocess
+        import sys
+
+        from .config import PROJECT_ROOT
+
+        lis = self.always_on
+        self._setup_open = True
+        lis.paused = True  # don't trigger on the takes being recorded
+
+        def run() -> None:
+            try:
+                code = subprocess.call(
+                    [sys.executable, "-m", "localflow.cli", "enroll"], cwd=str(PROJECT_ROOT)
+                )
+                if code == 0:
+                    lis.reload()
+                    if not lis.running:
+                        lis.start()
+                    self._save_always_on(True)
+                    self.notify(
+                        f'Always-on is listening. Say "{lis.detector.phrases.start.text}" to '
+                        f'dictate, "{lis.detector.phrases.stop.text}" to finish.'
+                    )
+            except Exception as exc:
+                log.exception("always-on setup failed")
+                self.notify(f"Always-on setup failed: {exc}")
+            finally:
+                lis.paused = False
+                self._setup_open = False
+                self.icon.update_menu()
+
+        threading.Thread(target=run, daemon=True, name="localflow-setup").start()
 
     # -- dictation keys ----------------------------------------------------
 
