@@ -414,21 +414,9 @@ class Detector:
     def load(self):
         with self._lock:
             if self._model is None:
-                from faster_whisper import WhisperModel
+                from .models import cpu_whisper
 
-                from . import models
-
-                name = self.model_name
-                folder = models.sideloaded(name)
-                try:
-                    self._model = WhisperModel(
-                        folder or name, device="cpu", compute_type="int8", cpu_threads=2,
-                        local_files_only=not folder,
-                    )
-                except Exception:
-                    path = folder or models.download(name)
-                    self._model = WhisperModel(path, device="cpu", compute_type="int8", cpu_threads=2)
-                log.info("always-on: listening model %s loaded (CPU)", name)
+                self._model = cpu_whisper(self.model_name)
         return self._model
 
     def words(self, audio: np.ndarray) -> list[Word]:

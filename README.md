@@ -127,14 +127,24 @@ three ways:
 
 ### Updating
 
+Right-click the tray icon ▸ **Update LocalFlow**. It fetches the latest
+version, installs anything new (dependencies, models), and restarts LocalFlow.
+It runs with no window, and you get a notification saying "Updated to
+LocalFlow 1.x", "up to date", or why it failed. Double-clicking `update.cmd`
+in the LocalFlow folder does the same with visible output.
+
+Your settings (`config.toml`), always-on phrases (`wake\`) and models are
+never touched. Neither is the startup setup, so updating never asks for
+admin. The details of each run are in `update.log`.
+
+**Coming from 1.5 or older** (no Update item in the tray yet)? Run this once in
+the LocalFlow folder. It also works if the folder was left on an old release:
+
 ```powershell
-cd LocalFlow
-git pull
+git fetch origin
+git checkout -B main origin/main
 .\install.cmd
 ```
-
-Your `config.toml` is never overwritten. If the update fails with files in use,
-quit LocalFlow from the tray first.
 
 ### Uninstalling
 
@@ -274,7 +284,10 @@ last few words of the previous one stay visible, dimmed. The text shrinks to fit
 two lines, and very long sentences show "…" plus the newest words. It's display
 only: the pasted text still comes from the full transcription after you stop.
 Tune it under `[overlay]`: `live_text`, `live_interval`, `live_context_words`,
-`live_max_words`, `live_window`. It pauses itself when Whisper runs on the CPU.
+`live_max_words`, `live_window`. On a PC without an NVIDIA GPU, the live text
+comes from the small `base.en` model (shared with always-on) reading the last
+10 seconds, about every 1.5 s. It pauses between passes so at least half the
+CPU stays free. `live_cpu_model = ""` turns it off there.
 
 **Character and tone.** Needs Ollama. Right-click the tray icon and use **Character ▸** and
 **Tone ▸**. They stack: Rogue + Rage is one rewrite. Characters: humanize,

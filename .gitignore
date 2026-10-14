@@ -27,3 +27,8 @@ models/
 
 # Always-on voice templates (your recorded phrases)
 wake/
+
+# Updater state
+update.log
+update.result
+.version

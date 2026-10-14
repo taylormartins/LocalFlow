@@ -308,6 +308,35 @@ def diagnose(name: str) -> tuple[str, str]:
     return "http", f"HTTP {r.status_code} from {url}"
 
 
+# -- small CPU models, shared -------------------------------------------------
+
+_cpu_models: dict[str, object] = {}
+_cpu_lock = __import__("threading").Lock()
+
+
+def cpu_whisper(name: str):
+    """A small Whisper model on the CPU (int8, 2 threads), loaded once and
+    shared: always-on listens with it and the live preview on a GPU-less PC
+    reads with it, so the two never cost two copies of the weights."""
+    with _cpu_lock:
+        model = _cpu_models.get(name)
+        if model is None:
+            from faster_whisper import WhisperModel
+
+            kw = {"device": "cpu", "compute_type": "int8", "cpu_threads": 2}
+            folder = sideloaded(name)
+            if folder:
+                model = WhisperModel(folder, **kw)
+            else:
+                try:
+                    model = WhisperModel(name, local_files_only=True, **kw)
+                except Exception:
+                    model = WhisperModel(download(name), **kw)
+            _cpu_models[name] = model
+            log.info("loaded %s on the CPU (shared)", name)
+        return model
+
+
 # -- sideloading --------------------------------------------------------------
 
 NOTICE = """\

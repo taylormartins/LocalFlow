@@ -634,6 +634,21 @@ def _hint(cfg) -> str:
     return hint
 
 
+def _version_change() -> str:
+    """The new version if this is the first run since an update, else ""."""
+    from importlib.metadata import version
+
+    try:
+        now = version("localflow")
+        seen_file = config_mod.PROJECT_ROOT / ".version"
+        seen = seen_file.read_text(encoding="ascii").strip() if seen_file.exists() else ""
+        if seen != now:
+            seen_file.write_text(now, encoding="ascii")
+        return now if seen and seen != now else ""
+    except Exception:
+        return ""
+
+
 def cmd_run(args, cfg) -> int:
     """The real thing: tray icon, global hotkeys, and the phone server."""
     from .engine import Engine
@@ -682,6 +697,9 @@ def cmd_run(args, cfg) -> int:
         if caps_is_a_hotkey():
             caps_lock_off()
         hint = _hint(cfg)
+        updated = _version_change()
+        if updated:
+            hint = f"Updated to LocalFlow {updated}. {hint}"
         if cfg.always_on.enabled and listener.ready:
             try:
                 listener.start()

@@ -58,6 +58,7 @@ class Tray:
         self.engine = engine
         self.always_on = always_on  # always_on.Listener, or None
         self._setup_open = False
+        self._updating = False
         self._on_quit = on_quit
         self._on_keys_changed = on_keys_changed
         self.sounds = sounds  # SoundCues, or None when cues are not wired up
@@ -117,6 +118,11 @@ class Tray:
                 pystray.MenuItem("Stop sound", self._sound_menu(pystray, "stop")),
                 pystray.MenuItem("Paste sound", self._sound_menu(pystray, "paste")),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(
+                    lambda _: "Updating..." if self._updating else "Update LocalFlow",
+                    lambda icon, item: self._update(),
+                    enabled=lambda _: not self._updating,
+                ),
                 pystray.MenuItem(lambda _: self._status_line(), None, enabled=False),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit", self._quit),
@@ -203,10 +209,7 @@ class Tray:
         """Run the setup window as its own process; reload when it saves."""
         if self._setup_open or self.always_on is None:
             return
-        import subprocess
-        import sys
-
-        from .config import PROJECT_ROOT
+        from .proc import run_localflow
 
         lis = self.always_on
         self._setup_open = True
@@ -214,9 +217,7 @@ class Tray:
 
         def run() -> None:
             try:
-                code = subprocess.call(
-                    [sys.executable, "-m", "localflow.cli", "enroll"], cwd=str(PROJECT_ROOT)
-                )
+                code = run_localflow("enroll")
                 if code == 0:
                     lis.reload()
                     if not lis.running:
@@ -235,6 +236,40 @@ class Tray:
                 self.icon.update_menu()
 
         threading.Thread(target=run, daemon=True, name="localflow-setup").start()
+
+    # -- update ------------------------------------------------------------
+
+    def _update(self) -> None:
+        """Run update.ps1 detached; it restarts us if there was an update. We
+        only hear back (via update.result) when there wasn't, or it failed."""
+        from .config import PROJECT_ROOT
+        from .proc import launch_detached_powershell
+
+        result = PROJECT_ROOT / "update.result"
+        result.unlink(missing_ok=True)
+        self._updating = True
+        self.icon.update_menu()
+        self.notify("Checking for updates...")
+        launch_detached_powershell(PROJECT_ROOT / "update.ps1")
+
+        def watch() -> None:
+            deadline = time.monotonic() + 20 * 60
+            while time.monotonic() < deadline:
+                time.sleep(2)
+                try:
+                    code, _, msg = result.read_text(encoding="ascii").strip().partition(" ")
+                except OSError:
+                    continue
+                if code == "3":
+                    self.notify("LocalFlow is up to date")
+                elif code == "1":
+                    self.notify(f"Update failed: {msg} (details in update.log)")
+                # "0": the updater restarts LocalFlow; the new one says so.
+                break
+            self._updating = False
+            self.icon.update_menu()
+
+        threading.Thread(target=watch, daemon=True, name="localflow-update").start()
 
     # -- dictation keys ----------------------------------------------------
 

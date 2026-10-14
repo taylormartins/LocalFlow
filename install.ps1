@@ -75,6 +75,10 @@ param(
     [switch]$PullModel,
     [switch]$NoStartup,
     [switch]$NoLaunch,
+    # Used by update.ps1: no closing banner, no test-load of the speech model.
+    [switch]$Quiet,
+    # Register the startup tasks again even though they exist (asks for admin).
+    [switch]$RegisterAgain,
     [switch]$Uninstall,
     [string]$WhisperModel,
     [string]$ModelZip,
@@ -327,6 +331,13 @@ if ($sideload) {
     } elseif ($LASTEXITCODE) { throw 'Whisper model download failed - see the output above.' }
 }
 if ($modelReady) {
+    # Small CPU model for the live text on PCs without a GPU, and for
+    # always-on listening. Optional: nothing breaks without it.
+    uv run --no-dev localflow fetch-model --model base.en 2>&1 | Out-Null
+    if ($LASTEXITCODE) { Note 'base.en (live text without a GPU, always-on) not downloaded - it is fetched on first use' }
+    else { Ok 'base.en ready (live text without a GPU, always-on listening)' }
+}
+if ($modelReady -and -not $Quiet) {
     # Load it once, so a broken model (or GPU) shows up now, not at first use.
     # No double quotes in code passed to python -c: Windows PowerShell 5.1
     # strips them from native-command arguments.
@@ -344,10 +355,18 @@ print('   ' + cfg.whisper.model + ' ready on ' + t.device_in_use)
 $viaTask = $false
 if (-not $NoStartup) {
     Step 'Start at login'
-    try {
-        $viaTask = Invoke-Elevated "-RegisterTasks -UserSid $sid"
-    } catch {
-        $viaTask = $false
+    # Already registered for this folder: keep them, so an update never asks
+    # for admin. -RegisterAgain forces it (e.g. after a task settings change).
+    $existing = (schtasks /query /tn 'LocalFlow' /xml 2>$null) -join "`n"
+    $ours = $LASTEXITCODE -eq 0 -and $existing -like ('*' + (Join-Path $root 'restart.vbs') + '*')
+    if ($ours -and -not $RegisterAgain) {
+        $viaTask = $true
+    } else {
+        try {
+            $viaTask = Invoke-Elevated "-RegisterTasks -UserSid $sid"
+        } catch {
+            $viaTask = $false
+        }
     }
     if ($viaTask) {
         Ok 'scheduled tasks "LocalFlow" (at login) and "LocalFlow resume" (after sleep), elevated'
@@ -368,6 +387,7 @@ if (-not $NoLaunch -and $modelReady) {
     Ok 'started - look for the microphone icon in the system tray (it may be under the ^ arrow)'
 }
 
+if ($Quiet) { exit 0 }
 Write-Host @"
 
 LocalFlow is installed.

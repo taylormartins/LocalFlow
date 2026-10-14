@@ -62,7 +62,13 @@ class LivePreview:
         self._thread: threading.Thread | None = None
         engine.on_state(self._on_state)
 
+    def _cpu(self) -> bool:
+        return self.engine.transcriber.device_in_use == "cpu" and bool(self.cfg.live_cpu_model)
+
     def _on_state(self, state: State, detail: str) -> None:
+        if state == State.IDLE and detail.startswith("ready") and self._cpu():
+            # Load the CPU preview model now, not in the first second of talk.
+            threading.Thread(target=self._cpu_model, daemon=True, name="localflow-live-load").start()
         if state == State.RECORDING:
             self._set("")
             if self._thread is None or not self._thread.is_alive():
@@ -73,23 +79,41 @@ class LivePreview:
         self.text = text
         self.version += 1
 
+    def _cpu_model(self):
+        from .models import cpu_whisper
+
+        return cpu_whisper(self.cfg.live_cpu_model)
+
+    def _cpu_preview(self, audio) -> str:
+        segments, _ = self._cpu_model().transcribe(
+            audio, language=self.engine.cfg.whisper.language or None, beam_size=1,
+            vad_filter=True, condition_on_previous_text=False, without_timestamps=True,
+        )
+        return " ".join(s.text.strip() for s in segments).strip()
+
     def _loop(self) -> None:
         recorder = self.engine.recorder
         while self.engine.recording:
             started = time.monotonic()
-            if self.engine.transcriber.device_in_use == "cpu":
-                # A CPU Whisper pass takes seconds and starves everything else;
-                # the preview is a nicety, so stand down until it's on the GPU.
+            # No GPU: the full model on the CPU takes seconds a pass and would
+            # starve the real transcription, so the preview reads a short
+            # window with the small shared CPU model instead (see models.py).
+            cpu = self.engine.transcriber.device_in_use == "cpu"
+            if cpu and not self.cfg.live_cpu_model:
                 time.sleep(self.cfg.live_interval)
                 continue
+            window = min(self.cfg.live_window, self.cfg.live_cpu_window) if cpu else self.cfg.live_window
             try:
-                audio = recorder.snapshot(self.cfg.live_window)
+                audio = recorder.snapshot(window)
                 if len(audio) >= MIN_AUDIO_SECONDS * 16000 and self.engine.recording:
-                    text = self.engine.preview(audio)
+                    text = self._cpu_preview(audio) if cpu else self.engine.preview(audio)
                     # None = pipeline busy; keep the last preview rather than blank it.
                     if text is not None and self.engine.recording:
                         self._set(text)
             except Exception:
                 log.debug("live preview failed", exc_info=True)
-            # Interval measured start-to-start, so slow passes don't pile up.
-            time.sleep(max(0.1, self.cfg.live_interval - (time.monotonic() - started)))
+            took = time.monotonic() - started
+            # Interval measured start-to-start, so slow passes don't pile up. On
+            # the CPU, also rest as long as the pass took: half the CPU stays free.
+            gap = max(self.cfg.live_interval, 2 * took) if cpu else self.cfg.live_interval
+            time.sleep(max(0.1, gap - took))

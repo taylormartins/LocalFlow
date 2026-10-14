@@ -133,6 +133,11 @@ class OverlayConfig:
     live_context_words: int = 5
     #: Hard cap on words shown; long sentences show "..." plus the newest words.
     live_max_words: int = 30
+    #: Without a GPU, the live text comes from this small model on the CPU
+    #: (shared with always-on), reading only the last `live_cpu_window` seconds.
+    #: "" turns the live text off on CPU-only PCs.
+    live_cpu_model: str = "base.en"
+    live_cpu_window: float = 10.0
 
 
 @dataclass
