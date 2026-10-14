@@ -9,6 +9,7 @@ import time
 import numpy as np
 
 from . import _cuda  # noqa: F401  - registers CUDA DLL dirs before ctranslate2 loads
+from . import models
 from .config import VocabularyConfig, WhisperConfig
 
 log = logging.getLogger(__name__)
@@ -25,15 +26,22 @@ def _open(WhisperModel, name: str, device: str, kwargs: dict):  # noqa: N803
 
     faster-whisper otherwise asks the Hub whether the cached model is current on
     every load, so a flaky network at boot or wake breaks the load entirely.
-    Only a model that has never been downloaded goes online.
+    Only a model that has never been downloaded goes online. A sideloaded
+    model (models/<name>/, see models.py) wins over both.
     """
+    folder = models.sideloaded(name)
+    if folder:
+        kwargs = {k: v for k, v in kwargs.items() if k != "download_root"}
+        return WhisperModel(folder, device=device, **kwargs)
     try:
         return WhisperModel(name, device=device, local_files_only=True, **kwargs)
     except Exception as exc:
         if "local" not in type(exc).__name__.lower() and "not found" not in str(exc).lower():
             raise
         log.info("%s not in the local cache; downloading", name)
-        return WhisperModel(name, device=device, **kwargs)
+        path = models.download(name, cache_dir=kwargs.get("download_root"))
+        kwargs = {k: v for k, v in kwargs.items() if k != "download_root"}
+        return WhisperModel(path, device=device, **kwargs)
 
 
 def _is_cuda_error(exc: Exception) -> bool:

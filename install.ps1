@@ -34,6 +34,20 @@
 .PARAMETER NoLaunch
     Do not start LocalFlow at the end.
 
+.PARAMETER ModelZip
+    Offline install: a model zip made on another PC with
+    `uv run localflow fetch-model --zip <folder>`. Use this when the network
+    blocks huggingface.co (corporate proxies such as Zscaler).
+
+.PARAMETER ModelDir
+    Offline install: a folder holding a faster-whisper model (model.bin,
+    config.json, tokenizer.json, vocabulary.*), e.g. downloaded by hand from
+    https://huggingface.co/Systran/faster-whisper-small.en
+
+.PARAMETER HfEndpoint
+    Download models from this mirror instead of huggingface.co (an internal
+    Artifactory or Nexus proxy). Saved as whisper.hf_endpoint in config.toml.
+
 .PARAMETER Uninstall
     Stop LocalFlow and remove the startup entries. The folder itself is left
     for you to delete.
@@ -43,6 +57,9 @@
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Cleanup rules -NoStartup
+
+.EXAMPLE
+    install.cmd -ModelZip D:\localflow-model-small.en.zip
 #>
 [CmdletBinding()]
 param(
@@ -52,6 +69,9 @@ param(
     [switch]$NoStartup,
     [switch]$NoLaunch,
     [switch]$Uninstall,
+    [string]$ModelZip,
+    [string]$ModelDir,
+    [string]$HfEndpoint,
     # Internal: the elevated half of the install, run through UAC.
     [switch]$RegisterTasks,
     [switch]$RemoveTasks,
@@ -185,6 +205,14 @@ if ($Uninstall) {
 # -- install --------------------------------------------------------------------
 
 if ($env:OS -ne 'Windows_NT') { throw 'LocalFlow is Windows-only.' }
+# Resolve a sideload path against where the user ran us, before moving.
+foreach ($v in 'ModelZip', 'ModelDir') {
+    $val = Get-Variable $v -ValueOnly
+    if ($val) {
+        if (-not (Test-Path $val)) { throw "-${v}: $val does not exist" }
+        Set-Variable $v (Resolve-Path $val).Path
+    }
+}
 Set-Location $root -ErrorAction Stop
 
 Step 'uv (Python package manager)'
@@ -200,7 +228,14 @@ Ok (uv --version)
 
 Step 'Python and dependencies (first run downloads ~1.5 GB)'
 uv sync --no-dev
-if ($LASTEXITCODE) { throw 'uv sync failed - see the output above.' }
+if ($LASTEXITCODE) {
+    # Usually a TLS-inspecting proxy (Zscaler and the like): its root
+    # certificate is in the Windows store, which uv ignores by default.
+    Note 'retrying with the Windows certificate store (corporate proxy?)'
+    $env:UV_SYSTEM_CERTS = '1'
+    uv sync --no-dev
+    if ($LASTEXITCODE) { throw 'uv sync failed - see the output above.' }
+}
 Ok 'environment ready in .venv'
 
 Step 'GPU'
@@ -252,6 +287,7 @@ if ($fresh) {
     Ok 'config.toml exists; keeping your settings'
 }
 if ($fresh -or $Cleanup -ne 'auto') { $settings += "('cleanup','method','$method')" }
+if ($HfEndpoint) { $settings += "('whisper','hf_endpoint','$HfEndpoint')" }
 if ($settings) {
     $code = "from localflow.config import save_setting as s`n" + (($settings | ForEach-Object { "s$_" }) -join "`n")
     uv run --no-dev python -c $code
@@ -261,9 +297,28 @@ $current = if ((Get-Content $config -Raw) -match '(?m)^\s*method\s*=\s*"rules"')
 Ok "cleanup: $current"
 
 Step 'Whisper model (one-time download)'
-# No double quotes in code passed to python -c: Windows PowerShell 5.1 strips
-# them from native-command arguments.
-uv run --no-dev python -c @'
+$modelReady = $true
+$sideload = if ($ModelZip) { $ModelZip } elseif ($ModelDir) { $ModelDir } else { '' }
+if ($sideload) {
+    uv run --no-dev localflow import-model $sideload
+    if ($LASTEXITCODE) { throw "could not import the model from $sideload" }
+} else {
+    uv run --no-dev localflow fetch-model
+    if ($LASTEXITCODE -eq 2) {
+        # Blocked, not broken: finish the install so only the model is missing.
+        $modelReady = $false
+        Note 'The speech model could not be downloaded (message above). Everything else'
+        Note 'is installed. Get the model onto this PC another way, then re-run:'
+        Note '  on a PC with internet:  uv run localflow fetch-model --model small.en --zip <folder>'
+        Note '  here:                   install.cmd -ModelZip <path to the zip>'
+        Note 'Details: "Locked-down networks" in README.md'
+    } elseif ($LASTEXITCODE) { throw 'Whisper model download failed - see the output above.' }
+}
+if ($modelReady) {
+    # Load it once, so a broken model (or GPU) shows up now, not at first use.
+    # No double quotes in code passed to python -c: Windows PowerShell 5.1
+    # strips them from native-command arguments.
+    uv run --no-dev python -c @'
 from localflow.config import load
 from localflow.transcribe import Transcriber
 cfg, _ = load()
@@ -271,7 +326,8 @@ t = Transcriber(cfg.whisper, cfg.vocabulary)
 t.load()
 print('   ' + cfg.whisper.model + ' ready on ' + t.device_in_use)
 '@
-if ($LASTEXITCODE) { throw 'Whisper model failed to load - see the output above.' }
+    if ($LASTEXITCODE) { throw 'Whisper model failed to load - see the output above.' }
+}
 
 $viaTask = $false
 if (-not $NoStartup) {
@@ -293,7 +349,7 @@ if (-not $NoStartup) {
     }
 }
 
-if (-not $NoLaunch) {
+if (-not $NoLaunch -and $modelReady) {
     Step 'Starting LocalFlow'
     if ($viaTask) { schtasks /run /tn 'LocalFlow' | Out-Null }
     else { Start-Process wscript.exe -ArgumentList "`"$(Join-Path $root 'restart.vbs')`"" }
@@ -312,3 +368,7 @@ LocalFlow is installed.
   Health check: uv run localflow check
   Log: $root\localflow.log
 "@
+if (-not $modelReady) {
+    Write-Host "`nNOT READY YET: the speech model is missing (see above). To finish," -ForegroundColor Yellow
+    Write-Host "run install.cmd -ModelZip <zip> (or -ModelDir <folder>); it then starts LocalFlow." -ForegroundColor Yellow
+}

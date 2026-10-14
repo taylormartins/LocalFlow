@@ -1,6 +1,6 @@
 [project]
 name = "localflow"
-version = "1.0.0"
+version = "1.1.0"
 description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"
@@ -21,6 +21,7 @@ dependencies = [
     "pywin32>=312",
     "sounddevice>=0.5.5",
     "soxr>=1.1.0",
+    "truststore>=0.10",
     "uvicorn>=0.52.0",
 ]
 

@@ -96,6 +96,7 @@ def _setup_logging(verbose: bool, log_file: Path | None = None) -> None:
     logging.getLogger("faster_whisper").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 
 def cmd_devices(args, cfg) -> int:
@@ -141,6 +142,29 @@ def cmd_check(args, cfg) -> int:
     except Exception as exc:
         print(f"  ! {exc}")
         ok = False
+
+    print("\n== Speech model ==")
+    from . import models
+
+    name = cfg.whisper.model
+    folder = models.sideloaded(name)
+    if folder:
+        print(f"  {name}: sideloaded at {folder}")
+    else:
+        try:
+            from faster_whisper.utils import download_model
+
+            download_model(name, local_files_only=True, cache_dir=cfg.whisper.download_root or None)
+            print(f"  {name}: downloaded")
+        except Exception:
+            kind, detail = models.diagnose(name)
+            if kind == "ok":
+                print(f"  {name}: not downloaded yet; it downloads on first use ({detail})")
+            else:
+                print(f"  ! {name}: not downloaded, and the download is blocked:")
+                print(f"    {detail}")
+                print(f"    {models.OFFLINE_HELP}")
+                ok = False
 
     print("\n== Microphone ==")
     try:
@@ -247,6 +271,47 @@ def cmd_clean(args, cfg) -> int:
     print(text)
     print(f"\n({cleaner.last_outcome}, {(time.perf_counter() - started) * 1000:.1f} ms)")
     cleaner.close()
+    return 0
+
+
+def cmd_fetch_model(args, cfg) -> int:
+    """Download the Whisper model now, optionally as a zip for another machine."""
+    from . import models
+
+    name = args.model or cfg.whisper.model
+    try:
+        if args.zip:
+            out = Path(args.zip)
+            if out.suffix.lower() != ".zip":
+                out = out / f"localflow-model-{name}.zip"
+            models.export_zip(name, out)
+            print(f"Saved {out} ({out.stat().st_size / 1e6:.0f} MB)")
+            print("On the other PC:  install.cmd -ModelZip <path to this zip>")
+            print("             or:  uv run localflow import-model <path to this zip>")
+        else:
+            path = models.sideloaded(name) or models.download(
+                name, cache_dir=cfg.whisper.download_root or None
+            )
+            print(f"{name} ready at {path}")
+    except models.ModelUnavailable as exc:
+        print(f"! {exc}")
+        return 2
+    return 0
+
+
+def cmd_import_model(args, cfg) -> int:
+    """Install a model from a zip or folder (the offline install path)."""
+    from . import models
+
+    try:
+        name, dest = models.import_model(Path(args.path), args.name)
+    except (OSError, ValueError) as exc:
+        print(f"! {exc}")
+        return 1
+    print(f"Installed {name} at {dest}")
+    if cfg.whisper.model != name:
+        config_mod.save_setting("whisper", "model", name, args.config)
+        print(f"Set whisper.model = {name!r} in config.toml (was {cfg.whisper.model!r})")
     return 0
 
 
@@ -551,6 +616,18 @@ def main(argv: list[str] | None = None) -> int:
     p_tr.add_argument("--raw", action="store_true", help="skip cleanup")
     p_tr.add_argument("--rules", action="store_true", help="algorithmic cleanup, no LLM")
 
+    p_fm = sub.add_parser(
+        "fetch-model", help="download the Whisper model (or zip it for another PC)", parents=[common]
+    )
+    p_fm.add_argument("--model", default="", help="model name (default: whisper.model)")
+    p_fm.add_argument("--zip", default="", help="write a zip here for an offline install")
+
+    p_im = sub.add_parser(
+        "import-model", help="install a model from a zip or folder (offline)", parents=[common]
+    )
+    p_im.add_argument("path")
+    p_im.add_argument("--name", default="", help="model name (default: from the folder)")
+
     p_cl = sub.add_parser("clean", help="clean a line of text (no audio)", parents=[common])
     p_cl.add_argument("text")
     p_cl.add_argument("--llm", action="store_true", help="use the LLM instead of the rules")
@@ -566,19 +643,31 @@ def main(argv: list[str] | None = None) -> int:
     cfg, warnings = config_mod.load(args.config)
     for w in warnings:
         logging.getLogger("localflow.config").warning(w)
+    # Before anything imports huggingface_hub, which reads it once at import.
+    from .models import apply_endpoint
+
+    apply_endpoint(cfg.whisper.hf_endpoint)
 
     handlers = {
         "run": cmd_run,
         "check": cmd_check,
         "clean": cmd_clean,
         "devices": cmd_devices,
+        "fetch-model": cmd_fetch_model,
+        "import-model": cmd_import_model,
         "level": cmd_level,
         "install-startup": cmd_install_startup,
         "serve": cmd_serve,
         "record": cmd_record,
         "transcribe": cmd_transcribe,
     }
-    return handlers[args.command or "run"](args, cfg)
+    from .models import ModelUnavailable
+
+    try:
+        return handlers[args.command or "run"](args, cfg)
+    except ModelUnavailable as exc:
+        print(f"! {exc}")
+        return 2
 
 
 if __name__ == "__main__":

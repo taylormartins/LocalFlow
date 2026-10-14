@@ -63,6 +63,9 @@ The installer is safe to re-run at any time. It:
 | `-PullModel` | If Ollama is installed but the cleanup model isn't, download it (4.7 GB). |
 | `-NoStartup` | Don't register it to start at login (no UAC prompt). |
 | `-NoLaunch` | Don't start it at the end. |
+| `-ModelZip <zip>` | Offline install: use a model zip made on another PC (see below). |
+| `-ModelDir <folder>` | Offline install: use a model folder you downloaded yourself. |
+| `-HfEndpoint <url>` | Download models from an internal mirror instead of huggingface.co. |
 | `-Uninstall` | Stop LocalFlow and remove the startup entries. |
 
 Pass them to either script: `.\install.cmd -Cleanup rules`, or
@@ -78,6 +81,40 @@ sentences. With an NVIDIA GPU (8 GB+ VRAM recommended):
 
 You can switch between the two at any time from the tray: right-click ▸
 **Cleanup model** ▸ **Algorithmic** or a model name.
+
+### Locked-down networks (corporate proxy, no huggingface.co)
+
+Everything LocalFlow downloads comes at install time. Python packages come from
+PyPI. The speech model comes from Hugging Face: about 0.5 GB on CPU, 1.6 GB on
+GPU. After that it runs with no network at all. Work networks get in the way in
+three ways:
+
+- **The proxy inspects HTTPS (Zscaler, Netskope and the like).** The installer
+  and the model download both retry using the Windows certificate store, where
+  IT installs the proxy's certificate. Nothing to do.
+- **The network blocks huggingface.co outright.** The install still finishes.
+  It tells you the speech model is missing and why (for example *blocked by
+  Zscaler, HTTP 403*). Bring the model over from a computer that has internet:
+
+  ```powershell
+  # On any PC with internet and LocalFlow cloned (no install needed beyond uv sync):
+  uv run localflow fetch-model --model small.en --zip D:\
+  # -> D:\localflow-model-small.en.zip (about 0.5 GB). Copy it over, then on the work PC:
+  .\install.cmd -ModelZip D:\localflow-model-small.en.zip
+  ```
+
+  No second PC with LocalFlow? Download the four files (`config.json`,
+  `model.bin`, `tokenizer.json`, `vocabulary.txt`) from
+  [Systran/faster-whisper-small.en](https://huggingface.co/Systran/faster-whisper-small.en/tree/main)
+  in a browser into a folder named `faster-whisper-small.en`. Then run
+  `.\install.cmd -ModelDir <that folder>`.
+  Use `small.en` for a PC without an NVIDIA GPU and `large-v3-turbo` for one
+  with a GPU. Sideloaded models live in `models\` inside the LocalFlow folder.
+- **Your company runs an internal mirror (Artifactory, Nexus).** Use
+  `.\install.cmd -HfEndpoint https://your-mirror/...`. That saves it as
+  `whisper.hf_endpoint` in `config.toml`.
+
+`uv run localflow check` reports which of these you're hitting.
 
 ### Updating
 
@@ -109,6 +146,12 @@ uv run localflow clean "um so send it tuesday no wait wednesday"
 # expected: "Send it Wednesday."
 ```
 
+- If `== Whisper model` reports the download as blocked (a proxy 403, or
+  a certificate error), the rest of the install is still done. Do not try to
+  route around the block. Hand the user the steps under *Locked-down networks*
+  above (`fetch-model --zip` on another PC, then `-ModelZip`). If
+  `uv sync` itself fails on certificates, the installer already retries with
+  `UV_SYSTEM_CERTS=1`.
 - `-NoStartup` avoids the UAC prompt, which an agent can't click. Afterwards,
   ask the user to run `.\install.cmd` once themselves so it starts at login.
 - The installer exits non-zero with a message on any failure; every step
@@ -230,7 +273,9 @@ entries point at the new location.
 
 ```powershell
 uv run localflow run                  # tray + hotkeys (+ phone server if enabled)
-uv run localflow check                # diagnose GPU / mic / Ollama / hotkeys
+uv run localflow check                # diagnose GPU / model / mic / Ollama / hotkeys
+uv run localflow fetch-model          # download the speech model (--zip DIR: for another PC)
+uv run localflow import-model x.zip   # install a model from a zip or folder (offline)
 uv run localflow devices              # list audio inputs
 uv run localflow level                # live mic meter - run this first if nothing works
 uv run localflow record -s 5          # record 5s from the mic and transcribe

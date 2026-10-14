@@ -227,6 +227,32 @@ When in doubt, a rule leaves the words alone. `tests/rules_quality.py` pins exac
 outputs (including idempotence: cleaning clean text changes nothing). Add a case
 before changing a rule.
 
+### 9. Corporate networks: the model download is the only fragile step
+
+This came from a real install behind Zscaler. With the rules cleanup there is
+no LLM to fetch, so the Whisper model download is the one network step left.
+It fails in three different ways, and `models.py` handles each one:
+
+- **TLS inspection.** The proxy re-signs HTTPS with a root that is in the
+  Windows store but not in certifi. huggingface_hub/httpx only trust certifi,
+  so the download fails with `CERTIFICATE_VERIFY_FAILED` even after `uv` works.
+  `models.download` retries once through `truststore` (the OS store) and drops
+  huggingface_hub's cached HTTP client so the retry really uses it. This
+  happens only after a cert failure, so working machines are unchanged.
+  `install.ps1` does the same for `uv sync` (`UV_SYSTEM_CERTS=1` on retry).
+- **Site blocked (HTTP 403 with an HTML page from `Server: Zscaler/...`).**
+  No setting gets round that, and LocalFlow must not try. `models.diagnose`
+  probes `<endpoint>/api/models/<repo>` and names the cause (proxy, cert, no
+  network, timeout), because a generic "check your internet" is wrong there.
+  The installer exits fetch-model with code 2, finishes everything else, and
+  prints the sideload steps.
+- **Sideload.** `fetch-model --zip` packs `<name>/{model.bin,...}`, and
+  `import-model` (installer `-ModelZip` / `-ModelDir`) unpacks it to
+  `models/<name>/`. `transcribe._open` checks `models.sideloaded()` before the
+  HF cache, so a sideloaded model never touches the network.
+  `whisper.hf_endpoint` sets `HF_ENDPOINT` in `cli.main` before anything
+  imports huggingface_hub, which reads it only once, at import.
+
 ## Testing
 
 There is no unit-test suite. These are integration scripts that need a GPU,

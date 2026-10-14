@@ -41,6 +41,9 @@ class WhisperConfig:
     vad_filter: bool = True
     #: Keeps the model resident so the first word after idle is not slow.
     download_root: str = ""
+    #: Model mirror for networks that block huggingface.co (an internal
+    #: Artifactory/Nexus proxy, say). "" = huggingface.co, or $HF_ENDPOINT.
+    hf_endpoint: str = ""
 
 
 @dataclass

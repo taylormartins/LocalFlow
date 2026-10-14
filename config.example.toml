@@ -31,6 +31,9 @@ compute_type = "float16"
 language = "en"
 beam_size = 1
 vad_filter = true
+# Network blocks huggingface.co? Point at an internal mirror here, or sideload
+# the model instead (README: "Locked-down networks").
+# hf_endpoint = "https://artifactory.example.com/api/huggingfaceml/hf"
 
 [cleanup]
 enabled = true
