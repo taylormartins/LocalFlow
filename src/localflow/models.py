@@ -12,6 +12,9 @@ networks break that in three distinct ways, and each has its own way out:
     (`localflow import-model`, or `install.cmd -ModelZip`). Sideloaded models
     live in models/<name>/ and are used in preference to the cache.
   * An internal mirror (Artifactory, Nexus): set whisper.hf_endpoint.
+  * No other PC to download on: the small CPU models are mirrored on
+    LocalFlow's own GitHub (a release, and hidden git refs), tried
+    automatically when Hugging Face fails.
 
 Nothing here changes a machine where the plain download already works: the
 OS trust store is only tried after a certificate failure.
@@ -23,6 +26,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -103,10 +107,141 @@ def _is_cert_error(exc: BaseException) -> bool:
 
 
 def download(name: str, output_dir: str | None = None, cache_dir: str | None = None) -> str:
-    """Download a model, retrying through the OS trust store on a cert failure.
+    """Download a model: Hugging Face first, then LocalFlow's copies on GitHub.
 
     Raises ModelUnavailable with a diagnosis of what blocked it.
     """
+    try:
+        return _download_hf(name, output_dir, cache_dir)
+    except ModelUnavailable as hf_error:
+        if output_dir is not None or name not in GITHUB_MODELS:
+            raise
+        log.warning("%s - trying LocalFlow's own copy instead", str(hf_error).split(" Until it")[0])
+        failures = []
+        for how, fetch in (("GitHub release", from_github), ("git", from_git)):
+            for attempt in (1, 2):  # once more, for a dropped connection
+                log.info("trying LocalFlow's own copy of %s (%s)", name, how)
+                try:
+                    return fetch(name)
+                except Exception as exc:
+                    log.warning("%s download failed: %s: %s", how, type(exc).__name__, exc)
+                    if attempt == 2 or isinstance(exc, ValueError):  # checksum: don't retry
+                        failures.append(f"{how}: {type(exc).__name__}: {exc}")
+                        break
+                    time.sleep(3)
+        raise ModelUnavailable(
+            f"{hf_error} LocalFlow's own copies failed too ({'; '.join(failures)})."
+        ) from None
+
+
+# Small CPU models re-published as LocalFlow release assets. Networks that
+# block huggingface.co (it's an "AI" site to most filters) usually allow
+# GitHub, or the clone would have failed. The weights are MIT-licensed; each
+# zip carries a NOTICE.txt. The hash pins exactly what was uploaded.
+GITHUB_RELEASE = "https://github.com/taylormartins/LocalFlow/releases/download/models-v1"
+GITHUB_MODELS: dict[str, tuple[str, int]] = {
+    # name: (sha256 of the zip, size in bytes)
+    "tiny.en": ("90991c5ccd3804806e27aec848112a83fc144f0a12846fc3407c3f075abacf96", 78092516),
+    "base.en": ("6a86c52bbb428e6d315a98597f2c51feea326d4f94fc2bad1771c7bd2d511255", 147771432),
+    "small.en": ("3a928b21340d8beb3c05d10d01f7a789112e204775a0e9d0cd63a1395e5f7066", 486100731),
+}
+
+
+def from_github(name: str) -> str:
+    """Download a model zip from the release, verify it, install to models/."""
+    import hashlib
+
+    import httpx
+
+    size = GITHUB_MODELS[name][1]
+    url = f"{GITHUB_RELEASE}/localflow-model-{name}.zip"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = MODELS_DIR / f".{name}.zip.part"
+    for attempt in (1, 2):
+        try:
+            digest = hashlib.sha256()
+            got, next_report = 0, 0.1
+            with httpx.stream("GET", url, follow_redirects=True, timeout=60) as r:
+                r.raise_for_status()
+                with tmp.open("wb") as fh:
+                    for chunk in r.iter_bytes(1 << 20):
+                        fh.write(chunk)
+                        digest.update(chunk)
+                        got += len(chunk)
+                        if got / size >= next_report:
+                            log.info("  %s: %3.0f%% of %.0f MB", name, 100 * got / size, size / 1e6)
+                            next_report += 0.1
+            break
+        except Exception as exc:
+            tmp.unlink(missing_ok=True)
+            if attempt == 1 and _is_cert_error(exc) and not _system_certs:
+                use_system_certs()
+                continue
+            raise
+    return _install_verified(tmp, name, digest.hexdigest(), url)
+
+
+def _install_verified(zip_path: Path, name: str, actual_sha: str, origin: str) -> str:
+    try:
+        if actual_sha != GITHUB_MODELS[name][0]:
+            raise ValueError(f"{origin} failed its checksum - not the file LocalFlow published")
+        _, dest = import_model(zip_path, name)
+    finally:
+        zip_path.unlink(missing_ok=True)
+    log.info("installed %s at %s", name, dest)
+    return str(dest)
+
+
+# The same zips, split into <50 MB chunks and committed under hidden refs
+# (refs/localflow/models-v1/<name>) in the main repo. A normal clone never
+# fetches them. This only needs github.com, the one host `git clone` proved
+# reachable; release assets come from release-assets.githubusercontent.com,
+# which some filters block separately.
+GIT_REMOTE = "https://github.com/taylormartins/LocalFlow.git"
+GIT_REF = "refs/localflow/models-v1/{name}"
+
+
+def from_git(name: str) -> str:
+    import hashlib
+    import subprocess
+
+    if name not in GITHUB_MODELS:
+        raise KeyError(name)
+    if not shutil.which("git"):
+        raise FileNotFoundError("git is not installed")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    repo = Path(tempfile.mkdtemp(prefix=".git-", dir=MODELS_DIR))
+    tmp = MODELS_DIR / f".{name}.zip.part"
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+    def git(*args: str) -> bytes:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], check=True, capture_output=True, **flags
+        ).stdout
+
+    try:
+        git("init", "--bare", "-q")
+        log.info("  fetching %s with git (%.0f MB)", name, GITHUB_MODELS[name][1] / 1e6)
+        git("fetch", "--depth", "1", "-q", GIT_REMOTE, GIT_REF.format(name=name))
+        parts = sorted(git("ls-tree", "--name-only", "FETCH_HEAD").decode().split())
+        digest = hashlib.sha256()
+        with tmp.open("wb") as fh:
+            for part in parts:
+                data = git("cat-file", "blob", f"FETCH_HEAD:{part}")
+                fh.write(data)
+                digest.update(data)
+    except subprocess.CalledProcessError as exc:
+        tmp.unlink(missing_ok=True)
+        detail = (exc.stderr or b"").decode(errors="replace").strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else str(exc)) from None
+    finally:
+        # Git marks pack files read-only, which stops a plain rmtree on Windows.
+        shutil.rmtree(repo, onexc=lambda f, path, _: (os.chmod(path, 0o666), f(path)))
+    return _install_verified(tmp, name, digest.hexdigest(), f"git {GIT_REF.format(name=name)}")
+
+
+def _download_hf(name: str, output_dir: str | None, cache_dir: str | None) -> str:
+    """Download from Hugging Face, retrying through the OS trust store on a cert failure."""
     import warnings
 
     from faster_whisper.utils import download_model
@@ -175,6 +310,35 @@ def diagnose(name: str) -> tuple[str, str]:
 
 # -- sideloading --------------------------------------------------------------
 
+NOTICE = """\
+Whisper speech recognition model, packaged for LocalFlow.
+
+Source: https://huggingface.co/{repo} (CTranslate2 conversion for faster-whisper)
+Original model: OpenAI Whisper, https://github.com/openai/whisper
+
+Both are released under the MIT License:
+
+Copyright (c) 2022 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 def export_zip(name: str, out: Path) -> Path:
     """Download a model and pack it as <name>/... in a zip for another machine."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -185,6 +349,7 @@ def export_zip(name: str, out: Path) -> Path:
             for f in sorted(folder.iterdir()):
                 if f.is_file():
                     zf.write(f, f"{name}/{f.name}")
+            zf.writestr(f"{name}/NOTICE.txt", NOTICE.format(repo=repo_id(name)))
     return out
 
 

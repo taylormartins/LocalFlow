@@ -16,6 +16,8 @@
          built-in algorithmic one (no LLM).
       5. Creates config.toml from config.example.toml (first run only).
       6. Downloads the Whisper model once (about 1.6 GB on GPU, 0.5 GB on CPU).
+         If huggingface.co is blocked, it gets LocalFlow's own copy from
+         GitHub instead (small CPU models only).
       7. Registers LocalFlow to start at login and after sleep. This asks for
          admin once (UAC); see -NoStartup and the README for why.
       8. Starts LocalFlow.
@@ -33,6 +35,11 @@
 
 .PARAMETER NoLaunch
     Do not start LocalFlow at the end.
+
+.PARAMETER WhisperModel
+    Whisper model to use, e.g. tiny.en (78 MB), base.en (148 MB), small.en
+    (486 MB, the CPU default) or large-v3-turbo (the GPU default). Smaller is
+    faster and less accurate.
 
 .PARAMETER ModelZip
     Offline install: a model zip made on another PC with
@@ -69,6 +76,7 @@ param(
     [switch]$NoStartup,
     [switch]$NoLaunch,
     [switch]$Uninstall,
+    [string]$WhisperModel,
     [string]$ModelZip,
     [string]$ModelDir,
     [string]$HfEndpoint,
@@ -287,6 +295,7 @@ if ($fresh) {
     Ok 'config.toml exists; keeping your settings'
 }
 if ($fresh -or $Cleanup -ne 'auto') { $settings += "('cleanup','method','$method')" }
+if ($WhisperModel) { $settings += "('whisper','model','$WhisperModel')" }
 if ($HfEndpoint) { $settings += "('whisper','hf_endpoint','$HfEndpoint')" }
 if ($settings) {
     $code = "from localflow.config import save_setting as s`n" + (($settings | ForEach-Object { "s$_" }) -join "`n")
@@ -303,12 +312,15 @@ if ($sideload) {
     uv run --no-dev localflow import-model $sideload
     if ($LASTEXITCODE) { throw "could not import the model from $sideload" }
 } else {
-    uv run --no-dev localflow fetch-model
+    # --fallback-model: a GPU PC behind a block gets small.en (which LocalFlow
+    # mirrors on GitHub) rather than no speech model at all.
+    uv run --no-dev localflow fetch-model --fallback-model small.en
     if ($LASTEXITCODE -eq 2) {
         # Blocked, not broken: finish the install so only the model is missing.
         $modelReady = $false
-        Note 'The speech model could not be downloaded (message above). Everything else'
-        Note 'is installed. Get the model onto this PC another way, then re-run:'
+        Note 'The speech model could not be downloaded from Hugging Face or from'
+        Note "LocalFlow's copy on GitHub (messages above). Everything else is installed."
+        Note 'Get the model onto this PC another way, then re-run:'
         Note '  on a PC with internet:  uv run localflow fetch-model --model small.en --zip <folder>'
         Note '  here:                   install.cmd -ModelZip <path to the zip>'
         Note 'Details: "Locked-down networks" in README.md'

@@ -252,6 +252,25 @@ It fails in three different ways, and `models.py` handles each one:
   HF cache, so a sideloaded model never touches the network.
   `whisper.hf_endpoint` sets `HF_ENDPOINT` in `cli.main` before anything
   imports huggingface_hub, which reads it only once, at import.
+- **LocalFlow's own mirror.** v1.1 sideloading still needed a second PC, and
+  the tester didn't have one. So `models.download` falls back to copies of
+  tiny.en, base.en and small.en (MIT, each zip carries NOTICE.txt) on
+  LocalFlow's GitHub, in two ways:
+  - the `models-v1` release assets. Those are served from
+    `release-assets.githubusercontent.com`, which some filters block
+    separately from github.com;
+  - hidden refs `refs/localflow/models-v1/<name>` holding the same zip split
+    into chunks under 50 MB, fetched with `git fetch --depth 1` into a
+    throwaway bare repo. That needs only github.com, which a working
+    `git clone` has already proved reachable. Normal clones never fetch these
+    refs (`refs/heads/*` and tags only).
+
+  Both paths check the zip's SHA-256 against `GITHUB_MODELS`. To add or
+  replace a model, build the zip with `fetch-model --zip`, upload it to the
+  release, push the chunks to the ref, then update the hash and size there.
+  Don't change a published zip in place: installed copies pin its hash.
+  Each path is retried once, because a dropped connection mid-download really
+  happened during testing.
 
 ## Testing
 

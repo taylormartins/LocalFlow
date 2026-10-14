@@ -63,6 +63,7 @@ The installer is safe to re-run at any time. It:
 | `-PullModel` | If Ollama is installed but the cleanup model isn't, download it (4.7 GB). |
 | `-NoStartup` | Don't register it to start at login (no UAC prompt). |
 | `-NoLaunch` | Don't start it at the end. |
+| `-WhisperModel <name>` | Speech model: `tiny.en` (78 MB), `base.en` (148 MB), `small.en` (486 MB, default without a GPU), `large-v3-turbo` (default with one). Smaller is faster and less accurate. |
 | `-ModelZip <zip>` | Offline install: use a model zip made on another PC (see below). |
 | `-ModelDir <folder>` | Offline install: use a model folder you downloaded yourself. |
 | `-HfEndpoint <url>` | Download models from an internal mirror instead of huggingface.co. |
@@ -92,24 +93,32 @@ three ways:
 - **The proxy inspects HTTPS (Zscaler, Netskope and the like).** The installer
   and the model download both retry using the Windows certificate store, where
   IT installs the proxy's certificate. Nothing to do.
-- **The network blocks huggingface.co outright.** The install still finishes.
-  It tells you the speech model is missing and why (for example *blocked by
-  Zscaler, HTTP 403*). Bring the model over from a computer that has internet:
+- **The network blocks huggingface.co outright.** Nothing to do either.
+  LocalFlow keeps its own copies of the small CPU models (`tiny.en`,
+  `base.en`, `small.en`) on GitHub, which a network that let you `git clone`
+  almost always allows. It tries a release download first, then plain git over
+  github.com, and checks every file's SHA-256 against the value pinned in the
+  code. On a GPU PC the large model isn't mirrored, so it falls back to
+  `small.en` (on the GPU it's still quick). For the smallest download, install
+  with `-WhisperModel base.en` or `-WhisperModel tiny.en`.
+
+  If GitHub is blocked too, the install still finishes and tells you why (for
+  example *blocked by Zscaler, HTTP 403*). Then bring the model over by hand.
+  Each one is a zip on the
+  [models release](https://github.com/taylormartins/LocalFlow/releases/tag/models-v1),
+  or you can make one on any PC with internet:
 
   ```powershell
-  # On any PC with internet and LocalFlow cloned (no install needed beyond uv sync):
   uv run localflow fetch-model --model small.en --zip D:\
-  # -> D:\localflow-model-small.en.zip (about 0.5 GB). Copy it over, then on the work PC:
+  # -> D:\localflow-model-small.en.zip. Copy it over, then on the work PC:
   .\install.cmd -ModelZip D:\localflow-model-small.en.zip
   ```
 
-  No second PC with LocalFlow? Download the four files (`config.json`,
-  `model.bin`, `tokenizer.json`, `vocabulary.txt`) from
-  [Systran/faster-whisper-small.en](https://huggingface.co/Systran/faster-whisper-small.en/tree/main)
-  in a browser into a folder named `faster-whisper-small.en`. Then run
-  `.\install.cmd -ModelDir <that folder>`.
-  Use `small.en` for a PC without an NVIDIA GPU and `large-v3-turbo` for one
-  with a GPU. Sideloaded models live in `models\` inside the LocalFlow folder.
+  A model folder downloaded by hand from
+  [Systran's models](https://huggingface.co/Systran/faster-whisper-small.en/tree/main)
+  (`config.json`, `model.bin`, `tokenizer.json`, `vocabulary.txt`) works too:
+  `.\install.cmd -ModelDir <folder>`. Sideloaded models live in `models\`
+  inside the LocalFlow folder.
 - **Your company runs an internal mirror (Artifactory, Nexus).** Use
   `.\install.cmd -HfEndpoint https://your-mirror/...`. That saves it as
   `whisper.hf_endpoint` in `config.toml`.
@@ -146,10 +155,13 @@ uv run localflow clean "um so send it tuesday no wait wednesday"
 # expected: "Send it Wednesday."
 ```
 
-- If `== Whisper model` reports the download as blocked (a proxy 403, or
-  a certificate error), the rest of the install is still done. Do not try to
-  route around the block. Hand the user the steps under *Locked-down networks*
-  above (`fetch-model --zip` on another PC, then `-ModelZip`). If
+- If Hugging Face is blocked, the installer gets the model from LocalFlow's
+  own GitHub copies on its own (watch for `installed small.en at ...\models`).
+  Only if that fails too does `== Whisper model` end with *NOT READY YET*. The
+  rest of the install is still done then. Do not try to route around the
+  block with third-party mirrors. Hand the user the manual steps under
+  *Locked-down networks* above (a zip from the models release, then
+  `-ModelZip`). If
   `uv sync` itself fails on certificates, the installer already retries with
   `UV_SYSTEM_CERTS=1`.
 - `-NoStartup` avoids the UAC prompt, which an agent can't click. Afterwards,

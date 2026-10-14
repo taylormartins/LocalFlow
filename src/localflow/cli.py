@@ -289,9 +289,21 @@ def cmd_fetch_model(args, cfg) -> int:
             print("On the other PC:  install.cmd -ModelZip <path to this zip>")
             print("             or:  uv run localflow import-model <path to this zip>")
         else:
-            path = models.sideloaded(name) or models.download(
-                name, cache_dir=cfg.whisper.download_root or None
-            )
+            cache = cfg.whisper.download_root or None
+            try:
+                path = models.sideloaded(name) or models.download(name, cache_dir=cache)
+            except models.ModelUnavailable as exc:
+                # A model LocalFlow doesn't mirror (large-v3-turbo, on a GPU PC)
+                # behind a block: a mirrored one beats no transcription at all.
+                fallback = args.fallback_model
+                if not fallback or fallback == name or name in models.GITHUB_MODELS:
+                    raise
+                print(f"! {exc}")
+                print(f"\nFalling back to {fallback}, which LocalFlow mirrors.")
+                path = models.sideloaded(fallback) or models.download(fallback, cache_dir=cache)
+                config_mod.save_setting("whisper", "model", fallback, args.config)
+                print(f"Set whisper.model = {fallback!r} in config.toml (was {name!r})")
+                name = fallback
             print(f"{name} ready at {path}")
     except models.ModelUnavailable as exc:
         print(f"! {exc}")
@@ -621,6 +633,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_fm.add_argument("--model", default="", help="model name (default: whisper.model)")
     p_fm.add_argument("--zip", default="", help="write a zip here for an offline install")
+    p_fm.add_argument(
+        "--fallback-model", default="", help="if the model is blocked, use this one instead"
+    )
 
     p_im = sub.add_parser(
         "import-model", help="install a model from a zip or folder (offline)", parents=[common]
