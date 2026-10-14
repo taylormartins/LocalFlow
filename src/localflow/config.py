@@ -27,6 +27,10 @@ class AudioConfig:
     min_seconds: float = 0.35
     #: Boost quiet input before transcription. 1.0 disables.
     gain: float = 1.0
+    #: Mic boost on top of `gain`, also in the tray menu: "none", "low" (+6 dB),
+    #: "medium" (+12 dB), "high" (+18 dB), or "auto" (measures each recording
+    #: and lifts quiet speech, up to +26 dB; never turns anything down).
+    boost: str = "none"
 
 
 @dataclass

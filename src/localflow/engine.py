@@ -182,7 +182,7 @@ class Engine:
             if peak < SILENCE_PEAK:
                 detail = f"no signal from the mic (peak {peak:.4f}) - check gain/48V"
             elif peak < QUIET_PEAK:
-                detail = f"input too quiet (peak {peak:.4f}) - turn up the mic gain"
+                detail = f"input too quiet (peak {peak:.4f}) - turn up the mic gain or Mic boost"
             else:
                 detail = "no speech detected"
             self._set_state(State.ERROR if peak < QUIET_PEAK else State.IDLE, detail)

@@ -426,7 +426,8 @@ Everything lives in `config.toml`. The interesting knobs:
 | Setting | Notes |
 |---|---|
 | `audio.device` | Substring of the input name, e.g. `"Scarlett Solo"`. `""` = the Windows default mic. `uv run localflow devices` lists them. |
-| `audio.gain` | Raise if your mic is quiet and transcripts come back empty. |
+| `audio.boost` | Mic boost: `none`, `low`, `medium`, `high` or `auto` (also in the tray). |
+| `audio.gain` | Extra fixed multiplier before the boost; rarely needed. |
 | `whisper.model` | `large-v3-turbo` is the sweet spot on a GPU. `large-v3` is more accurate but slower; `distil-large-v3` is faster, English only. On CPU: `small.en` or `base.en`. |
 | `whisper.device` | `cuda` (NVIDIA GPU) or `cpu` (with `compute_type = "int8"`). |
 | `cleanup.method` | `llm` (default; algorithmic fallback when Ollama is unavailable) or `rules` (algorithmic only, no LLM). Also in the tray. |
@@ -529,7 +530,25 @@ uv run localflow level
 It prints a live dB bar and a verdict, then tells you what to do. `silent` means
 no signal at all — check the gain knob, the 48V switch if your mic needs phantom
 power, the cable, and Windows mic privacy settings. `quiet` means speech is
-present but Whisper's VAD will discard it.
+present but Whisper's VAD will discard some of it. The meter tells you which
+**Mic boost** to pick.
+
+**Mic is quiet even when you're close to it.** Right-click the tray icon ▸
+**Mic boost**:
+
+| Setting | Boost | When |
+|---|---|---|
+| None | 0 dB | Mic is already at a healthy level (an audio interface with its gain set) |
+| Low / Medium / High | +6 / +12 / +18 dB | A mic that's consistently quiet by a known amount |
+| Auto | up to +26 dB | Not sure, or you switch mics. It measures each recording and lifts the speech. |
+
+Auto never turns anything down, leaves recordings that are already loud
+alone, and won't boost an empty room. If a recording has no clear speech above
+the background, it isn't touched. It never lifts the background above about
+−40 dB, so Whisper isn't handed amplified hiss to invent words from. Loud
+peaks after a boost go through a soft limiter rather than hard clipping. New
+installs start on Auto. Fix the mic's own gain first if it has a knob: a
+software boost raises the noise along with the voice.
 
 Two non-obvious causes, both seen in practice:
 

@@ -164,6 +164,27 @@ Two real failures seen:
 Also worth knowing: Windows keeps a per-device capture volume separate from the
 Scarlett's physical gain knob, and it can reset. It was found at 50%.
 
+**Mic boost (`audio.boost`, `Recorder.apply_gain`).** Fixed steps are 2x, 4x
+and 8x. Auto (`audio.auto_gain`) is the subtle one:
+
+- **Level alone can't tell a weak mic from an empty room.** On the Scarlett, a
+  click in an empty room peaked at 0.027, about what a weak mic's speech
+  peaks at. The first version of Auto boosted that x20. So Auto boosts only
+  when the peak (99.9th percentile, so one click doesn't count) is at least
+  6x the quietest stretch's RMS. Steady noise peaks at about 3.3x its own RMS.
+  It also never lifts that quiet floor above 0.01 RMS (about -40 dBFS).
+- **Auto never cuts gain.** Whisper doesn't care about level, so there's
+  nothing to gain from turning down.
+- **The live meter uses `Recorder.auto_gain`**, a geometric mean of recent
+  recordings' gains, because the final gain only exists once the take ends.
+  `snapshot()` (live preview) measures its own window.
+- **Soft limiter instead of `np.clip`**, so a boosted plosive doesn't become a
+  square wave.
+- **Measured:** large-v3-turbo and small.en both transcribed clean TTS speech
+  at -40 and even -50 dB without a boost. The boost matters for real weak
+  mics: the meter and "too quiet" checks read the level, and real noise
+  sits closer to quiet speech than a synthetic clip's does.
+
 ---
 
 ### 6. The "windowless" app has a hidden console, and it can block

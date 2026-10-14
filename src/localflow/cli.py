@@ -247,6 +247,10 @@ def cmd_transcribe(args, cfg) -> int:
     print(f"decoded {len(audio) / 16000:.2f}s of audio")
     if audio.size == 0:
         return 1
+    if args.boost:
+        cfg.audio.boost = args.boost
+        audio, gain = engine.recorder.apply_gain(audio)
+        print(f"mic boost {args.boost}: x{gain:.1f}")
 
     result = engine.process(np.asarray(audio), cleanup=not args.raw, source="file")
     print(f"\nraw:     {result.raw}")
@@ -367,7 +371,7 @@ def cmd_level(args, cfg) -> int:
     candidates = resolve_candidates(cfg.audio.device)
     device = candidates[0] if candidates else None
     print(f"Reading {device or 'system default'}")
-    print("Speak normally. Ctrl+C to stop.\n")
+    print("Shows the mic itself, before Mic boost. Speak normally. Ctrl+C to stop.\n")
 
     rate = int(device.default_samplerate) if device else 44100
     peak_seen = 0.0
@@ -399,10 +403,19 @@ def cmd_level(args, cfg) -> int:
         print("  -> No signal. Check the mic gain, the 48V switch if your mic")
         print("     needs phantom power, the cable, and Windows mic privacy settings.")
         return 1
+    from .audio import AUTO_MAX, BOOSTS
+
+    boost = (cfg.audio.boost or "none").lower()
     if peak_seen < QUIET_PEAK:
-        print(f"  -> Too quiet; Whisper's VAD will discard this. Turn up the mic gain,")
-        print(f"     or set audio.gain = {max(2.0, round(0.3 / max(peak_seen, 0.001))):.0f} in config.toml as a workaround.")
-        return 1
+        # The smallest fixed boost that lifts this to a comfortable level.
+        fits = [b for b in ("low", "medium", "high") if peak_seen * BOOSTS[b] >= 0.2]
+        pick = fits[0] if fits else "auto"
+        print("  -> Too quiet for Whisper's VAD, which will discard some of it.")
+        print("     Turn up the mic's own gain if it has one. Otherwise set Mic boost")
+        print(f"     in the tray menu to {pick.capitalize()} or Auto (now: {boost.capitalize()}).")
+        if peak_seen * AUTO_MAX < 0.2:
+            print("     Even Auto (+26 dB) leaves this quiet - check the mic itself.")
+        return 0 if boost != "none" else 1
     print("  -> Healthy. Speech should transcribe fine.")
     return 0
 
@@ -627,6 +640,10 @@ def main(argv: list[str] | None = None) -> int:
     p_tr.add_argument("path")
     p_tr.add_argument("--raw", action="store_true", help="skip cleanup")
     p_tr.add_argument("--rules", action="store_true", help="algorithmic cleanup, no LLM")
+    p_tr.add_argument(
+        "--boost", choices=["none", "low", "medium", "high", "auto"], default="",
+        help="apply a mic boost to the file first",
+    )
 
     p_fm = sub.add_parser(
         "fetch-model", help="download the Whisper model (or zip it for another PC)", parents=[common]

@@ -87,6 +87,10 @@ class Tray:
                     pystray.Menu(lambda: self._style_model_items(pystray)),
                 ),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(
+                    lambda _: f"Mic boost: {self.engine.recorder.boost.capitalize()}",
+                    self._boost_menu(pystray),
+                ),
                 pystray.MenuItem("Start sound", self._sound_menu(pystray, "start")),
                 pystray.MenuItem("Stop sound", self._sound_menu(pystray, "stop")),
                 pystray.MenuItem("Paste sound", self._sound_menu(pystray, "paste")),
@@ -140,6 +144,41 @@ class Tray:
             )
         )
         return pystray.Menu(*items)
+
+    def _boost_menu(self, pystray):
+        """Radio list of mic boosts. Takes effect from the next recording."""
+        cfg = self.engine.cfg.audio
+        labels = {
+            "none": "None",
+            "low": "Low (+6 dB)",
+            "medium": "Medium (+12 dB)",
+            "high": "High (+18 dB)",
+            "auto": "Auto (lifts quiet speech)",
+        }
+
+        def pick(choice: str):
+            def action(icon, item) -> None:
+                cfg.boost = choice
+                try:
+                    from .config import save_setting
+
+                    save_setting("audio", "boost", choice)
+                except OSError as exc:
+                    log.warning("could not save mic boost: %s", exc)
+
+            return action
+
+        return pystray.Menu(
+            *[
+                pystray.MenuItem(
+                    label,
+                    pick(name),
+                    checked=lambda item, name=name: self.engine.recorder.boost == name,
+                    radio=True,
+                )
+                for name, label in labels.items()
+            ]
+        )
 
     def _style_action(self, key: str, value: str):
         """Set [style] key (character / tone) now and persist it."""

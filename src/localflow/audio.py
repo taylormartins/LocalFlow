@@ -28,6 +28,68 @@ SILENCE_PEAK = 0.005
 #: Below this, speech is present but Whisper's VAD is likely to discard it.
 QUIET_PEAK = 0.05
 
+#: Fixed mic boosts, picked from the tray. 6 dB steps: each doubles the level.
+BOOSTS = {"none": 1.0, "low": 2.0, "medium": 4.0, "high": 8.0}
+BOOST_CHOICES = ("none", "low", "medium", "high", "auto")
+#: Auto boost lifts the loudest speech in a recording to about this peak.
+#: Whisper doesn't care about level, but its VAD drops quiet speech outright.
+AUTO_TARGET = 0.5
+#: +26 dB. More than this mostly amplifies the room.
+AUTO_MAX = 20.0
+#: Below this the recording is silence, and boosting it would turn room noise
+#: into something Whisper hallucinates words from. Left alone instead.
+AUTO_FLOOR = 0.002
+
+
+def speech_level(audio: np.ndarray) -> float:
+    """Robust peak: the 99.9th percentile, so one click doesn't set the level."""
+    if audio.size == 0:
+        return 0.0
+    sample = np.abs(audio[:: max(1, audio.size // 400_000)])
+    return float(np.percentile(sample, 99.9))
+
+
+#: Auto never lifts the room's background (RMS of the quietest moments) above
+#: this, about -40 dBFS. Level alone can't tell a quiet voice from a noisy
+#: room: a click in an empty room on a normal mic peaks where a weak mic's
+#: speech does, and boosting it x20 hands Whisper noise to invent words from.
+AUTO_NOISE_CEIL = 0.01
+#: Speech peaks rise far above the background between words. Steady noise
+#: peaks at only ~3.3x its own RMS (Gaussian, 99.9th percentile), so a take
+#: whose peaks sit within 6x (15.6 dB) of its quietest stretch is just noise.
+AUTO_MIN_DYNAMICS = 6.0
+
+
+def auto_gain(audio: np.ndarray) -> float:
+    """Gain that brings ``audio``'s speech up to AUTO_TARGET. Only ever boosts."""
+    level = speech_level(audio)
+    if level < AUTO_FLOOR:
+        return 1.0
+    n = audio.size // 1024 * 1024
+    if n == 0:
+        return 1.0
+    frames = audio[:n].reshape(-1, 1024).astype(np.float64)
+    rms = np.sqrt((frames**2).mean(axis=1))
+    floor = max(float(np.percentile(rms, 10)), 1e-6)
+    if level / floor < AUTO_MIN_DYNAMICS:
+        return 1.0
+    gain = min(AUTO_TARGET / level, AUTO_MAX, AUTO_NOISE_CEIL / floor)
+    return float(max(1.0, gain))
+
+
+def limit(audio: np.ndarray) -> np.ndarray:
+    """Soft limiter: linear up to the knee, then eases into +-1 instead of
+    hard-clipping, which would add harsh distortion on boosted plosives."""
+    knee = 0.8
+    mag = np.abs(audio)
+    over = mag > knee
+    if not over.any():
+        return audio
+    out = audio.copy()
+    squashed = knee + (1 - knee) * np.tanh((mag[over] - knee) / (1 - knee))
+    out[over] = np.sign(audio[over]) * squashed
+    return out
+
 
 class AudioError(RuntimeError):
     pass
@@ -129,6 +191,33 @@ class Recorder:
         #: RMS of the most recent block (mic channel, gain applied), for live
         #: metering. A plain float write, so readers on other threads need no lock.
         self.level = 0.0
+        #: Auto boost remembered from earlier recordings (smoothed), for the
+        #: live meter. The final recording is always measured afresh.
+        self.auto_gain = 1.0
+        #: Total gain applied to the last recording, for the log and `check`.
+        self.last_gain = 1.0
+
+    @property
+    def boost(self) -> str:
+        b = (self.cfg.boost or "none").lower()
+        return b if b in BOOST_CHOICES else "none"
+
+    def live_gain(self) -> float:
+        """Gain for metering mid-recording, before the full take exists."""
+        if self.boost == "auto":
+            return self.cfg.gain * self.auto_gain
+        return self.cfg.gain * BOOSTS[self.boost]
+
+    def apply_gain(self, audio: np.ndarray) -> tuple[np.ndarray, float]:
+        """audio.gain, then the boost (fixed, or measured from ``audio``)."""
+        gain = self.cfg.gain
+        if self.boost == "auto":
+            gain *= auto_gain(audio * self.cfg.gain if self.cfg.gain != 1.0 else audio)
+        else:
+            gain *= BOOSTS[self.boost]
+        if gain == 1.0:
+            return audio, gain
+        return limit((audio * gain).astype(np.float32)), gain
 
     @property
     def recording(self) -> bool:
@@ -145,7 +234,7 @@ class Recorder:
         self._live.append(block)  # same array, no extra copy; read by snapshot()
         self._frames += frames
         mic = indata[:, 0]
-        self.level = float(np.sqrt(np.dot(mic, mic) / max(len(mic), 1))) * self.cfg.gain
+        self.level = float(np.sqrt(np.dot(mic, mic) / max(len(mic), 1))) * self.live_gain()
 
     def _open(self, device: DeviceInfo | None) -> sd.InputStream:
         index = device.index if device else None
@@ -226,8 +315,7 @@ class Recorder:
         head = int(self._mute_head * rate) - (self._frames_in(blocks) - len(audio))
         if head > 0:
             audio[:head] = 0.0
-        if self.cfg.gain != 1.0:
-            audio = np.clip(audio * self.cfg.gain, -1.0, 1.0)
+        audio, _ = self.apply_gain(audio)
         if rate != TARGET_RATE:
             audio = soxr.resample(audio, rate, TARGET_RATE, quality="LQ")
         return np.ascontiguousarray(audio, dtype=np.float32)
@@ -288,8 +376,13 @@ class Recorder:
             log.info("discarding %.2fs recording (below min_seconds)", duration)
             return np.zeros(0, dtype=np.float32)
 
-        if self.cfg.gain != 1.0:
-            audio = np.clip(audio * self.cfg.gain, -1.0, 1.0)
+        raw_peak = float(np.abs(audio).max())
+        audio, gain = self.apply_gain(audio)
+        self.last_gain = gain
+        if self.boost == "auto" and raw_peak * self.cfg.gain >= AUTO_FLOOR:
+            # Geometric mean: the meter follows a changed mic within a couple of
+            # recordings without jumping on one odd take.
+            self.auto_gain = float(np.sqrt(self.auto_gain * gain / self.cfg.gain))
 
         # Always record the signal level. Without it a silent microphone and a
         # working one produce identical logs, which is exactly the failure that
@@ -297,11 +390,14 @@ class Recorder:
         self.last_peak = float(np.abs(audio).max())
         self.last_rms = float(np.sqrt((audio.astype(np.float64) ** 2).mean()))
         log.info(
-            "captured %.1fs from %s (peak %.4f, rms %.5f)",
+            "captured %.1fs from %s (peak %.4f, rms %.5f; mic peak %.4f, gain x%.1f %s)",
             duration,
             self.device.hostapi if self.device else "default",
             self.last_peak,
             self.last_rms,
+            raw_peak,
+            gain,
+            self.boost,
         )
         if self.last_peak < SILENCE_PEAK:
             log.error(
@@ -312,7 +408,7 @@ class Recorder:
         elif self.last_peak < QUIET_PEAK:
             log.warning(
                 "input is very quiet (peak %.4f); Whisper's VAD may discard it. "
-                "Turn up the mic gain, or raise audio.gain in config.toml.",
+                "Turn up the mic gain, or set Mic boost in the tray menu (Auto fits most mics).",
                 self.last_peak,
             )
 

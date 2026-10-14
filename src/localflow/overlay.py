@@ -117,7 +117,7 @@ def _short_error(detail: str) -> str:
     """Engine error details are written for the log; the pill fits ~34 chars."""
     d = detail.lower()
     if d.startswith("input too quiet"):
-        return "Mic too quiet - turn up the gain"
+        return "Mic too quiet - try Mic boost"
     if d.startswith("no signal"):
         return "No signal from the mic"
     if d.startswith("no audio captured"):

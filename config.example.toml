@@ -16,7 +16,11 @@ device = ""
 # start a recording and get distracted; the capture is truncated, not lost.
 max_seconds = 600
 min_seconds = 0.35
-# Raise if your mic is quiet and transcripts come back empty.
+# Mic boost, also in the tray menu: "none", "low" (+6 dB), "medium" (+12 dB),
+# "high" (+18 dB), or "auto": measures each recording and lifts quiet speech
+# (up to +26 dB) without turning up an empty room. Never turns anything down.
+boost = "auto"
+# Extra fixed multiplier applied before the boost. Rarely needed now.
 gain = 1.0
 
 [whisper]
