@@ -50,11 +50,12 @@ def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
 
 
 class Tray:
-    def __init__(self, engine: Engine, on_quit=None, sounds=None):
+    def __init__(self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None):
         import pystray
 
         self.engine = engine
         self._on_quit = on_quit
+        self._on_keys_changed = on_keys_changed
         self.sounds = sounds  # SoundCues, or None when cues are not wired up
         self._last_text = ""
         self._recording_since: float | None = None
@@ -87,6 +88,12 @@ class Tray:
                     pystray.Menu(lambda: self._style_model_items(pystray)),
                 ),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(lambda _: self._keys_label(), self._keys_menu(pystray)),
+                pystray.MenuItem(
+                    "Turn Caps Lock off",
+                    lambda icon, item: self._caps_off(),
+                    visible=lambda _: self._caps_on(),
+                ),
                 pystray.MenuItem(
                     lambda _: f"Mic boost: {self.engine.recorder.boost.capitalize()}",
                     self._boost_menu(pystray),
@@ -143,6 +150,108 @@ class Tray:
                 visible=is_custom,
             )
         )
+        return pystray.Menu(*items)
+
+    # -- dictation keys ----------------------------------------------------
+
+    @staticmethod
+    def _caps_on() -> bool:
+        try:
+            from .hotkey import caps_lock_on
+
+            return caps_lock_on()
+        except Exception:
+            return False
+
+    def _caps_off(self) -> None:
+        from .hotkey import caps_lock_off
+
+        caps_lock_off()
+
+    def _key_lists(self) -> tuple[list[str], list[str]]:
+        h = self.engine.cfg.hotkeys
+        as_list = lambda v: [v] if isinstance(v, str) and v else list(v or [])  # noqa: E731
+        return as_list(h.dictate), as_list(h.dictate_raw)
+
+    def _keys_label(self) -> str:
+        from .hotkey import KEY_PRESETS
+
+        dictate, _ = self._key_lists()
+        if not dictate:
+            return "Dictation keys: none"
+        names = {spec: name for name, (spec, _raw) in KEY_PRESETS.items()}
+        return "Dictation keys: " + ", ".join(names.get(s, s) for s in dictate)
+
+    def _set_keys(self, dictate: list[str], raw: list[str]) -> None:
+        h = self.engine.cfg.hotkeys
+        h.dictate, h.dictate_raw = dictate, raw
+        try:
+            from .config import save_setting
+
+            save_setting("hotkeys", "dictate", dictate)
+            save_setting("hotkeys", "dictate_raw", raw)
+        except OSError as exc:
+            log.warning("could not save dictation keys: %s", exc)
+        if self._on_keys_changed:
+            self._on_keys_changed()
+        self.icon.update_menu()
+        names = self._keys_label().split(": ", 1)[1]
+        self.notify(
+            f"Dictation keys: {names}" if dictate else "No dictation key - pick one here any time",
+            "LocalFlow",
+        )
+
+    def _keys_menu(self, pystray):
+        """Checkboxes: any mix of the presets, or none. Takes effect at once."""
+        from .hotkey import KEY_PRESETS
+
+        def toggle(name: str):
+            spec, raw_spec = KEY_PRESETS[name]
+
+            def action(icon, item) -> None:
+                dictate, raw = self._key_lists()
+                if spec in dictate:
+                    dictate = [s for s in dictate if s != spec]
+                    raw = [s for s in raw if s != raw_spec]
+                else:
+                    dictate.append(spec)
+                    if raw_spec not in raw:
+                        raw.append(raw_spec)
+                self._set_keys(dictate, raw)
+
+            return action
+
+        def labels(name: str) -> str:
+            spec, raw_spec = KEY_PRESETS[name]
+            raw = "F10" if raw_spec == "<f10>" else f"Shift+{name}"
+            return f"{name}   (raw: {raw})"
+
+        items = [
+            pystray.MenuItem(
+                labels(name),
+                toggle(name),
+                checked=lambda item, spec=spec: spec in self._key_lists()[0],
+            )
+            for name, (spec, _raw) in KEY_PRESETS.items()
+        ]
+        presets = {spec for spec, _raw in KEY_PRESETS.values()}
+        items += [
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "None (no dictation key)",
+                lambda icon, item: self._set_keys([], []),
+                checked=lambda item: not self._key_lists()[0],
+                radio=True,
+            ),
+            # Keys set by hand in config.toml that aren't presets: shown, kept.
+            pystray.MenuItem(
+                lambda item: "Also from config.toml: "
+                + ", ".join(s for s in self._key_lists()[0] if s not in presets),
+                None,
+                enabled=False,
+                visible=lambda item: any(s not in presets for s in self._key_lists()[0]),
+            ),
+        ]
         return pystray.Menu(*items)
 
     def _boost_menu(self, pystray):
@@ -469,7 +578,23 @@ class Tray:
 
     def run(self) -> None:
         """Blocking; must be called from the main thread on Windows."""
+        threading.Thread(target=self._watch_caps, daemon=True, name="localflow-caps").start()
         self.icon.run()
+
+    def _watch_caps(self) -> None:
+        """pystray builds the menu ahead of time, not on right-click, so the
+        "Turn Caps Lock off" entry only appears if the menu is rebuilt when
+        Caps Lock changes. One GetKeyState per second costs nothing."""
+        last = None
+        while True:
+            now = self._caps_on()
+            if now != last:
+                last = now
+                try:
+                    self.icon.update_menu()
+                except Exception:
+                    pass
+            time.sleep(1.0)
 
     def run_detached(self) -> threading.Thread:
         t = threading.Thread(target=self.run, daemon=True, name="localflow-tray")

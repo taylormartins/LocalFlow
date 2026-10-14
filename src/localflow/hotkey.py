@@ -89,12 +89,53 @@ def spec_to_vks(spec: str) -> frozenset[int]:
     return frozenset(vks)
 
 
-def _tap_mask_key() -> None:
+#: Dictation keys selectable from the tray: name -> (dictate, dictate_raw).
+#: Raw (verbatim, no cleanup) is the same key with Shift, except F9's F10.
+KEY_PRESETS: dict[str, tuple[str, str]] = {
+    "Caps Lock": ("<caps_lock>", "<shift>+<caps_lock>"),
+    "Ctrl+Win": ("<ctrl>+<cmd>", "<ctrl>+<cmd>+<shift>"),
+    "F9": ("<f9>", "<f10>"),
+    "Scroll Lock": ("<scroll_lock>", "<shift>+<scroll_lock>"),
+    "Pause/Break": ("<pause>", "<shift>+<pause>"),
+}
+
+VK_CAPITAL = 0x14
+#: dwExtraInfo stamped on keys LocalFlow injects itself, so the hook lets them
+#: through. Without it, turning Caps Lock off from code would be swallowed by
+#: the very Caps Lock binding that made it impossible to turn off by hand.
+OWN_INPUT = 0x4C46  # "LF"
+
+
+def _tap(vk: int) -> None:
     import ctypes
 
     user32 = ctypes.windll.user32
-    user32.keybd_event(VK_MASK, 0, 0, 0)
-    user32.keybd_event(VK_MASK, 0, 2, 0)  # KEYEVENTF_KEYUP
+    user32.keybd_event(vk, 0, 0, OWN_INPUT)
+    user32.keybd_event(vk, 0, 2, OWN_INPUT)  # KEYEVENTF_KEYUP
+
+
+def _tap_mask_key() -> None:
+    _tap(VK_MASK)
+
+
+def caps_lock_on() -> bool:
+    import ctypes
+
+    return bool(ctypes.windll.user32.GetKeyState(VK_CAPITAL) & 1)
+
+
+def caps_lock_off() -> bool:
+    """Turn Caps Lock off if it is on. Returns whether it had to.
+
+    A Caps Lock dictation key swallows the key, so Caps Lock left on before
+    LocalFlow started (or by a tap that slipped through) would otherwise stay
+    on for good.
+    """
+    if not caps_lock_on():
+        return False
+    _tap(VK_CAPITAL)
+    log.info("turned Caps Lock off")
+    return True
 
 
 @dataclass
@@ -143,6 +184,22 @@ class HotkeyManager:
 
     def bind(self, binding: Binding) -> None:
         self._bindings.append(binding)
+
+    def replace(self, bindings: list[Binding]) -> None:
+        """Swap every binding while running (the tray's key picker).
+
+        One list assignment, which the hook thread sees atomically. A toggle
+        recording that is running stays stoppable: _toggled is matched by
+        group, and the new bindings use the same groups.
+        """
+        self._bindings = list(bindings)
+        self._active = None
+        self._chord = None
+        log.info("hotkeys now: %s", ", ".join(b.spec for b in bindings) or "none")
+
+    @property
+    def specs(self) -> list[str]:
+        return [b.spec for b in self._bindings]
 
     # -- dispatch ----------------------------------------------------------
 
@@ -243,7 +300,7 @@ class HotkeyManager:
         if self._listener is None:
             return None
         vk = normalise_vk(getattr(data, "vkCode", None))
-        if vk is None or vk == VK_MASK:
+        if vk is None or vk == VK_MASK or getattr(data, "dwExtraInfo", None) == OWN_INPUT:
             return None
 
         if msg in DOWN_MESSAGES:

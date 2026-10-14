@@ -224,8 +224,8 @@ def load(path: Path | None = None) -> tuple[Config, list[str]]:
     return cfg, warnings
 
 
-def save_setting(section: str, key: str, value: str, path: Path | None = None) -> None:
-    """Set one string value in config.toml, leaving every other line untouched.
+def save_setting(section: str, key: str, value: str | list[str], path: Path | None = None) -> None:
+    """Set one string (or list of strings) in config.toml, leaving every other line untouched.
 
     Used by the tray menu. A targeted line edit rather than a TOML rewrite, so
     the hand-written comments in config.toml survive.
@@ -248,7 +248,12 @@ def save_setting(section: str, key: str, value: str, path: Path | None = None) -
         pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
         hit = next((i for i in range(start + 1, end) if pattern.match(lines[i])), None)
         if hit is not None:
-            lines[hit] = new_line
+            # A hand-written array can span lines; replace all of it.
+            last = hit
+            if "[" in lines[hit].split("=", 1)[1] and "]" not in lines[hit].split("#", 1)[0]:
+                while last + 1 < end and "]" not in lines[last]:
+                    last += 1
+            lines[hit : last + 1] = [new_line]
         else:
             # After the section's last non-blank line, so it stays inside it.
             insert = end

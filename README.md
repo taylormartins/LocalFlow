@@ -185,12 +185,30 @@ uv run localflow clean "um so send it tuesday no wait wednesday"
 | **Shift+Caps Lock** or **Ctrl+Win+Shift** (or F10) | Same, but verbatim: no cleanup or rewriting |
 | **Esc** | Cancel the current recording without transcribing |
 
-Caps Lock no longer toggles capitals while LocalFlow runs. Use the raw keys when
-you need exact text: code, quotes, anywhere a helpful rewrite would be wrong.
+Use the raw keys when you need exact text: code, quotes, anywhere a helpful
+rewrite would be wrong.
+
+**Choosing keys.** Right-click the tray icon ▸ **Dictation keys**, and tick any
+mix of the following. Changes apply immediately, with no restart:
+
+| Key | Raw (verbatim) version |
+|---|---|
+| Caps Lock | Shift+Caps Lock |
+| Ctrl+Win | Ctrl+Win+Shift |
+| F9 | F10 |
+| Scroll Lock | Shift+Scroll Lock |
+| Pause/Break | Shift+Pause/Break |
+| None | No dictation key at all |
+
+While Caps Lock is a dictation key, it no longer toggles capitals. If capitals
+are stuck on (say Caps Lock was on before LocalFlow started), LocalFlow turns
+them off at startup. A **Turn Caps Lock off** item also appears in the tray
+menu whenever capitals are on. Untick Caps Lock to get the normal key back.
 
 Tap-to-toggle is the default so you can start a recording and keep working. For
 push-to-talk instead, set `hotkeys.mode = "hold"` in `config.toml` and the same
-keys record only while held. Keys are changed under `[hotkeys]`.
+keys record only while held. Other key combinations can be set by hand under
+`[hotkeys]`. The tray menu lists them and leaves them alone.
 
 While recording, a small pill appears just above the taskbar. Its bars scroll
 with your voice, bright while you speak and dim in silence, beside a timer. A

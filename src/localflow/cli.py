@@ -510,21 +510,15 @@ def cmd_serve(args, cfg) -> int:
     return 0
 
 
-def cmd_run(args, cfg) -> int:
-    """The real thing: tray icon, global hotkeys, and the phone server."""
-    from .engine import Engine, State
-    from .hotkey import Binding, HotkeyManager
-    from .tray import Tray
+def build_bindings(cfg, engine) -> list:
+    """Hotkey bindings from cfg.hotkeys. Rebuilt whenever the tray changes keys."""
+    from .hotkey import Binding
 
-    engine = Engine(cfg)
-    hotkeys = HotkeyManager()
-    stopping = threading.Event()
-
-    hold = cfg.hotkeys.mode == "hold"
+    bindings = []
     # Each action can have several shortcuts (e.g. Caps Lock and Ctrl+Win);
     # sharing a group makes them one switch, so either can stop the recording.
     for spec in _specs(cfg.hotkeys.dictate):
-        hotkeys.bind(
+        bindings.append(
             Binding(
                 spec=spec,
                 on_press=lambda: engine.start_recording(cleanup=True),
@@ -534,7 +528,7 @@ def cmd_run(args, cfg) -> int:
             )
         )
     for spec in _specs(cfg.hotkeys.dictate_raw):
-        hotkeys.bind(
+        bindings.append(
             Binding(
                 spec=spec,
                 on_press=lambda: engine.start_recording(cleanup=False),
@@ -547,7 +541,7 @@ def cmd_run(args, cfg) -> int:
         # Matters most in toggle mode, where a recording left running has no
         # other way out. Never suppressed - swallowing Escape globally would
         # break every other application.
-        hotkeys.bind(
+        bindings.append(
             Binding(
                 spec=cfg.hotkeys.cancel,
                 on_press=lambda: engine.cancel_recording(),
@@ -555,11 +549,48 @@ def cmd_run(args, cfg) -> int:
                 suppress=False,
             )
         )
+    return bindings
+
+
+def _hint(cfg) -> str:
+    keys = _specs(cfg.hotkeys.dictate)
+    if not keys:
+        return "No dictation key set - pick one: tray menu > Dictation keys"
+    if cfg.hotkeys.mode == "hold":
+        hint = f"Hold {' or '.join(keys)} to dictate"
+        if _specs(cfg.hotkeys.dictate_raw):
+            hint += f", {' or '.join(_specs(cfg.hotkeys.dictate_raw))} for raw"
+    else:
+        hint = f"Tap {' or '.join(keys)} to start, tap again to stop"
+        if cfg.hotkeys.cancel:
+            hint += f". {cfg.hotkeys.cancel} cancels"
+    return hint
+
+
+def cmd_run(args, cfg) -> int:
+    """The real thing: tray icon, global hotkeys, and the phone server."""
+    from .engine import Engine
+    from .hotkey import VK_CAPITAL, HotkeyManager, caps_lock_off
+    from .tray import Tray
+
+    engine = Engine(cfg)
+    hotkeys = HotkeyManager()
+    stopping = threading.Event()
+    for binding in build_bindings(cfg, engine):
+        hotkeys.bind(binding)
+
+    def caps_is_a_hotkey() -> bool:
+        return any(VK_CAPITAL in b.triggers for b in hotkeys._bindings)
+
+    def rebind() -> None:
+        hotkeys.replace(build_bindings(cfg, engine))
+        if caps_is_a_hotkey():
+            caps_lock_off()
 
     from .sounds import SoundCues
 
     cues = SoundCues(engine, cfg.sounds)
-    tray = Tray(engine, on_quit=stopping.set, sounds=cues)
+    tray = Tray(engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind)
 
     if cfg.overlay.enabled:
         from .overlay import Overlay
@@ -574,15 +605,11 @@ def cmd_run(args, cfg) -> int:
     def boot() -> None:
         engine.warmup()
         hotkeys.start()
-        if hold:
-            hint = f"Hold {' or '.join(_specs(cfg.hotkeys.dictate))} to dictate"
-            if cfg.hotkeys.dictate_raw:
-                hint += f", {' or '.join(_specs(cfg.hotkeys.dictate_raw))} for raw"
-        else:
-            hint = f"Tap {' or '.join(_specs(cfg.hotkeys.dictate))} to start, tap again to stop"
-            if cfg.hotkeys.cancel:
-                hint += f". {cfg.hotkeys.cancel} cancels"
-        tray.notify(hint, "LocalFlow ready")
+        # Caps Lock left on before LocalFlow started can't be turned off by
+        # hand while Caps Lock is a dictation key (the key is swallowed).
+        if caps_is_a_hotkey():
+            caps_lock_off()
+        tray.notify(_hint(cfg), "LocalFlow ready")
 
     threading.Thread(target=boot, daemon=True, name="localflow-boot").start()
 

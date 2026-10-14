@@ -78,8 +78,9 @@ paste_delay = 0.08
 # "toggle" = tap F9 to start, go do other things, tap F9 again to stop.
 # "hold"   = push-to-talk; records only while the key is held down.
 mode = "toggle"
-# A list gives several shortcuts that act as one switch. Caps Lock is
-# suppressed (stops toggling caps). Modifier-only chords like Ctrl+Win fire on a
+# Easiest to change from the tray: Dictation keys. A list gives several
+# shortcuts that act as one switch; [] = none. Caps Lock is suppressed (stops
+# toggling caps; LocalFlow turns caps off at startup if it was left on). Modifier-only chords like Ctrl+Win fire on a
 # clean tap, so Ctrl+Win+D/arrows still work and Start never opens.
 dictate = ["<caps_lock>", "<ctrl>+<cmd>", "<f9>"]
 dictate_raw = ["<shift>+<caps_lock>", "<ctrl>+<cmd>+<shift>", "<f10>"]

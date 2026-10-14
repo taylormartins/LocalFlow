@@ -79,6 +79,18 @@ Two consequences worth remembering:
   collapses left/right variants onto the generic code before comparing.
 - Only *trigger* keys are suppressed, and only while their modifiers are held.
   Blanket-suppressing Ctrl would break the entire keyboard.
+- **A suppressed Caps Lock can strand capitals on.** If Caps Lock was on when
+  LocalFlow started, nothing could turn it off: every press was swallowed,
+  including one sent from code. Keys LocalFlow injects itself now carry
+  `dwExtraInfo = OWN_INPUT`, and the filter lets those through. Only our own,
+  not every injected key: AutoHotkey remaps to F9 must still trigger.
+  `caps_lock_off()` runs at startup and whenever Caps Lock is (re)bound. The
+  tray shows "Turn Caps Lock off" while capitals are on. `_watch_caps` polls
+  the state, because pystray builds its menu ahead of time, not on right-click.
+- **Keys can change at runtime** (tray ▸ Dictation keys).
+  `HotkeyManager.replace()` swaps the whole binding list in one assignment.
+  `cli.build_bindings()` is the single place bindings are built. A toggle
+  recording survives a rebind, because it's matched by group, not binding.
 
 ### 2. The cleanup model wants to answer you
 
