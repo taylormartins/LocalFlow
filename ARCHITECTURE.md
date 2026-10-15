@@ -476,6 +476,13 @@ phrase (while dictating) is among them.
   `UV_NATIVE_TLS`): behind Zscaler, uv's own certificates failed only after
   minutes of retries. The tray reads update.log's `== step` lines for
   progress and calls it stuck after 5 minutes without a new line.
+- **Quit always quits**: `Tray._quit` starts `_exit_if_stuck`. If the
+  clean shutdown (logged step by step) hasn't ended the process in 8 s, it
+  dumps every thread's stack to crash.log and calls `os._exit(0)`. A work-PC
+  copy kept its icon after Quit, stopped answering, then carried on.
+  update.ps1 first stops any earlier update.ps1 for the same folder (and
+  everything it started), because a hung update held the locks the next
+  one waited on.
 - **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
   (gitignored, trimmed to `max_items`). The window is its own process
   (`localflow history`). It records the foreground window at launch, and

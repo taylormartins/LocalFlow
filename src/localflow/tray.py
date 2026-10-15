@@ -35,6 +35,40 @@ STATE_COLOURS = {
 }
 
 
+QUIT_GRACE = 8.0
+
+
+def _exit_if_stuck() -> None:
+    """Quit means quit. If the clean shutdown hasn't finished in QUIT_GRACE
+    seconds, write every thread's stack to crash.log (so the cause shows next
+    time) and end the process. A copy on a work PC kept its icon after Quit,
+    stopped answering, then carried on as if nothing had happened."""
+
+    def watchdog() -> None:
+        time.sleep(QUIT_GRACE)
+        import faulthandler
+        import os
+
+        log.warning("quit took over %.0fs - forcing it (stacks in crash.log)", QUIT_GRACE)
+        try:
+            from .config import PROJECT_ROOT
+
+            with open(PROJECT_ROOT / "crash.log", "a", encoding="utf-8") as fh:
+                fh.write(f"--- quit stuck {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                fh.flush()
+                faulthandler.dump_traceback(fh, all_threads=True)
+        except Exception:
+            pass
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+        os._exit(0)
+
+    threading.Thread(target=watchdog, daemon=True, name="localflow-quit-watchdog").start()
+
+
 def _update_step(log_file, start: int) -> str:
     """The installer's current step ("Python and dependencies") from the part
     of update.log written by this run."""
@@ -835,6 +869,8 @@ class Tray:
         self.engine.cleaner.cfg.enabled = self.engine.cfg.cleanup.enabled
 
     def _quit(self) -> None:
+        log.info("quitting")
+        _exit_if_stuck()
         if self._on_quit:
             self._on_quit()
         self.icon.stop()

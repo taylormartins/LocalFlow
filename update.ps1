@@ -69,6 +69,15 @@ function Start-LocalFlow {
 }
 
 Log '--- update started'
+# One update at a time. An earlier run that hung (a download stuck behind a
+# proxy) kept its locks, and the next update waited on them for ever: stop it
+# and everything it started first.
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'update\.ps1' -and $_.CommandLine -match [regex]::Escape($root) } |
+    ForEach-Object {
+        Log ("stopping an earlier update that is still running (pid {0})" -f $_.ProcessId)
+        taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null
+    }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail 'git is not installed' }
 if (-not (Test-Path (Join-Path $root '.git'))) {
     Fail 'this folder is not a git checkout (downloaded as a ZIP?). Download the new ZIP from https://github.com/taylormartins/LocalFlow and run install.cmd'

@@ -843,9 +843,14 @@ def cmd_run(args, cfg) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        log = logging.getLogger("localflow")
+        log.info("shutting down: listener")
         listener.stop()
+        log.info("shutting down: hotkeys")
         hotkeys.stop()
+        log.info("shutting down: models")
         engine.shutdown()
+        log.info("shut down")
     return 0
 
 
