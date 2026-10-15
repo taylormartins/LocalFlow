@@ -357,6 +357,34 @@ phrase (while dictating) is among them.
 - **Setup is a separate process** (`localflow enroll`), so its Tk window never
   shares an interpreter with the overlay's Tk. The tray pauses the listener
   while it's open, so the takes don't trigger anything.
+- **Reaction time** (`tests/always_on_latency.py` feeds TTS in real time).
+  It was 1.3-1.7 s from the end of a phrase to detection. Now it's 0.17 s
+  with a GPU and 0.75 s on the CPU:
+  - *Early check:* after 0.2 s of quiet (`PEEK`), the burst so far goes to
+    the detector if it's free. Only bursts at least 80% as long as the
+    shortest setup take qualify, because a pause inside the phrase ("Listen
+    to me, ...") otherwise spent the CPU on half a phrase.
+  - *`_consumed`:* stops an early check and the full burst triggering twice.
+  - *`temperature=0.0` in `Detector.words`:* a cut-off phrase looks
+    uncertain, and Whisper's fallback decoded it six times. That was 6.7 s
+    instead of 1.3 s, and it hid behind everything else.
+  - *Detector on the GPU* when the dictation model is (`models.small_whisper`,
+    falls back to CPU).
+  - *`Detector.warm()` at start* on a real setup take. The first inference
+    pays about 1 s of one-off costs, which otherwise landed on the first
+    phrase after every boot.
+- **Noise floor = 15th percentile of the last 2 s of frame RMS**, ignoring
+  exact zeros. The old creeping floor sank to nothing on digital silence
+  (TTS padding, and also mics with suppression or a gate). Room hiss then
+  counted as speech for about two minutes, so the stop phrase's burst never
+  ended.
+- **Voice commands** (`always_on.COMMANDS`, `[always_on].commands`). After
+  the stop phrase a window opens (`command_window`, 4 s). A burst inside it
+  that is only a command (at most one extra word) runs it. Processing starts
+  at the stop phrase regardless. A command heard before the paste is done
+  waits for `Engine.finish_external(done=...)`, which fires after delivery.
+  "submit" waits 0.15 s and taps Enter, marked `OWN_INPUT`, because Ctrl+V
+  is processed asynchronously and an earlier Enter overtook it.
 - `tests/always_on.py` checks the whole loop with TTS: enrol, a conversation,
   no pause after the start phrase, and four near-miss sentences. Measured on
   this PC: about 1% of one core and about 160 MB while listening.
@@ -409,6 +437,29 @@ $s.SetOutputToWaveFile("test.wav"); $s.Speak("um so I think we should, actually 
   a wake phrase.
 
 ---
+
+## One tray app, one icon
+
+A work PC collected a live tray icon per restart (three copies running, one an
+older build). `restart.ps1` finds the old copy by command line. A run without
+admin rights can't read an elevated process's command line, so it found
+"nothing" and started a second copy. Now there are three layers:
+
+1. **Clean handoff.** Restart writes `.quit`; the app (`cli._watch_quit_file`)
+   quits through the tray, which removes the icon properly. A killed process
+   leaves its icon until the mouse passes over it. A file works across
+   elevation; signals don't. Hard kill only after 8 s. The installer and
+   updater stop it the same way.
+2. **Privilege.** A blank command line *and* path counts as ours. A
+   non-elevated `restart.ps1` hands the restart to the elevated `LocalFlow
+   resume` task up front, rather than starting a non-admin copy.
+3. **Single instance.** `cli._claim_single_instance`: a named mutex
+   (`Local\LocalFlowTrayApp`). A second copy waits 8 s for the first to go,
+   then exits 0, so the supervisor doesn't relaunch it. Access denied (the
+   owner is elevated) also counts as "exists".
+
+Tested on this PC: elevated restart, a restart from a non-admin scheduled task,
+and a deliberate second launch. Each left exactly one copy.
 
 ## Startup
 

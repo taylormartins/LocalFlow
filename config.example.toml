@@ -148,6 +148,11 @@ model = ""           # "" = cleanup model; "gemma4:12B" = stronger voices, ~2.8 
 enabled = false
 model = "base.en"          # listens for the phrases only; CPU, ~160 MB
 idle_stop_seconds = 45.0   # finish on our own after this much silence
+command_window = 4.0       # seconds after the stop phrase in which a command counts
+
+[always_on.commands]
+# Said on its own right after the stop phrase; runs once the text is pasted.
+submit = ["submit", "send it", "press enter", "hit enter"]   # presses Enter
 
 [vocabulary]
 # Proper nouns and jargon Whisper tends to mangle. These are fed to Whisper as

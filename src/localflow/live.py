@@ -88,6 +88,9 @@ class LivePreview:
         segments, _ = self._cpu_model().transcribe(
             audio, language=self.engine.cfg.whisper.language or None, beam_size=1,
             vad_filter=True, condition_on_previous_text=False, without_timestamps=True,
+            # Mid-sentence windows look "uncertain"; no temperature fallback
+            # (it decodes up to six times - see wake.Detector.words).
+            temperature=0.0,
         )
         return " ".join(s.text.strip() for s in segments).strip()
 

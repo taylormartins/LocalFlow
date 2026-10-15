@@ -649,8 +649,71 @@ def _version_change() -> str:
         return ""
 
 
+_instance_handle = None  # held for the life of the process
+
+
+def _claim_single_instance(wait: float = 8.0) -> bool:
+    """One tray app per session. A named mutex lives exactly as long as the
+    process that holds it, so a crashed copy never blocks the next one.
+
+    The last line of defence against stacked tray icons: if a restart ever
+    fails to stop the old copy (it ran elevated and the restart didn't), the
+    new one bows out instead of adding a second live icon. It waits a few
+    seconds first, because during a normal restart the old copy is still on
+    its way out.
+    """
+    global _instance_handle
+    if os.name != "nt":
+        return True
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    deadline = time.monotonic() + wait
+    while True:
+        handle = kernel32.CreateMutexW(None, False, "Local\\LocalFlowTrayApp")
+        err = ctypes.get_last_error()
+        # 183 = already exists; a NULL handle (access denied) means an
+        # elevated copy owns it and we're not elevated: also "exists".
+        if handle and err != 183:
+            _instance_handle = handle
+            return True
+        if handle:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def _watch_quit_file(tray) -> None:
+    """restart.ps1 asks the running copy to quit by creating `.quit` (works
+    across elevation, unlike signals). Quitting through the tray removes the
+    icon; being killed leaves it behind until the mouse passes over it."""
+    quit_file = config_mod.PROJECT_ROOT / ".quit"
+    quit_file.unlink(missing_ok=True)  # a leftover from before we started
+
+    def watch() -> None:
+        while True:
+            time.sleep(0.5)
+            if quit_file.exists():
+                logging.getLogger("localflow").info("restart requested a clean exit")
+                try:
+                    quit_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                tray.stop()
+                return
+
+    threading.Thread(target=watch, daemon=True, name="localflow-quit-watch").start()
+
+
 def cmd_run(args, cfg) -> int:
     """The real thing: tray icon, global hotkeys, and the phone server."""
+    if not _claim_single_instance():
+        logging.getLogger("localflow").warning(
+            "another LocalFlow tray app is already running in this session; exiting"
+        )
+        return 0
     from .engine import Engine
     from .hotkey import VK_CAPITAL, HotkeyManager, caps_lock_off
     from .tray import Tray
@@ -718,6 +781,7 @@ def cmd_run(args, cfg) -> int:
         ).start()
         print(f"phone endpoint: http://localhost:{cfg.server.port}")
 
+    _watch_quit_file(tray)
     try:
         tray.run()  # blocks on the main thread until Quit
     except KeyboardInterrupt:

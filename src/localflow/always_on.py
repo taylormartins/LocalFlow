@@ -22,13 +22,14 @@ import logging
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 
 import numpy as np
 
 from .audio import resolve_candidates
 from .config import Config
-from .wake import RATE, Detector, Hit, Phrases, strip_phrases
+from .wake import RATE, Detector, Hit, Phrases, find, normalise, strip_phrases
 
 log = logging.getLogger(__name__)
 
@@ -36,12 +37,31 @@ FRAME = 480  # 30 ms
 RING_SECONDS = 30
 PREROLL = 0.3  # kept before the first loud frame: soft consonants start quiet
 HANGOVER = 0.5  # quiet that ends a burst
+#: Quiet after which the burst so far is checked early, if the detector is
+#: free: most people pause briefly after a phrase, and waiting out the whole
+#: HANGOVER was a third of the delay before the start cue.
+PEEK = 0.2
 MAX_BURST = 6.0
 OVERLAP = 2.0
 #: Margins at the cuts. Whisper's word times are good to ~0.1 s; erring into
 #: the phrase is fixed by strip_phrases, erring into the dictation is not.
 START_MARGIN = 0.08
 STOP_MARGIN = 0.05
+
+
+def _press_enter() -> None:
+    # A moment for the target app to take in the paste first: Ctrl+V is
+    # processed asynchronously, and Enter overtaking it would send nothing.
+    time.sleep(0.15)
+    from .hotkey import _tap
+
+    _tap(0x0D)  # VK_RETURN, marked as our own input so the hook ignores it
+
+
+#: Actions for the voice commands in [always_on].commands.
+COMMANDS: dict[str, Callable[[], None]] = {
+    "submit": _press_enter,
+}
 
 
 class Ring:
@@ -97,6 +117,23 @@ class Listener:
         # segmenter state
         self._carry = np.zeros(0, dtype=np.float32)
         self._floor = 0.002
+        #: Absolute sample before which words were already used by a phrase,
+        #: so an early check and the full burst can never trigger twice.
+        self._consumed = 0
+        self._busy = False
+        self._peeked: tuple[int, int] | None = None  # (burst start, last loud) at the peek
+        # Voice commands after the stop phrase (see _command).
+        self._cmd_from = 0  # absolute samples: the window opens at the stop phrase's end...
+        self._cmd_until = 0  # ...and closes command_window seconds later
+        self._delivered = False  # this dictation's text is in (paste done)
+        self._pending: str | None = None  # heard before the paste finished
+        self._cmd_lock = threading.Lock()
+        self._commands = {
+            name: [normalise(s) for s in spellings if normalise(s)]
+            for name, spellings in cfg.always_on.commands.items()
+        }
+        self._levels: deque[float] = deque(maxlen=int(2.0 * RATE / FRAME))
+        self._since_floor = 0
         self._run = 0
         self._in_speech = False
         self._burst_start = 0
@@ -113,7 +150,9 @@ class Listener:
         log.info("always-on: phrases %r / %r", self.detector.phrases.start.text,
                  self.detector.phrases.stop.text)
 
-    def start(self) -> None:
+    def start(self, stream: bool = True) -> None:
+        """Start listening. ``stream=False`` (tests) runs everything but the
+        mic: audio then arrives through feed_realtime()."""
         if self.running:
             return
         if not self.ready:
@@ -125,10 +164,16 @@ class Listener:
         ]
         for t in self._threads:
             t.start()
-        self._open_stream()
+        if stream:
+            self._open_stream()
+        else:
+            self._rate = RATE
         self.engine.external_stop = self.finish
+        # On the GPU when the dictation model is: ~10x faster than the CPU,
+        # and the phrase detection time is most of the wait for the cue.
+        self.detector.device = "cuda" if self.engine.transcriber.device_in_use == "cuda" else "cpu"
         # Load the listening model now, not on the first phrase.
-        threading.Thread(target=self.detector.load, daemon=True, name="localflow-wake-load").start()
+        threading.Thread(target=self.detector.warm, daemon=True, name="localflow-wake-load").start()
         log.info("always-on: listening for %r", self.detector.phrases.start.text)
 
     def _open_stream(self) -> None:
@@ -221,12 +266,18 @@ class Listener:
         end = self.ring.end - len(self._carry)  # absolute end of the last frame
         first = end - n
         for k, r in enumerate(rms):
-            # Noise floor: follows quiet quickly, creeps up slowly (~5 %/s) so
-            # a steady fan or hum stops counting as speech after a while.
-            if r < self._floor:
-                self._floor = 0.9 * self._floor + 0.1 * max(r, 1e-6)
-            else:
-                self._floor *= 1.0015
+            # Noise floor: a low percentile of the last 2 s, so it follows
+            # the room both ways within a couple of seconds. Exact digital
+            # silence is left out: mics with noise suppression or a gate
+            # output zeros between words, and an earlier creeping floor sank
+            # to nothing on those. Room hiss then counted as speech for about
+            # two minutes, so no burst ended and the stop phrase went unheard.
+            if r > 1e-5:
+                self._levels.append(r)
+                self._since_floor += 1
+                if self._since_floor >= 5 and len(self._levels) >= 10:
+                    self._floor = float(np.percentile(self._levels, 15))
+                    self._since_floor = 0
             loud = r > max(3.0 * self._floor, 4e-4)
             t = first + (k + 1) * FRAME
             if loud:
@@ -238,12 +289,36 @@ class Listener:
                     self._burst_start = t - 3 * FRAME - int(PREROLL * RATE)
                 continue
             self._quiet = 0 if loud else self._quiet + 1
-            if self._quiet * FRAME >= HANGOVER * RATE:
-                self._emit(self._burst_start, t - self._quiet * FRAME + int(0.2 * RATE))
+            quiet_s = self._quiet * FRAME / RATE
+            if quiet_s >= HANGOVER:
+                if self._peeked != (self._burst_start, self._last_speech):
+                    self._emit(self._burst_start, t - self._quiet * FRAME + int(0.2 * RATE))
+                # else: nothing was said since the early check of this burst.
                 self._in_speech, self._run = False, 0
+            elif (
+                self._quiet == int(PEEK * RATE / FRAME)
+                and not self._busy and self._bursts.empty()
+                # Only once the burst could hold the whole phrase: a pause
+                # inside it ("Listen to me, ...") would otherwise spend the
+                # detector on half a phrase right as the rest is said. A
+                # one-word command in its window gets checked early too.
+                and t - self._burst_start >= (
+                    int((0.4 + PREROLL) * RATE) if self._cmd_until > t else self._peek_min()
+                )
+            ):
+                self._peeked = (self._burst_start, self._last_speech)
+                self._emit(self._burst_start, t)
             elif t - self._burst_start >= MAX_BURST * RATE:
                 self._emit(self._burst_start, t)
                 self._burst_start = t - int(OVERLAP * RATE)
+
+    def _peek_min(self) -> int:
+        """Samples a burst needs before an early check: 80 % of the shortest
+        setup take of the phrase we're waiting for, plus the pre-roll."""
+        which = "stop" if self.dictating else "start"
+        frames = self.detector.shortest_take(which)  # 20 ms feature frames
+        seconds = 0.8 * frames * 0.02 if frames else 0.8
+        return int((seconds + PREROLL) * RATE)
 
     def _emit(self, a: int, b: int) -> None:
         try:
@@ -266,10 +341,13 @@ class Listener:
                 return
             if self.paused:
                 continue
+            self._busy = True
             try:
                 self._check(*item)
             except Exception:
                 log.exception("always-on: detection failed")
+            finally:
+                self._busy = False
 
     def _check(self, a: int, b: int) -> None:
         clip = self.ring.get(a, b)
@@ -284,10 +362,14 @@ class Listener:
             return
         self.on_event("heard", " ".join(w.text for w in words))
 
+        fresh = max(0.0, (self._consumed - a) / RATE)  # skip words a phrase already used
+        if not self.dictating and self._cmd_until > a:
+            if self._check_command(a, words, fresh):
+                return
         if not self.dictating:
             if self.engine.recording or self.engine.state.value not in ("idle", "error"):
                 return  # a hotkey dictation or processing is under way
-            hit = self.detector.check("start", words, clip)
+            hit = self.detector.check("start", words, clip, after=fresh)
             if hit is None:
                 return
             self._begin(a, b, hit)
@@ -295,12 +377,15 @@ class Listener:
             stop = self.detector.check("stop", words, clip, after=hit.end)
             if stop is not None:
                 self._end(a, stop)
+                self._check_command(a, words, (self._consumed - a) / RATE)
             return
 
-        after = max(0.0, (self._dict_start - a) / RATE)
+        after = max(fresh, (self._dict_start - a) / RATE)
         hit = self.detector.check("stop", words, clip, after=after)
         if hit is not None:
             self._end(a, hit)
+            # "...that will be all, submit" in one breath.
+            self._check_command(a, words, (self._consumed - a) / RATE)
 
     def _begin(self, a: int, b: int, hit: Hit) -> None:
         log.info("always-on: start phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
@@ -319,6 +404,7 @@ class Listener:
             if not self.engine.start_external(prefill):
                 return
             self._dict_start = begin
+            self._consumed = max(self._consumed, a + int(hit.end * RATE))
             self._last_speech = self.ring.end
             self.dictating = True
 
@@ -330,6 +416,12 @@ class Listener:
             # Not before the end of the last dictated word.
             at = max(at, min(hit.prev_end + 0.02, hit.start))
         stop_at = a + int(at * RATE)
+        end = a + int(hit.end * RATE)
+        self._consumed = max(self._consumed, end)
+        with self._cmd_lock:
+            self._cmd_from = end
+            self._cmd_until = end + int(self.cfg.always_on.command_window * RATE)
+            self._delivered, self._pending = False, None
         self.finish(keep=stop_at - self._dict_start)
 
     def finish(self, keep: int | None = None) -> None:
@@ -341,10 +433,68 @@ class Listener:
         start = self.detector.variants("start")
         stop = self.detector.variants("stop")
         self.engine.finish_external(
-            keep, transform=lambda raw: strip_phrases(raw, start, stop), inject=self.inject
+            keep, transform=lambda raw: strip_phrases(raw, start, stop), inject=self.inject,
+            done=self._delivered_now,
         )
 
+    # -- voice commands after the stop phrase -------------------------------
+
+    def _check_command(self, a: int, words, fresh: float) -> bool:
+        """A command said on its own, inside the window after the stop phrase.
+
+        "On its own" (the whole burst is the command, give or take a word) is
+        the guard: "...that will be all. Submit the form tomorrow, then" is
+        talk, not a command. Returns True if one was taken.
+        """
+        lo = max(fresh, (self._cmd_from - a) / RATE)
+        hi = (self._cmd_until - a) / RATE
+        pool = [w for w in words if w.start >= lo - 0.05]
+        if not pool or pool[0].start > hi:
+            return False
+        texts = [w.text for w in pool]
+        for name, spellings in self._commands.items():
+            m = find(texts, spellings)
+            if m is None or m.score < self.detector.accept:
+                continue
+            longest = max(len(s) for s in spellings)
+            if len(texts) > longest + 1:
+                continue  # part of a sentence
+            self._consumed = max(self._consumed, a + int(pool[m.last].end * RATE))
+            with self._cmd_lock:
+                self._cmd_until = 0  # one command per dictation
+                ready = self._delivered
+                if not ready:
+                    self._pending = name
+            log.info("always-on: command %r (%r)", name, " ".join(texts))
+            self.on_event("command", name)
+            if ready:
+                self._run_command(name)
+            return True
+        return False
+
+    def _delivered_now(self, text: str) -> None:
+        """The dictation's text is in. Run a command heard while it was being
+        transcribed, or let one said in the next few seconds run at once."""
+        with self._cmd_lock:
+            self._delivered = bool(text)
+            name, self._pending = self._pending, None
+        if name and text:
+            self._run_command(name)
+
+    def _run_command(self, name: str) -> None:
+        action = COMMANDS.get(name)
+        if action is None:
+            log.warning("always-on: no action for command %r", name)
+            return
+        if self.inject:
+            threading.Thread(target=action, daemon=True, name=f"localflow-cmd-{name}").start()
+        self.on_event("ran", name)
+
     # -- testing -------------------------------------------------------------
+
+    def feed_realtime(self, block: np.ndarray) -> None:
+        """Hand 16 kHz audio to the running listener as the mic would."""
+        self._blocks.put(np.asarray(block, dtype=np.float32))
 
     def run_file(self, audio: np.ndarray, chunk: float = 0.1) -> None:
         """Push a 16 kHz recording through as if it came from the mic, in real

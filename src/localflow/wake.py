@@ -391,6 +391,7 @@ class Detector:
     def __init__(self, model: str, phrases: Phrases, accept: float = WORD_FLOOR):
         self.model_name = model
         self.accept = accept
+        self.device = "cpu"  # the listener sets "cuda" when the GPU is in use
         self._model = None
         self._lock = threading.Lock()
         self.set_phrases(phrases)
@@ -408,23 +409,46 @@ class Detector:
                     log.warning("voice template %s unusable: %s", name, exc)
             self._templates[k] = feats
 
+    def warm(self) -> None:
+        """Load the model and run it once on a real setup take. The first
+        inference pays one-off costs (CUDA kernels, the VAD model, the
+        word-alignment path): ~1 s on the GPU, which otherwise landed on the
+        first start phrase after every boot."""
+        self.load()
+        takes = self.phrases.start.takes
+        if takes:
+            try:
+                self.words(read_wav(WAKE_DIR / takes[0]))
+            except Exception as exc:
+                log.debug("always-on: warm-up skipped: %s", exc)
+
+    def shortest_take(self, which: str) -> int:
+        """Length of the shortest setup take, in feature frames (20 ms)."""
+        t = self._templates.get(which) or []
+        return min(len(x) for x in t) if t else 0
+
     def variants(self, which: str) -> list[list[str]]:
         return self._variants[which]
 
     def load(self):
         with self._lock:
             if self._model is None:
-                from .models import cpu_whisper
+                from .models import small_whisper
 
-                self._model = cpu_whisper(self.model_name)
+                self._model, self.device = small_whisper(self.model_name, self.device)
         return self._model
 
     def words(self, audio: np.ndarray) -> list[Word]:
         """Transcribe a short clip into timed, normalised words."""
         model = self.load()
+        # temperature 0, once: a phrase cut off mid-way (the early check at a
+        # short pause) looks "uncertain", and Whisper's fallback then decoded
+        # it six times at rising temperatures - 6.7 s instead of 1.3 s on a
+        # 1.3 s clip. The token cap bounds a looping decode on noise.
         segments, _ = model.transcribe(
             audio, language="en", beam_size=1, word_timestamps=True,
             vad_filter=True, condition_on_previous_text=False,
+            temperature=0.0, max_new_tokens=64,
         )
         out = []
         for seg in segments:

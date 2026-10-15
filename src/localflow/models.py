@@ -315,26 +315,51 @@ _cpu_lock = __import__("threading").Lock()
 
 
 def cpu_whisper(name: str):
-    """A small Whisper model on the CPU (int8, 2 threads), loaded once and
-    shared: always-on listens with it and the live preview on a GPU-less PC
-    reads with it, so the two never cost two copies of the weights."""
+    """A small Whisper model on the CPU, loaded once and shared: always-on
+    listens with it and the live preview on a GPU-less PC reads with it, so
+    the two never cost two copies of the weights."""
+    return small_whisper(name, "cpu")[0]
+
+
+def small_whisper(name: str, device: str = "cpu"):
+    """(model, device actually used). On "cuda" it falls back to the CPU if
+    the GPU can't take it. CPU: int8, up to 4 threads - it only runs during
+    bursts of speech, and more threads there mean a quicker start cue."""
+    import os
+
     with _cpu_lock:
-        model = _cpu_models.get(name)
-        if model is None:
+        key = (name, device)
+        if key not in _cpu_models:
             from faster_whisper import WhisperModel
 
-            kw = {"device": "cpu", "compute_type": "int8", "cpu_threads": 2}
-            folder = sideloaded(name)
-            if folder:
-                model = WhisperModel(folder, **kw)
+            if device == "cuda":
+                kw = {"device": "cuda", "compute_type": "float16"}
             else:
+                kw = {"device": "cpu", "compute_type": "int8",
+                      "cpu_threads": 2}
+            try:
+                folder = sideloaded(name)
+                if folder:
+                    model = WhisperModel(folder, **kw)
+                else:
+                    try:
+                        model = WhisperModel(name, local_files_only=True, **kw)
+                    except Exception as exc:
+                        if device == "cuda" and "local" not in type(exc).__name__.lower():
+                            raise
+                        model = WhisperModel(download(name), **kw)
+            except Exception as exc:
+                if device != "cuda":
+                    raise
+                log.warning("%s on the GPU failed (%s); using the CPU", name, exc)
+                _cpu_lock.release()
                 try:
-                    model = WhisperModel(name, local_files_only=True, **kw)
-                except Exception:
-                    model = WhisperModel(download(name), **kw)
-            _cpu_models[name] = model
-            log.info("loaded %s on the CPU (shared)", name)
-        return model
+                    return small_whisper(name, "cpu")
+                finally:
+                    _cpu_lock.acquire()
+            _cpu_models[key] = model
+            log.info("loaded %s on the %s (shared)", name, device.upper())
+        return _cpu_models[key], device
 
 
 # -- sideloading --------------------------------------------------------------

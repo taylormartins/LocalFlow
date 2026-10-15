@@ -189,9 +189,11 @@ class Engine:
 
     def finish_external(
         self, keep: int | None = None, transform: Callable[[str], str] | None = None,
-        inject: bool = True,
+        inject: bool = True, done: Callable[[str], None] | None = None,
     ) -> None:
-        """End a fed dictation. ``keep``: samples to keep (cuts the stop phrase)."""
+        """End a fed dictation. ``keep``: samples to keep (cuts the stop phrase).
+        ``done(text)`` runs once the text has been delivered (always-on's
+        voice commands, e.g. "submit" pressing Enter after the paste)."""
         if not self.recorder.external:
             return
         audio = self.recorder.stop()
@@ -202,7 +204,7 @@ class Engine:
             return
         threading.Thread(
             target=self._process_and_inject,
-            args=(audio, True, inject, "always-on", transform),
+            args=(audio, True, inject, "always-on", transform, done),
             daemon=True,
             name="localflow-pipeline",
         ).start()
@@ -210,6 +212,7 @@ class Engine:
     def _process_and_inject(
         self, audio: np.ndarray, cleanup: bool, inject: bool, source: str = "desktop",
         transform: Callable[[str], str] | None = None,
+        done: Callable[[str], None] | None = None,
     ) -> None:
         try:
             result = self.process(audio, cleanup=cleanup, source=source, transform=transform)
@@ -245,6 +248,11 @@ class Engine:
             State.IDLE,
             f"{len(result.text)} chars in {result.total_seconds:.1f}s ({result.speedup:.0f}x)",
         )
+        if done is not None:
+            try:
+                done(result.text)
+            except Exception:
+                log.exception("after-delivery action failed")
 
     def preview(self, audio: np.ndarray) -> str | None:
         """Transcribe for the live overlay, or None if the pipeline is busy.

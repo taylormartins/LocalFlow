@@ -109,7 +109,14 @@ function Get-OldInstances {
     # that Python, so its path alone could match someone else's program.
     try {
         $ids = @(Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe'" -ErrorAction Stop |
-            Where-Object { $_.CommandLine -match 'localflow\.cli' } | ForEach-Object { $_.ProcessId })
+            Where-Object {
+                $_.CommandLine -match 'localflow\.cli' -or
+                # Blank command line AND path: an elevated process seen from a
+                # non-elevated run. Before this counted, such a run found
+                # "nothing running" and started a second copy - one more live
+                # tray icon per restart (seen on a work PC, 2026-10-14).
+                (-not $_.CommandLine -and -not $_.ExecutablePath)
+            } | ForEach-Object { $_.ProcessId })
         return @(Get-Process -Id $ids -ErrorAction SilentlyContinue)
     } catch {
         # WMI can fail right after resume (see above): fall back to the path.
@@ -117,11 +124,51 @@ function Get-OldInstances {
             Where-Object { $_.Path -eq $launcher -or $_.Path -eq $pythonw -or -not $_.Path }
     }
 }
+function Wait-Gone([int]$seconds) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline -and (Get-OldInstances)) { Start-Sleep -Milliseconds 250 }
+    return -not (Get-OldInstances)
+}
+
+# Not elevated, but the startup tasks exist (restart.vbs double-clicked, or a
+# launch from a non-admin installer): let the elevated task do the restart.
+# Run from here, the new copy would lose its admin rights, and an elevated old
+# copy can't be stopped from here anyway.
+$me = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdmin = (New-Object Security.Principal.WindowsPrincipal $me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+schtasks /query /tn 'LocalFlow resume' 2>$null | Out-Null
+if (-not $isAdmin -and $LASTEXITCODE -eq 0) {
+    Log 'not elevated; restarting through the elevated "LocalFlow resume" task'
+    schtasks /run /tn 'LocalFlow resume' | Out-Null
+    exit 0
+}
+
+# First ask nicely: the app watches for this file and quits on its own, which
+# removes its tray icon (a killed process leaves its icon behind until the
+# mouse passes over it). A file works across elevation; signals don't.
+$quitFile = Join-Path $root '.quit'
+if (Get-OldInstances) {
+    Set-Content -Path $quitFile -Value (Get-Date -Format o) -Encoding ascii
+    if (Wait-Gone 8) { Log 'old tray app quit cleanly' }
+}
+Remove-Item $quitFile -ErrorAction SilentlyContinue
+
 for ($i = 0; $i -lt 5 -and (Get-OldInstances); $i++) {
     Get-OldInstances | ForEach-Object { taskkill /F /T /PID $_.Id 2>&1 | Out-Null }
     Start-Sleep -Seconds 1
 }
 if (Get-OldInstances) {
+    # Still there: it runs as admin and we don't (restart.vbs double-clicked,
+    # or a launch from a non-admin installer). Hand over to the elevated task,
+    # which can stop it, rather than stacking a second copy on top.
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $admin = (New-Object Security.Principal.WindowsPrincipal $id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    schtasks /query /tn 'LocalFlow resume' 2>$null | Out-Null
+    if (-not $admin -and $LASTEXITCODE -eq 0) {
+        Log 'old tray app runs as admin; restarting through the elevated task instead'
+        schtasks /run /tn 'LocalFlow resume' | Out-Null
+        exit 0
+    }
     Log ('could not stop old tray app (pid {0}) - it runs as admin. Use: schtasks /run /tn "LocalFlow resume"' -f ((Get-OldInstances).Id -join ','))
     exit 1
 }

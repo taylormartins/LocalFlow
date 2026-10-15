@@ -249,18 +249,38 @@ While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
 can't record the room indefinitely.
 
+**Voice commands after the stop phrase.** Say **"submit"** straight after the
+stop phrase, either after a pause or in the same breath ("...that will be all,
+submit"). LocalFlow presses **Enter** as soon as the text has been pasted, so
+the message sends without you touching the keyboard. Transcription and
+cleanup start at the stop phrase, without waiting to see whether a command
+follows.
+
+- "send it", "press enter" and "hit enter" also work.
+- A command counts only within 4 seconds of the stop phrase
+  (`always_on.command_window`), and only said on its own: "submit the form
+  tomorrow" is just talk.
+
+More commands are planned. Spellings are configurable under
+`[always_on.commands]`.
+
+Always-on works the same on a PC without an LLM or GPU. Listening uses its own
+small model, and the cleanup falls back to the algorithmic rules.
+
 **How it decides, and what it costs.** The mic stays open. Between phrases, the
 only work is a loudness check on each 30 ms of sound, and audio lives in a
 30-second buffer that is constantly overwritten. Nothing is saved or logged.
-Only bursts of speech are passed to a small speech model (`base.en`, 2 CPU
-threads, about 160 MB of RAM). A phrase counts when what it hears matches one
+Only bursts of speech are passed to a small speech model (`base.en`: on the
+GPU if you have one, otherwise 2 CPU threads; about 160 MB of RAM). A phrase counts when what it hears matches one
 of the accepted spellings closely, word for word. A similar word doesn't
 count: with "Marigold" in the phrase, "okay listen, Mary told me" is refused.
 It must also sound like your recorded takes. In testing, near misses like
 that, and the stop phrase said in passing, did not trigger it. If your real
 phrase is sometimes missed, run `localflow listen` to see how it was heard,
 and add that spelling in setup. Measured: about 1% of one CPU core
-while listening.
+while listening. It reacts about **0.2 s** after you finish a phrase with an
+NVIDIA GPU, and about **0.75 s** on the CPU alone
+(`uv run python tests/always_on_latency.py [--cpu]`).
 
 Your phrases and voice takes are stored in `wake\` inside the LocalFlow folder,
 on your PC only. To try phrases out without pasting anything, run

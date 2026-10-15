@@ -186,6 +186,18 @@ function Invoke-Elevated([string]$arguments) {
 }
 
 function Stop-LocalFlow {
+    # Ask it to quit first (it removes its own tray icon), then make sure.
+    $find = {
+        @(Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -match 'localflow\.cli' -or (-not $_.CommandLine -and -not $_.ExecutablePath) })
+    }
+    if (& $find) {
+        $quit = Join-Path $root '.quit'
+        Set-Content -Path $quit -Value 'quit' -Encoding ascii
+        $deadline = (Get-Date).AddSeconds(8)
+        while ((Get-Date) -lt $deadline -and (& $find)) { Start-Sleep -Milliseconds 250 }
+        Remove-Item $quit -ErrorAction SilentlyContinue
+    }
     Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe' OR Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -match 'localflow\.cli|restart\.ps1' -and $_.ProcessId -ne $PID } |
         ForEach-Object { taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null }

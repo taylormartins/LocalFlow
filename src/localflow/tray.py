@@ -689,6 +689,10 @@ class Tray:
             self._on_quit()
         self.icon.stop()
 
+    def stop(self) -> None:
+        """Quit as if from the menu (tray icon removed properly). Any thread."""
+        self._quit()
+
     def notify(self, message: str, title: str = "LocalFlow") -> None:
         try:
             self.icon.notify(message, title)

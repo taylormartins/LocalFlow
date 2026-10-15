@@ -128,6 +128,25 @@ def main() -> int:
     expect("content kept", "dentist" in text.lower(), repr(text))
     expect("phrases cut", "marigold" not in text.lower() and "be all" not in text.lower(), repr(text))
 
+    print("\nvoice command after the stop phrase")
+    body = say("Please book the meeting room for Thursday.")
+    cases = [
+        ("'submit' after a pause", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.6, say("Submit."), 2.0), True),
+        ("'submit' in the same breath", build(1.0, say(START), 0.5, body, 0.6, say(STOP + " Submit."), 2.0), True),
+        ("no command", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 3.0), False),
+        ("'submit' inside a sentence", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.6,
+                                              say("Submit the form tomorrow, after lunch."), 2.0), False),
+        ("'submit' after the window", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 6.0, say("Submit."), 2.0), False),
+    ]
+    for name, audio, want in cases:
+        got, ev = run(audio)
+        ran = ("ran", "submit") in ev
+        expect(name, ran == want and len(got) == 1 and "meeting room" in got[0].lower(),
+               f"submitted={ran} dictation={got} events={ev}")
+        if ran:
+            order = [k for k, _ in ev]
+            expect("  ...and only after the text", order.index("ran") > order.index("stop"), str(order))
+
     print("\nsimilar phrases must not start anything")
     for sentence in (
         "Okay listen, Mary told me about it.",
