@@ -62,7 +62,9 @@ class CleanupConfig:
     model: str = "qwen2.5:7b"
     #: Generous, because a cold Ollama load under VRAM pressure can take ~30s.
     #: The warm path is well under a second, so this only bites on first use.
-    timeout: float = 90.0
+    #: Seconds the LLM gets per dictation before the rules clean it instead.
+    #: Was 90: when Ollama got into trouble a dictation sat for 45 s.
+    timeout: float = 25.0
     #: Skip the LLM entirely when the transcript has no visible disfluency.
     #: Turns short, crisp dictation into a zero-latency path.
     skip_if_clean: bool = True

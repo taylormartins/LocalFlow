@@ -75,6 +75,7 @@ class Engine:
         self.state = State.IDLE
         self.history: deque[Result] = deque(maxlen=50)
         self._state_hooks: list[StateHook] = []
+        self._notice_hooks: list[Callable[[str, str, float], None]] = []
         self._result_hooks: list[ResultHook] = []
         # Whisper and the recorder are not reentrant; one dictation at a time.
         self._pipeline_lock = threading.Lock()
@@ -93,6 +94,19 @@ class Engine:
 
     def on_result(self, hook: ResultHook) -> None:
         self._result_hooks.append(hook)
+
+    def on_notice(self, hook: Callable[[str, str, float], None]) -> None:
+        self._notice_hooks.append(hook)
+
+    def notice(self, text: str, kind: str = "info", seconds: float = 6.0) -> None:
+        """A message for the pill that isn't about a dictation ("Updated to
+        1.12.0"). kind: info | ok | error. Windows can hide toasts (Focus
+        Assist, notifications off for Python); the pill always shows."""
+        for hook in self._notice_hooks:
+            try:
+                hook(text, kind, seconds)
+            except Exception:
+                log.exception("notice hook failed")
 
     def _set_state(self, state: State, detail: str = "") -> None:
         self.state = state

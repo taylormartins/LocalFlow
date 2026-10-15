@@ -182,6 +182,8 @@ class Overlay:
         self._llm_ready: bool | None = None
         self._poke = threading.Event()
         engine.on_state(self._on_state)
+        engine.on_notice(self._on_notice)
+        self._glyph = "!"
         # Numbered click labels (command mode), drawn by the Tk thread.
         self._labels: list = []
         self._labels_version = 0
@@ -241,6 +243,15 @@ class Overlay:
         if mode != self._mode or mode != "recording":
             self._since = now
         self._mode, self._label, self._colour, self._hide_at = mode, label, colour, hide_at
+
+    def _on_notice(self, text: str, kind: str, seconds: float) -> None:
+        if self._mode in ("recording", "busy"):
+            return  # never over a dictation; the toast still shows
+        colour, glyph = {"ok": (GREEN, "✓"), "error": (RED, "!")}.get(kind, (BLUE, "i"))
+        self._since = time.monotonic()
+        self._mode, self._label, self._colour = "notice", text, colour
+        self._glyph = glyph
+        self._hide_at = time.monotonic() + seconds
 
     # -- Tk side -----------------------------------------------------------
 
@@ -520,6 +531,9 @@ class Overlay:
                 c.create_oval(cx - rr, mid - rr, cx + rr, mid + rr, outline=self._colour,
                               width=max(2, int(2.5 * s)))
                 c.create_text(cx, mid, text="›", fill=self._colour, font=self.font_bold)
+            elif mode == "notice":
+                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
+                c.create_text(cx, mid, text=self._glyph, fill=BG, font=self.font_bold)
             else:  # message
                 c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
                 c.create_text(cx, mid, text="!", fill=BG, font=self.font_bold)

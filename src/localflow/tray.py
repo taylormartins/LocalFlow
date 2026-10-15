@@ -74,6 +74,9 @@ class Tray:
         self._last_text = ""
         self._recording_since: float | None = None
         self._ticker: threading.Thread | None = None
+        from .updates import Checker
+
+        self.updates = Checker(on_new=self._new_version)
 
         self.icon = pystray.Icon(
             "localflow",
@@ -144,8 +147,9 @@ class Tray:
                 pystray.MenuItem("Stop sound", self._sound_menu(pystray, "stop")),
                 pystray.MenuItem("Paste sound", self._sound_menu(pystray, "paste")),
                 pystray.Menu.SEPARATOR,
+                pystray.MenuItem(lambda _: self.updates.label(), None, enabled=False),
                 pystray.MenuItem(
-                    lambda _: "Updating..." if self._updating else "Update LocalFlow",
+                    lambda _: self._update_label(),
                     lambda icon, item: self._update(),
                     enabled=lambda _: not self._updating,
                 ),
@@ -317,20 +321,42 @@ class Tray:
 
     # -- update ------------------------------------------------------------
 
+    def _update_label(self) -> str:
+        if self._updating:
+            return "Updating..."
+        if self.updates.update_available:
+            return f"Update to {self.updates.latest}"
+        return "Check for updates"
+
+    def _new_version(self, latest: str) -> None:
+        from .updates import current
+
+        self.engine.notice(f"LocalFlow {latest} is out - tray > Update", "info", 10)
+        self.notify(f"LocalFlow {latest} is available (you have {current()}). "
+                    "Right-click the tray icon > Update to get it.")
+        self.icon.update_menu()
+
     def _update(self) -> None:
-        """Run update.ps1 detached; it restarts us if there was an update. We
-        only hear back (via update.result) when there wasn't, or it failed."""
+        """Run update.ps1 detached; it restarts us if there was an update.
+        Every step is said both in the pill and as a toast (Windows can hide
+        toasts), so it's never a guess whether it worked."""
         from .config import PROJECT_ROOT
         from .proc import launch_detached_powershell
+        from .updates import current
 
         result = PROJECT_ROOT / "update.result"
         result.unlink(missing_ok=True)
         self._updating = True
         self.icon.update_menu()
-        self.notify("Checking for updates...")
-        launch_detached_powershell(PROJECT_ROOT / "update.ps1")
+        self.engine.notice("Checking for updates…", "info", 30)
 
         def watch() -> None:
+            latest = self.updates.check()
+            if self.updates.update_available:
+                msg = f"Updating {current()} → {latest}. LocalFlow restarts when it's done."
+                self.engine.notice(f"Updating to {latest}…", "info", 600)
+                self.notify(msg + " The tray icon may disappear for a minute.")
+            launch_detached_powershell(PROJECT_ROOT / "update.ps1")
             deadline = time.monotonic() + 20 * 60
             while time.monotonic() < deadline:
                 time.sleep(2)
@@ -339,8 +365,10 @@ class Tray:
                 except OSError:
                     continue
                 if code == "3":
-                    self.notify("LocalFlow is up to date")
+                    self.engine.notice(f"Up to date: LocalFlow {current()}", "ok", 8)
+                    self.notify(f"You're on the latest version, LocalFlow {current()}.")
                 elif code == "1":
+                    self.engine.notice("Update failed - see update.log", "error", 12)
                     self.notify(f"Update failed: {msg} (details in update.log)")
                 # "0": the updater restarts LocalFlow; the new one says so.
                 break
@@ -780,6 +808,7 @@ class Tray:
     def run(self) -> None:
         """Blocking; must be called from the main thread on Windows."""
         threading.Thread(target=self._watch_caps, daemon=True, name="localflow-caps").start()
+        self.updates.start()
         self.icon.run()
 
     def _watch_caps(self) -> None:

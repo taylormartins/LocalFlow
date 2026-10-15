@@ -140,6 +140,7 @@ def main() -> int:
                                               say("Submit the form tomorrow, after lunch."), 2.0), False),
         ("'submit' after the window", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 8.0, say("Submit."), 2.0), False),
         ("'press enter'", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Press enter."), 2.0), True),
+        ("'press enter' heard as 'for us to enter'", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("For us to enter."), 2.0), True),
     ]
     for name, audio, want in cases:
         got, ev = run(audio)

@@ -456,6 +456,14 @@ phrase (while dictating) is among them.
   "submit" waits 0.15 s plus 0.1 s per 400 pasted characters (up to 0.8 s).
   "press {name}" no longer means click: "press enter" misheard as "press
   into" clicked a button called "into".
+- **Updates** (`updates.py`): the newest version is the highest vX.Y.Z
+  tag from `git ls-remote` (works wherever the updater's git fetch does).
+  `Checker` runs at startup + 60 s and every 6 h, and feeds the tray's
+  version line and "Update to X". Every step is also an `Engine.notice`
+  (drawn by the pill), because toasts can be hidden by Windows. update.ps1
+  leaves `.updated` just before restarting us. `cli._update_outcome` turns
+  that into "Updated to X" before the models load, and also reports a
+  failure from the last 15 minutes in `update.result`.
 - **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
   (gitignored, trimmed to `max_items`). The window is its own process
   (`localflow history`). It records the foreground window at launch, and

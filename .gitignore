@@ -36,4 +36,5 @@ wake/
 update.log
 update.result
 .version
+.updated
 .quit

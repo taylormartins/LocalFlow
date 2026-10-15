@@ -118,6 +118,8 @@ if ($LASTEXITCODE) {
     Fail 'install step failed - see update.log'
 }
 
+# Tells the restarted copy to say "Updated to ..." (it removes the file).
+Set-Content -Path (Join-Path $root '.updated') -Value ("{0} {1}" -f $before.Substring(0, 7), $target.Substring(0, 7)) -Encoding ascii
 if (-not $NoRestart) { Start-LocalFlow }
 Log 'updated and restarted'
 Done 0 'updated'

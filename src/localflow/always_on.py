@@ -57,6 +57,8 @@ STOP_MARGIN = 0.05
 #: A phrase scoring at least this (but under the accept level) is logged as
 #: a near miss: "start phrase? heard 'okay listen merry gold' (0.78)".
 NEAR = 0.7
+#: Score given to a guessed command ("for us to enter" -> submit).
+ACCEPT_GUESS = 0.8
 #: In command mode, a request that isn't a command yet is held until this
 #: much quiet after it: people pause mid-request ("bring my Chrome... Twitch window...
 #: to the middle"), and each piece used to be taken as a command of its own.
@@ -520,6 +522,13 @@ class Listener:
         texts = [w.text for w in pool]
         enter = self.grammar.is_one(texts, self.grammar.enter)
         p = None if enter else self.grammar.parse(texts)
+        if p is None and not enter and 1 < len(trim(texts)) <= 4 and trim(texts)[-1] in (
+                "enter", "inter", "center"):
+            # "press enter" heard as "for us to enter": a few words ending in
+            # "enter", right after the stop phrase, is that.
+            from .commands import BY_NAME
+
+            p = Parsed(BY_NAME["submit"], "", ACCEPT_GUESS)
         # A name that doesn't exist ("go to the shops") is talk, not a command.
         if not enter and (p is None or (p.arg and p.command.name != "click"
                                         and not resolvable(p))):

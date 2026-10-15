@@ -127,11 +127,26 @@ three ways:
 
 ### Updating
 
-Right-click the tray icon ▸ **Update LocalFlow**. It fetches the latest
-version, installs anything new (dependencies, models), and restarts LocalFlow.
-It runs with no window, and you get a notification saying "Updated to
-LocalFlow 1.x", "up to date", or why it failed. Double-clicking `update.cmd`
-in the LocalFlow folder does the same with visible output.
+**Which version am I on?** The tray menu always shows it: *Version 1.13.0 -
+the latest*, or *Version 1.12.0 - 1.13.0 available*. LocalFlow checks GitHub
+at startup and every 6 hours, and says so on screen when a new version comes
+out.
+
+Right-click the tray icon ▸ **Update to 1.x** (or **Check for updates**). It
+fetches the latest version, installs anything new (dependencies, models), and
+restarts LocalFlow. It runs with no window. Each step shows on the on-screen
+pill and as a notification (Windows can hide notifications; the pill always
+shows):
+
+- *Checking for updates…*
+- *Updating to 1.13.0…*, then LocalFlow restarts (the tray icon may vanish
+  for a minute while new parts install)
+- *Updated to LocalFlow 1.13.0*, shown by the restarted LocalFlow straight
+  away, before its models finish loading
+- or *Up to date: LocalFlow 1.13.0*, or *Update failed - see update.log*
+
+Double-clicking `update.cmd` in the LocalFlow folder does the same with
+visible output.
 
 Your settings (`config.toml`), always-on phrases (`wake\`) and models are
 never touched. Neither is the startup setup, so updating never asks for

@@ -653,6 +653,31 @@ def _hint(cfg) -> str:
     return hint
 
 
+def _update_outcome() -> tuple[str, str] | None:
+    """(kind, message) about an update that just ran, read once at startup.
+
+    update.ps1 leaves .updated just before it restarts us, so the new copy
+    can say "Updated to X" even when the version number didn't change. A
+    failure is in update.result; it's only news for a few minutes.
+    """
+    from .updates import current
+
+    root = config_mod.PROJECT_ROOT
+    marker = root / ".updated"
+    if marker.exists():
+        marker.unlink(missing_ok=True)
+        return "ok", f"Updated to LocalFlow {current()}"
+    result = root / "update.result"
+    try:
+        if time.time() - result.stat().st_mtime < 15 * 60:
+            code, _, msg = result.read_text(encoding="ascii").strip().partition(" ")
+            if code == "1":
+                return "error", f"The update failed: {msg}"
+    except OSError:
+        pass
+    return None
+
+
 def _version_change() -> str:
     """The new version if this is the first run since an update, else ""."""
     from importlib.metadata import version
@@ -772,6 +797,14 @@ def cmd_run(args, cfg) -> int:
         Overlay(engine, cfg.overlay, live=live).start()
 
     def boot() -> None:
+        # Before the models load (that can take a minute on some PCs): say
+        # straight away whether an update just happened.
+        outcome = _update_outcome()
+        if outcome:
+            kind, msg = outcome
+            time.sleep(2.0)  # the overlay's window comes up first
+            engine.notice(msg, kind, 12)
+            tray.notify(msg + (" - see update.log" if kind == "error" else ""), "LocalFlow")
         engine.warmup()
         hotkeys.start()
         # Caps Lock left on before LocalFlow started can't be turned off by
@@ -780,7 +813,7 @@ def cmd_run(args, cfg) -> int:
             caps_lock_off()
         hint = _hint(cfg)
         updated = _version_change()
-        if updated:
+        if updated and not outcome:
             hint = f"Updated to LocalFlow {updated}. {hint}"
         if cfg.always_on.enabled and listener.ready:
             try:
