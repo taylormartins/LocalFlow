@@ -308,7 +308,7 @@ too. Commands work without an LLM:
 
 | Say | Does |
 |---|---|
-| switch to / go to / show *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title) |
+| switch to / go to / show / select / pull up *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title). Spell a name that keeps being misheard: "select n o t i o n" |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
@@ -320,7 +320,7 @@ too. Commands work without an LLM:
 | submit / press enter · new line · tab · escape · backspace | keys |
 | scratch that · undo · redo · select all · copy · cut · paste · save · find | editing |
 | scroll up / down · page up / down · go to the top / bottom | moving around |
-| new tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
+| new tab · new *Chrome* tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
 | move *[it / Chrome]* to the top right · bottom left · left half · right · top half | fills that quarter or half of the window's own monitor |
 | switch window · show desktop | windows |
 | undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |

@@ -75,6 +75,8 @@ class Command:
     risky: bool = False
     #: The slot is free text (typed as is), not a name to look up.
     text_slot: bool = False
+    #: The slot names the window to do it in ("new Chrome tab"), not an argument.
+    aim: bool = False
     #: Runs only once this is said next ("goodnight"), after a triple click.
     confirm: list[str] = field(default_factory=list)
 
@@ -491,6 +493,8 @@ COMMANDS: list[Command] = [
     # Keys, aimed at the window just dictated into when said after a dictation.
     Command("submit", ["submit", "summit", "send it", "send", "press enter", "hit enter",
                        "press into", "press inter", "press center", "hit into",
+                       # "press enter" with the second word lost or merged
+                       "pressing", "presenter", "press",
                        "enter"],
             # A moment for the app to take in a paste first: Ctrl+V is handled
             # asynchronously, and an Enter overtaking it sends nothing.
@@ -531,8 +535,8 @@ COMMANDS: list[Command] = [
     Command("bottom", ["(go to|jump to) [the] bottom"], _keys("ctrl+end", "Bottom"),
             "go to the bottom"),
     # Tabs and pages.
-    Command("new_tab", ["new tab", "open [a] new tab"], _keys("ctrl+t", "New tab"),
-            "open a new tab"),
+    Command("new_tab", ["new tab", "open [a] new tab", "[open] [a] new {name} tab"],
+            _keys("ctrl+t", "New tab"), "open a new tab", aim=True),
     Command("close_tab", ["close [the|this] tab"], _keys("ctrl+w", "Closed tab"), "close the tab",
             risky=True),
     Command("next_tab", ["next tab"], _keys("ctrl+tab", "Next tab"), "next tab"),
@@ -546,7 +550,9 @@ COMMANDS: list[Command] = [
             "reload the page"),
     # Windows and apps.
     Command("switch", ["switch to {name}", "go to {name}", "show [me] {name}",
-                       "bring up {name}", "focus {name}"], _switch,
+                       "bring up {name}", "focus [on] {name}", "select {name}", "pull up {name}",
+                       "(get|take) me to {name}", "activate {name}", "jump to {name}",
+                       "bring {name} (up|forward|to the front)", "find {name}"], _switch,
             "bring an open window to the front, by app name or title"),
     Command("open", ["open {name}", "launch {name}", "start {name}"], _open,
             "open an app (or switch to it if it's open), or a website like 'youtube dot com'"),
@@ -663,7 +669,23 @@ _NAME_TAIL = ("window", "app", "application", "program", "tab")
 
 
 def _clean_name(words: list[str]) -> list[str]:
+    """A spoken name as the words to look up.
+
+    Spelled out ("n o t i o n") wins: letter by letter is what people do when
+    the word itself keeps being misheard, so it's the most exact form. A
+    name said and then spelled ("no shun n o t i o n") keeps only the spelling.
+    """
     words = list(words)
+    spelled, run = [], []
+    for w in words + [""]:
+        if len(w) == 1 and w.isalpha():
+            run.append(w)
+            continue
+        if len(run) >= 3:
+            spelled.append("".join(run))
+        run = []
+    if spelled:
+        return [spelled[-1]]
     while len(words) > 1 and words[0] in ("the", "my", "a", "that", "this", "me"):
         words = words[1:]
     if len(words) > 1 and words[-1] in _NAME_TAIL:
@@ -743,7 +765,7 @@ class Grammar:
                             score, arg = sc, " ".join(middle)
             if score >= ACCEPT and (best is None or score > best.score
                                     or (score == best.score and len(arg.split()) < len(best.arg.split()))):
-                best = Parsed(c, arg, score)
+                best = Parsed(c, "", score, where=arg) if c.aim and arg else Parsed(c, arg, score)
         return best
 
     def is_one(self, words: list[str], forms: list[list[str]]) -> bool:

@@ -539,6 +539,7 @@ uv run python tests/hotkeys.py              # hold/toggle/cancel state machine
 uv run python tests/always_on.py            # always-on end to end with TTS (CPU)
 uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
 uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer); PC idle
+uv run python tests/command_phrases.py     # how phrases from real logs parse (no windows)
 uv run python tests/terminal_paste.py       # paragraphs + submit into Windows Terminal
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
