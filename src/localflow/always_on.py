@@ -57,6 +57,10 @@ STOP_MARGIN = 0.05
 #: A phrase scoring at least this (but under the accept level) is logged as
 #: a near miss: "start phrase? heard 'okay listen merry gold' (0.78)".
 NEAR = 0.7
+#: In command mode, a request that isn't a command yet is held until this
+#: much quiet after it: people pause mid-request ("bring my Chrome... Twitch window...
+#: to the middle"), and each piece used to be taken as a command of its own.
+HOLD = 1.8
 
 
 class Ring:
@@ -135,6 +139,9 @@ class Listener:
         self._scratched_at = 0.0  # the dictation "scratch that" already removed
         #: The last phrase that came close but wasn't accepted: (which, heard).
         self.last_near: tuple[str, str] | None = None
+        self._held: list[str] = []  # command mode: words of an unfinished request
+        self._held_at = 0  # absolute samples: end of the held request's last burst
+        self._llm_lock = threading.Lock()  # one LLM request at a time
         self._levels: deque[float] = deque(maxlen=int(2.0 * RATE / FRAME))
         self._since_floor = 0
         self._run = 0
@@ -258,6 +265,11 @@ class Listener:
         self._segment(x)
         if self.commanding and self.ring.end > self._mode_until:
             self.leave_commands("Command mode off")
+        elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
+              and self.ring.end - self._held_at > HOLD * RATE):
+            request, self._held = " ".join(self._held), []
+            threading.Thread(target=self._finish_request, args=(request,), daemon=True,
+                             name="localflow-command-request").start()
         if self.dictating:
             idle = (self.ring.end - self._last_speech) / RATE
             if idle > self.cfg.always_on.idle_stop_seconds or self.engine.recorder.overflowed:
@@ -596,6 +608,10 @@ class Listener:
         self.commanding = False
         self.commanding_announced = False
         self._confirm = None
+        self._held = []
+        from .commands import hide_labels
+
+        hide_labels()
         log.info("always-on: command mode off (%s)", message)
         self.on_event("command-mode", "off")
         if self.engine.state == State.COMMAND:
@@ -651,13 +667,41 @@ class Listener:
         if self.grammar.is_one(texts, self.grammar.enter):
             self._show("Command mode - say a command")
             return
+        # The rest of a request begun in the last burst, or a command alone.
+        if self._held:
+            p = self.grammar.parse(self._held_words() + texts)
+            if p is not None:
+                self._held = []
+                self._take(p)
+                return
         p = self.grammar.parse(texts)
         if p is not None:
-            log.info("always-on: command %r", p.command.name)
-            self.on_event("command", p.command.name)
-            self._do(p)
+            self._held = []
+            self._take(p)
             return
-        self._ask_llm(" ".join(texts))
+        # Not a command (yet): wait for the end of the sentence.
+        self._held.append(" ".join(texts))
+        self._held_at = b  # the burst's end: Whisper's word times run early
+        self._show("…" + " ".join(self._held)[-30:])
+
+    def _held_words(self) -> list[str]:
+        return " ".join(self._held).split()
+
+    def _take(self, p: Parsed) -> None:
+        log.info("always-on: command %r", p.command.name)
+        self.on_event("command", p.command.name)
+        self._do(p)
+
+    def _finish_request(self, request: str) -> None:
+        """A pause ended an unrecognised request: one more try with the rules
+        on the whole of it, then the LLM."""
+        if not self.commanding:
+            return
+        p = self.grammar.parse(request.split())
+        if p is not None:
+            self._take(p)
+        else:
+            self._ask_llm(request)
 
     def _ask_llm(self, request: str) -> None:
         """Not a known command: let the LLM, if there is one, map it onto known
@@ -669,11 +713,13 @@ class Listener:
         self._show("Working it out…")
 
         def go() -> None:
-            try:
-                plan = plan_with_llm(cleaner._client, self.cfg.cleanup.model, request)
-            except Exception as exc:
-                log.warning("always-on: LLM for commands unavailable: %s", exc)
-                plan = []
+            with self._llm_lock:  # Ollama answers one at a time anyway
+                try:
+                    plan = plan_with_llm(cleaner._client, self.cfg.cleanup.model, request,
+                                         keep_alive=self.cfg.cleanup.keep_alive)
+                except Exception as exc:
+                    log.warning("always-on: LLM for commands unavailable: %s", exc)
+                    plan = []
             if not self.commanding:
                 return
             if not plan:
@@ -703,6 +749,7 @@ class Listener:
             last_text=h.text if fresh else "", last_at=h.at if h else 0.0,
             last_target=self.engine.last_target if self.engine.targeted else None,
             paste=self.engine.injector.send, in_target=self.engine.in_target,
+            last_any=h.text if h else "",
         )
 
     def _do(self, p: Parsed, after_dictation: bool = False) -> None:

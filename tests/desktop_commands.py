@@ -1,4 +1,4 @@
-"""Voice commands for real: switch, click by name, minimize, restore, close.
+"""Voice commands for real: switch, click by name or number, center, minimize, close.
 
 Opens a small Windows Forms window ("LocalFlow test Fennel", with an
 "Approve" button) in a separate process, then runs the parsed commands
@@ -12,6 +12,7 @@ Takes a few seconds and briefly shows the window.
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,40 @@ def main() -> int:
         r = say("click the purple elephant")
         expect("a button that isn't there is refused", r is not None and not r[2], str(r))
 
+        print("center / numbered labels")
+        from localflow import commands as cmds
+        from localflow.engine import Engine
+        from localflow.overlay import Overlay
+
+        cfg0 = Config()
+        cfg0.history.enabled = False
+        overlay = Overlay(Engine(cfg0), cfg0.overlay)
+        overlay.start()
+        time.sleep(1.5)
+        r = say("center fennel")
+        rect = ctypes.wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        area = desktop.work_area(hwnd)
+        mid_x = (rect.left + rect.right) // 2 - (area.left + area.right) // 2
+        mid_y = (rect.top + rect.bottom) // 2 - (area.top + area.bottom) // 2
+        expect("'center fennel' centres it", abs(mid_x) <= 2 and abs(mid_y) <= 2,
+               f"{r} off by {mid_x},{mid_y}")
+        out.unlink(missing_ok=True)
+        r = say("show me numbered click labels on screen", wait=0.6)
+        names = [c.name for c in cmds._labelled]
+        expect("labels shown", r is not None and r[2] and "Approve" in names, f"{r} {names}")
+        expect("label layer visible", bool(user32.IsWindowVisible(overlay.label_hwnd)))
+        n = names.index("Approve") + 1 if "Approve" in names else 99
+        r = say(f"click {n}", wait=1.0)
+        expect(f"'click {n}' presses Approve", out.exists(), str(r))
+        expect("labels gone after the click",
+               not cmds._labelled and not user32.IsWindowVisible(overlay.label_hwnd))
+        r = say("click 5")
+        expect("a number with no labels up is refused", r is not None and not r[2], str(r))
+        p = grammar.parse(normalise("open a new tab in fennel"))
+        expect("'open a new tab in fennel' -> new tab, aimed at fennel",
+               p is not None and p.command.name == "new_tab" and p.where == "fennel", str(p))
+
         print("minimize / restore / close")
         r = say("minimize fennel")
         expect("'minimize fennel'", bool(user32.IsIconic(hwnd)), str(r))
@@ -95,6 +130,20 @@ def main() -> int:
         expect("a window that isn't there is refused", r is not None and not r[2], str(r))
         r = say("close fennel", wait=1.5)
         expect("'close fennel'", not user32.IsWindow(hwnd), str(r))
+
+        print("history")
+        from localflow import history
+
+        store = tmp / "history.jsonl"
+        for i, text in enumerate(["Book the meeting room for Thursday.", "Call the dentist.",
+                                  "Thursday's budget meeting moved to Friday."]):
+            history.add(history.Entry(1000.0 + i, text), path=store)
+        found = [e.text for e in history.search(history.load(store), "thursday meeting")]
+        expect("search: every word, newest first",
+               found == ["Thursday's budget meeting moved to Friday.",
+                         "Book the meeting room for Thursday."], str(found))
+        history.remove(1001.0, path=store)
+        expect("delete one", len(history.load(store)) == 2)
 
         print("app list")
         app, score = desktop.find_app("calculator")

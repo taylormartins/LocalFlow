@@ -379,8 +379,9 @@ class Control:
     element: object
 
 
-def controls(hwnd: int, limit: float = 3.0) -> list[Control]:
-    """Named, enabled, on-screen clickable controls of a window."""
+def controls(hwnd: int, named: bool = True) -> list[Control]:
+    """Enabled, on-screen clickable controls of a window; only named ones
+    unless ``named`` is False (numbered labels need no name)."""
     uia, UIA = _automation()
     import comtypes
 
@@ -401,12 +402,62 @@ def controls(hwnd: int, limit: float = 3.0) -> list[Control]:
             kind, name = el.CachedControlType, (el.CachedName or "").strip()
         except Exception:
             continue
-        if kind not in _CLICKABLE or not name:
+        if kind not in _CLICKABLE or (named and not name):
             continue
         r = el.CachedBoundingRectangle
+        if r.right - r.left < 4 or r.bottom - r.top < 4:
+            continue  # collapsed or hidden
         out.append(Control(name, kind, (r.left, r.top, r.right, r.bottom), el))
     log.debug("%d clickable controls in %.2fs", len(out), time.perf_counter() - started)
     return out
+
+
+def center(hwnd: int) -> None:
+    """Centre a window on its monitor's work area (restored first if maximised)."""
+    if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        time.sleep(0.15)
+    rect = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    area = work_area(hwnd)
+    w, h = rect.right - rect.left, rect.bottom - rect.top
+    w, h = min(w, area.right - area.left), min(h, area.bottom - area.top)
+    x = area.left + (area.right - area.left - w) // 2
+    y = area.top + (area.bottom - area.top - h) // 2
+    user32.SetWindowPos(hwnd, 0, x, y, w, h, 0x0004 | 0x0010)  # NOZORDER | NOACTIVATE
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+
+user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+user32.MonitorFromWindow.restype = wintypes.HMONITOR
+user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_int, ctypes.c_int, wintypes.UINT]
+
+
+def work_area(hwnd: int) -> wintypes.RECT:
+    info = _MONITORINFO(cbSize=ctypes.sizeof(_MONITORINFO))
+    user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info))
+    return info.rcWork
+
+
+# -- numbered labels ---------------------------------------------------------
+
+#: Set by the overlay: draws [(number, (left, top, right, bottom)), ...] over
+#: the screen, or clears them with []. None when there is no overlay.
+label_sink = None
+
+
+def show_labels(labels: list[tuple[int, tuple[int, int, int, int]]]) -> bool:
+    if label_sink is None:
+        return False
+    label_sink(labels)
+    return True
 
 
 def find_control(spoken: str, items: list[Control]) -> tuple[Control | None, float]:

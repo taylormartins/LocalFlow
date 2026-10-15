@@ -288,6 +288,10 @@ too. Commands work without an LLM:
 | Say | Does |
 |---|---|
 | switch to / go to / show *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title) |
+| center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
+| move it to the next / previous monitor | moves the window to another screen |
+| show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
+| click *17* · hide labels | clicks numbered item 17 (the labels then go away) · clears them |
 | open / launch *Notepad*, *Spotify*, *youtube dot com* | switches to it if it's open, starts it if not; opens websites |
 | minimize / maximize / restore / close *[name]* | the window in front, or the one named |
 | click / press *Send*, *Reply all*, *File* | clicks a button, link, tab or menu item by its name |
@@ -297,6 +301,21 @@ too. Commands work without an LLM:
 | scroll up / down · page up / down · go to the top / bottom | moving around |
 | new tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
 | switch window · show desktop · snap left / right | windows |
+| paste that again · show history | re-pastes the last dictation · opens the history window |
+
+Any command can be aimed at a window by ending it with "in *name*": **"open
+a new tab in Chrome"**, "scroll down in Spotify". LocalFlow switches there
+first. If you pause in the middle of a request it doesn't recognise, it waits
+for you to finish (about 2 seconds of quiet) and takes the whole sentence
+together.
+
+**Numbered click labels.** Say **"show labels"** and every button, link, tab
+and field in the window in front gets a small yellow number. Say **"click
+17"** and that one is clicked, then the labels go away. "Show labels" again
+brings fresh ones. This reads the same accessibility tree screen readers use,
+so it works in browsers, Explorer, Office and most Windows apps. Some apps
+expose little or nothing there (Spotify, many games), and they get few or no
+labels.
 
 With the cleanup LLM in use (`cleanup.method = "llm"` and Ollama running),
 command mode also understands requests the table doesn't cover: "get rid of
@@ -304,6 +323,14 @@ this tab", "put Spotify away", "open Notepad and type hello". The LLM can only
 pick steps from the table above, never anything else. A plan that closes or
 sends something waits for you to say **"yes"** ("no" cancels).
 (`always_on.command_llm = false` turns this off.)
+
+**Dictation history.** Tray ▸ **Dictation history...** (or "show history" in
+command mode) lists everything you've dictated, newest first. Type to search
+(every word must match). **Enter** or double-click pastes the selected one
+into the window you were in, **Ctrl+C** copies it, **Del** deletes it, and
+**Clear all** empties it. It's kept in `history.jsonl` on this PC only and
+never logged. `history.enabled = false` stops the saving, and
+`history.max_items` (500) caps it.
 
 **When a phrase isn't caught.** A phrase that came close but wasn't accepted
 is logged (`start phrase? heard 'okay listen merry gold' (0.78)`), and the tray

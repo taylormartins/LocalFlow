@@ -104,6 +104,11 @@ class Engine:
 
     def _emit(self, result: Result) -> None:
         self.history.append(result)
+        if self.cfg.history.enabled and result.text:
+            from . import history
+
+            history.add(history.Entry(result.at, result.text, round(result.audio_seconds, 1),
+                                      result.source), self.cfg.history.max_items)
         for hook in self._result_hooks:
             try:
                 hook(result)

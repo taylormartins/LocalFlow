@@ -25,6 +25,10 @@ crash.log
 # Sideloaded Whisper models (localflow import-model)
 models/
 
+# Your saved dictations (history window)
+history.jsonl
+history.tmp
+
 # Always-on voice templates (your recorded phrases)
 wake/
 

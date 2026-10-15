@@ -331,6 +331,13 @@ def cmd_import_model(args, cfg) -> int:
     return 0
 
 
+def cmd_history(args, cfg) -> int:
+    """Search past dictations; paste or copy one (opens a window)."""
+    from .history import main as history_main
+
+    return history_main(cfg)
+
+
 def cmd_enroll(args, cfg) -> int:
     """Set up the always-on start/stop phrases (opens a window)."""
     from .enroll import main as enroll_main
@@ -860,6 +867,7 @@ def main(argv: list[str] | None = None) -> int:
     p_im.add_argument("--name", default="", help="model name (default: from the folder)")
 
     sub.add_parser("enroll", help="set up always-on start/stop phrases", parents=[common])
+    sub.add_parser("history", help="search past dictations; paste or copy one", parents=[common])
     p_li = sub.add_parser(
         "listen", help="try always-on mode in the console (pastes nothing)", parents=[common]
     )
@@ -893,6 +901,7 @@ def main(argv: list[str] | None = None) -> int:
         "clean": cmd_clean,
         "devices": cmd_devices,
         "enroll": cmd_enroll,
+        "history": cmd_history,
         "listen": cmd_listen,
         "fetch-model": cmd_fetch_model,
         "import-model": cmd_import_model,

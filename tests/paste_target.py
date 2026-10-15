@@ -68,6 +68,7 @@ def main() -> int:
         focus = lambda h: window.activate(window.Target(h, None, ""))  # noqa: E731
 
         cfg = Config()
+        cfg.history.enabled = False  # never into your own history
         cfg.inject.paste_to = "start"
         engine = Engine(cfg)
         say = lambda text: setattr(engine, "process", lambda audio, **kw: Result(  # noqa: E731

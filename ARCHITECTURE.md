@@ -407,6 +407,27 @@ phrase (while dictating) is among them.
     `os.startfile`, never a console. Buttons via UI Automation
     (`FindAllBuildCache` on enabled, on-screen controls), invoked through
     Invoke/SelectionItem/Toggle/ExpandCollapse, or a click at the centre.
+  - Patterns can put the slot anywhere ("move {name} to the center"), and
+    `Grammar.parse` also tries "<command> in|on <window>" splits; the split
+    wins only if the plain reading doesn't resolve and the window exists.
+    `Parsed.where` makes the Runner switch there first.
+  - In command mode an unrecognised burst is held (`_held`) and joined with
+    the next one, until `HOLD` (1.8 s) after the last burst's end. Then
+    the rules get one more go, then the LLM. The live log showed one request
+    said with pauses arriving as five "commands". The burst end is used, not
+    Whisper's word end times, which run about 0.4 s early.
+  - LLM calls are one at a time (`_llm_lock`) and pass the cleanup model's
+    `keep_alive`. Six queued requests had all timed out, and the default
+    keep-alive would have unloaded the model after 5 minutes.
+  - **Numbered labels**: `show_labels` numbers `desktop.controls(named=False)`
+    in reading order, one per spot, at most 300. The overlay draws them on a
+    second click-through, no-activate window made once on its Tk thread
+    (`desktop.label_sink`). "click N" invokes `_labelled[N-1]` and clears
+    them. Leaving command mode clears them too.
+- **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
+  (gitignored, trimmed to `max_items`). The window is its own process
+  (`localflow history`). It records the foreground window at launch, and
+  Enter re-activates that window and pastes there.
 - **Near misses**: a phrase scoring 0.7 to the accept level is logged with
   just the matching words, and `Listener.last_near` feeds the tray's
   "Accept ... as the start phrase".

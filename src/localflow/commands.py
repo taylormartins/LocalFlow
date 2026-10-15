@@ -57,6 +57,8 @@ class Ctx:
     last_at: float = 0.0
     last_target: object = None
     paste: Callable[[str], None] | None = None
+    #: The last dictation even if scratched (for "paste that again").
+    last_any: str = ""
     in_target: Callable[[object, Callable[[], None]], None] | None = None
 
 
@@ -80,9 +82,12 @@ class Parsed:
     command: Command
     arg: str
     score: float
+    #: A window to bring forward first ("new tab in Chrome"), or "".
+    where: str = ""
 
     def __str__(self) -> str:
-        return f"{self.command.name}({self.arg})" if self.arg else self.command.name
+        s = f"{self.command.name}({self.arg})" if self.arg else self.command.name
+        return f"{s} in {self.where}" if self.where else s
 
 
 # -- actions ---------------------------------------------------------------
@@ -164,7 +169,84 @@ def _window_op(how: int, label: str) -> Callable[[str, Ctx], str]:
     return run
 
 
+_ONES = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+         "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+         "eighteen": 18, "nineteen": 19,
+         # what Whisper writes for a lone number now and then
+         "won": 1, "to": 2, "too": 2, "for": 4, "ate": 8}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+         "eighty": 80, "ninety": 90}
+
+
+def number(text: str) -> int | None:
+    """ "17", "seventeen", "number twenty one", "one hundred and five" -> int."""
+    words = [w for w in text.lower().replace("-", " ").split() if w not in ("number", "and", "#")]
+    if len(words) == 1 and words[0].isdigit():
+        return int(words[0])
+    total, seen = 0, False
+    for w in words:
+        if w.isdigit():
+            total += int(w)
+        elif w in _ONES:
+            total += _ONES[w]
+        elif w in _TENS:
+            total += _TENS[w]
+        elif w == "hundred" and seen:
+            total *= 100
+        else:
+            return None
+        seen = True
+    return total if seen else None
+
+
+#: The controls numbered on screen now, label n = _labelled[n - 1].
+_labelled: list[desktop.Control] = []
+MAX_LABELS = 300
+
+
+def _show_labels(arg: str, ctx: Ctx) -> str:
+    hwnd = desktop.foreground()
+    if not hwnd:
+        raise CommandError("no window in front")
+    items = desktop.controls(hwnd, named=False)
+    # Reading order, and one label per spot (a button and its icon share one).
+    items.sort(key=lambda c: (c.rect[1] // 12, c.rect[0]))
+    seen, unique = set(), []
+    for c in items:
+        key = (c.rect[0] // 6, c.rect[1] // 6)
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+    unique = unique[:MAX_LABELS]
+    if not unique:
+        raise CommandError("nothing clickable found")
+    _labelled[:] = unique
+    if not desktop.show_labels([(i + 1, c.rect) for i, c in enumerate(unique)]):
+        _labelled.clear()
+        raise CommandError("labels need the overlay (overlay.enabled)")
+    return f"{len(unique)} labels - say click and a number"
+
+
+def hide_labels(arg: str = "", ctx: Ctx | None = None) -> str:
+    had = bool(_labelled)
+    _labelled.clear()
+    desktop.show_labels([])
+    return "Labels hidden" if had else "No labels up"
+
+
 def _click(arg: str, ctx: Ctx) -> str:
+    n = number(arg)
+    if n is not None and _labelled:
+        if not 1 <= n <= len(_labelled):
+            raise CommandError(f"no label {n}")
+        c = _labelled[n - 1]
+        hide_labels()
+        time.sleep(0.05)
+        desktop.activate_control(c)
+        return f"Clicked {n}" + (f" ({c.name[:24]})" if c.name else "")
+    if n is not None:
+        raise CommandError("say 'show labels' first")
     hwnd = desktop.foreground()
     if not hwnd:
         raise CommandError("no window in front")
@@ -174,6 +256,35 @@ def _click(arg: str, ctx: Ctx) -> str:
         raise CommandError(f"no button called {arg}")
     desktop.activate_control(c)
     return f"Clicked {c.name[:30]}"
+
+
+def _center(arg: str, ctx: Ctx) -> str:
+    if arg:
+        w, score = desktop.find_window(arg)
+        if w is None or score < NAME_ACCEPT:
+            raise CommandError(f"no window called {arg}")
+        desktop.focus(w)
+        hwnd, what = w.hwnd, _shown(w, arg)
+    else:
+        hwnd, what = desktop.foreground(), "window"
+    if not hwnd:
+        raise CommandError("no window in front")
+    desktop.center(hwnd)
+    return f"Centred {what}"
+
+
+def _history(arg: str, ctx: Ctx) -> str:
+    from .tray import open_history
+
+    open_history()
+    return "Opening dictation history"
+
+
+def _paste_again(arg: str, ctx: Ctx) -> str:
+    if ctx.paste is None or not ctx.last_any:
+        raise CommandError("nothing dictated yet")
+    ctx.paste(ctx.last_any)
+    return f"Pasted again ({len(ctx.last_any.split())} words)"
 
 
 def _type(arg: str, ctx: Ctx) -> str:
@@ -274,15 +385,34 @@ COMMANDS: list[Command] = [
             _window_op(-1, "Closed"), "close a window (it may ask to save)", risky=True),
     Command("switch_window", ["switch (window|windows)", "last window", "previous window"],
             _keys("alt+tab", "Switched window"), "go to the previous window (Alt+Tab)"),
+    Command("center", ["center [the] [window]", "(center|centre) {name}",
+                       "(move|put|bring) [the] window to the (center|middle) [of the screen|of my screen|of the monitor|of my monitor]",
+                       "(move|put|bring) {name} to the (center|middle) [of the screen|of my screen|of the monitor|of my monitor]"],
+            _center, "move a window to the middle of its screen"),
+    Command("next_monitor", ["move [it|the window] to the (next|other) (monitor|screen)",
+                             "move [it|the window] (right|to the right) a (monitor|screen)"],
+            _keys("win+shift+right", "Moved to the next screen"), "move the window to the next monitor"),
+    Command("previous_monitor", ["move [it|the window] to the (previous|left) (monitor|screen)"],
+            _keys("win+shift+left", "Moved to the previous screen"), "move the window to the previous monitor"),
+    Command("show_labels", ["show [me] [the] [numbered] [click] (labels|numbers) [on screen] [again]",
+                            "label [the] (buttons|everything)", "number [the] buttons", "show (clickables|click targets)"],
+            _show_labels, "number everything clickable in the window in front; then say 'click <number>'"),
+    Command("hide_labels", ["hide [the] [click] (labels|numbers)", "clear [the] (labels|numbers)",
+                            "(labels|numbers) off"], hide_labels, "take the numbered labels away"),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     Command("snap_left", ["snap [window] left", "snap [it] left"], _keys("win+left",
             "Snapped left"), "snap the window to the left half"),
     Command("snap_right", ["snap [window] right", "snap [it] right"], _keys("win+right",
             "Snapped right"), "snap the window to the right half"),
     # Buttons and text.
-    Command("click", ["click [on] {name}", "press {name}", "tap {name}"], _click,
-            "click a button, link, tab or menu item by its name"),
+    Command("click", ["click [on] [number] {name}", "press {name}", "tap {name}"], _click,
+            "click a button, link, tab or menu item by its name, or a numbered label by its number"),
     Command("type", ["type {text}"], _type, "type some text", text_slot=True),
+    Command("paste_again", ["paste [that|it] again", "repeat [that|the] [last] dictation",
+                            "paste [the] last dictation"], _paste_again,
+            "paste the last dictation again where the cursor is"),
+    Command("history", ["(show|open) [my|the] [dictation] history", "dictation history"],
+            _history, "open the dictation history window"),
     Command("help", ["what can i say", "help", "show commands"], _help, "list commands"),
 ]
 BY_NAME = {c.name: c for c in COMMANDS}
@@ -297,13 +427,9 @@ YES = ["yes", "yes please", "yeah", "do it", "confirm", "go ahead", "okay do it"
 NO = ["no", "cancel", "do not", "stop", "never mind", "nope"]
 
 
-def _expand(pattern: str) -> list[tuple[list[str], str | None]]:
-    """"minimize [the] [window]" -> every word list it allows, plus its slot."""
-    slot = None
-    m = re.search(r"\{(\w+)\}\s*$", pattern)
-    if m:
-        slot, pattern = m.group(1), pattern[: m.start()]
-    parts = re.findall(r"\[[^\]]*\]|\([^)]*\)|[^\s\[\]()]+", pattern)
+def _options(text: str) -> list[list[str]]:
+    """Every word list "minimize [the] (window|app)" allows."""
+    parts = re.findall(r"\[[^\]]*\]|\([^)]*\)|[^\s\[\]()]+", text)
     options = []
     for p in parts:
         if p.startswith("["):
@@ -315,9 +441,35 @@ def _expand(pattern: str) -> list[tuple[list[str], str | None]]:
     out = []
     for combo in itertools.product(*options):
         words = normalise(" ".join(c for c in combo if c))
-        if words:
-            out.append((words, slot))
+        if words or not text.strip():
+            out.append(words)
     return out
+
+
+def _expand(pattern: str) -> list[tuple[list[str], str | None, list[str]]]:
+    """A pattern -> (words before the slot, slot name, words after it) for
+    every form it allows. The slot can sit anywhere: "move {name} to the
+    center"."""
+    m = re.search(r"\{(\w+)\}", pattern)
+    if not m:
+        return [(w, None, []) for w in _options(pattern) if w]
+    before, after = pattern[: m.start()], pattern[m.end():]
+    return [(x, m.group(1), y) for x in _options(before) for y in _options(after) if x or y]
+
+
+#: Said after a command to aim it at a window: "new tab in Chrome".
+_WHERE = ("in", "on")
+#: Dropped from the end of a name: "the Chrome Twitch window" -> "chrome twitch".
+_NAME_TAIL = ("window", "app", "application", "program", "tab")
+
+
+def _clean_name(words: list[str]) -> list[str]:
+    words = list(words)
+    while len(words) > 1 and words[0] in ("the", "my", "a", "that", "this", "me"):
+        words = words[1:]
+    if len(words) > 1 and words[-1] in _NAME_TAIL:
+        words = words[:-1]
+    return words
 
 
 @dataclass
@@ -326,11 +478,11 @@ class Grammar:
     extra: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self.forms: list[tuple[Command, list[str], str | None]] = []
+        self.forms: list[tuple[Command, list[str], str | None, list[str]]] = []
         for c in COMMANDS:
             for p in c.patterns + self.extra.get(c.name, []):
-                for words, slot in _expand(p):
-                    self.forms.append((c, words, slot))
+                for before, slot, after in _expand(p):
+                    self.forms.append((c, before, slot, after))
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
         self.yes = [normalise(s) for s in YES]
@@ -341,29 +493,53 @@ class Grammar:
 
         The whole utterance has to be the command, give or take a lead-in
         ("okay", "please") and a slot's free words: "switch to Chrome" is a
-        command, "I'll switch to Chrome later" is not.
+        command, "I'll switch to Chrome later" is not. A command can be aimed
+        at a window by ending it with "in <name>": "open a new tab in Chrome"
+        switches to Chrome first. The plain reading wins unless the split one
+        is a better fit and its window exists.
         """
         words = trim(words)
         if not words:
             return None
+        best = self._parse(words)
+        for i in range(len(words) - 2, 0, -1):
+            if words[i] not in _WHERE:
+                continue
+            head, tail = words[:i], _clean_name(words[i + 1 :])
+            p = self._parse(head)
+            if p is None or p.command.name in ("switch", "open", "type") or not tail:
+                continue
+            if best is not None and best.score >= p.score and resolvable(best):
+                continue
+            w, score = desktop.find_window(" ".join(tail))
+            if w is not None and score >= NAME_ACCEPT:
+                p.where = " ".join(tail)
+                best = p
+                break
+        return best
+
+    def _parse(self, words: list[str]) -> Parsed | None:
         best: Parsed | None = None
-        for c, fixed, slot in self.forms:
-            n = len(fixed)
+        for c, before, slot, after in self.forms:
+            nb, na = len(before), len(after)
             if slot is None:
-                if abs(len(words) - n) > 1:
+                if abs(len(words) - nb) > 1:
                     continue
-                score = _aligned(words, fixed)
-                arg = ""
+                score, arg = _aligned(words, before), ""
             else:
                 score, arg = 0.0, ""
-                for k in (n - 1, n, n + 1):
-                    if 1 <= k < len(words):
-                        s = _aligned(words[:k], fixed)
-                        if s > score:
-                            rest = words[k:]
-                            if c.text_slot is False and len(rest) > 1 and rest[0] in ("the", "my", "a"):
-                                rest = rest[1:]
-                            score, arg = s, " ".join(rest)
+                for k in {max(nb - 1, 0), nb, nb + 1} if nb else {0}:
+                    for j in {max(na - 1, 0), na, na + 1} if na else {0}:
+                        if k + j >= len(words) or (nb and not k) or (na and not j):
+                            continue
+                        s1 = _aligned(words[:k], before) if nb else 1.0
+                        s2 = _aligned(words[len(words) - j :], after) if na else 1.0
+                        sc = min(s1, s2)
+                        if sc > score:
+                            middle = words[k : len(words) - j]
+                            if not c.text_slot:
+                                middle = _clean_name(middle)
+                            score, arg = sc, " ".join(middle)
             if score >= ACCEPT and (best is None or score > best.score
                                     or (score == best.score and not arg and best.arg)):
                 best = Parsed(c, arg, score)
@@ -419,8 +595,14 @@ Windows open now (program: title):
 Rules: at most 4 steps. Use the exact command names above. For "switch", "open",
 "minimize", "maximize", "restore", "close_window" the arg is an app name or a
 window title from the list. For "click" the arg is the visible name of a
-button. For "type" the arg is the exact text to type. If the request can't be
-done with these commands, reply {{"steps": []}}."""
+button. For "type" the arg is the exact text to type. To aim keys at a
+window, switch to it first. If the request can't be done with these
+commands, reply {{"steps": []}}.
+Examples:
+"open a new tab in chrome" -> {{"steps": [{{"command": "switch", "arg": "chrome"}}, {{"command": "new_tab", "arg": ""}}]}}
+"put the twitch window in the middle" -> {{"steps": [{{"command": "center", "arg": "twitch"}}]}}
+"get rid of spotify" -> {{"steps": [{{"command": "minimize", "arg": "spotify"}}]}}
+"what's the time in tokyo" -> {{"steps": []}}"""
 
 
 def _describe() -> str:
@@ -434,7 +616,8 @@ def _describe() -> str:
     return "\n".join(lines)
 
 
-def plan_with_llm(client, model: str, request: str, timeout: float = 15.0) -> list[Parsed]:
+def plan_with_llm(client, model: str, request: str, timeout: float = 30.0,
+                  keep_alive: str | int = "30m") -> list[Parsed]:
     """Steps for a request the patterns didn't cover, chosen by the LLM from
     COMMANDS only. Anything unknown or malformed is dropped, not guessed at."""
     wins = desktop.windows()[:20]
@@ -443,6 +626,9 @@ def plan_with_llm(client, model: str, request: str, timeout: float = 15.0) -> li
         "/api/chat",
         json={
             "model": model, "stream": False, "format": "json", "think": False,
+            # The cleanup model's own keep-alive: the default would unload
+            # it after 5 minutes and slow the next dictation's cleanup.
+            "keep_alive": keep_alive,
             "options": {"temperature": 0.0, "num_predict": 200},
             "messages": [
                 {"role": "system", "content": _PROMPT.format(commands=_describe(),
@@ -465,6 +651,9 @@ def plan_with_llm(client, model: str, request: str, timeout: float = 15.0) -> li
             continue
         c = BY_NAME.get(str(step.get("command", "")))
         arg = str(step.get("arg", "") or "").strip()
+        # It sometimes copies the window list's "program: title" form.
+        if c is not None and c.name != "type" and ": " in arg:
+            arg = arg.split(": ", 1)[1]
         takes_arg = c is not None and any("{" in p for p in c.patterns)
         if c is None or c.name == "help" or (takes_arg and not arg and c.name in
                                               ("switch", "open", "click", "type")):
@@ -505,6 +694,9 @@ class Runner:
             result: list[str] = []
             try:
                 def go() -> None:
+                    if p.where:
+                        _switch(p.where, ctx)
+                        time.sleep(0.2)  # let it take focus before the keys
                     result.append(p.command.action(p.arg, ctx))
 
                 if wrap is not None:

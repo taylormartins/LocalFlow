@@ -35,6 +35,14 @@ STATE_COLOURS = {
 }
 
 
+def open_history() -> None:
+    """The history window, as its own process (it has a Tk loop of its own)."""
+    from .proc import run_localflow
+
+    threading.Thread(target=run_localflow, args=("history",), daemon=True,
+                     name="localflow-history").start()
+
+
 def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -73,6 +81,7 @@ class Tray:
             title="LocalFlow - starting",
             menu=pystray.Menu(
                 pystray.MenuItem("Copy last transcript", self._copy_last),
+                pystray.MenuItem("Dictation history...", lambda icon, item: open_history()),
                 pystray.MenuItem(
                     "Cleanup",
                     self._toggle_cleanup,

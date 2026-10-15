@@ -164,6 +164,12 @@ command_llm = true         # command mode asks the cleanup LLM (if in use) about
 # built-ins in commands.py). Example:
 # submit = ["fire away"]
 
+[history]
+# Every dictation is saved to history.jsonl (this PC only) for tray >
+# Dictation history... Turn off to save nothing.
+enabled = true
+max_items = 500
+
 [vocabulary]
 # Proper nouns and jargon Whisper tends to mangle. These are fed to Whisper as
 # a decoding hint and to the cleanup model as a spelling authority.

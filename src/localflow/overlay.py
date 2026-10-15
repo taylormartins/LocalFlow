@@ -90,6 +90,10 @@ AMBER = "#e0a33a"
 PINK = "#e86fb0"
 #: Always-on command mode.
 TEAL = "#2ec4b6"
+#: Numbered click labels: dark text on yellow reads over any background.
+LABEL_BG = "#ffd60a"
+LABEL_EDGE = "#1d1e22"
+LABEL_TEXT = "#111111"
 #: Previous-sentence context in the live text.
 DIM_TEXT = "#8b8e98"
 
@@ -178,6 +182,18 @@ class Overlay:
         self._llm_ready: bool | None = None
         self._poke = threading.Event()
         engine.on_state(self._on_state)
+        # Numbered click labels (command mode), drawn by the Tk thread.
+        self._labels: list = []
+        self._labels_version = 0
+        self._labels_drawn = 0
+        from . import desktop
+
+        desktop.label_sink = self.set_labels
+
+    def set_labels(self, labels: list) -> None:
+        """[(number, (left, top, right, bottom)), ...] in screen pixels; [] clears."""
+        self._labels = list(labels)
+        self._labels_version += 1
 
     # -- engine side -------------------------------------------------------
 
@@ -296,6 +312,7 @@ class Overlay:
         self.live_fonts = [tkfont.Font(root=root, family="Segoe UI", size=-int(px * s)) for px in (13, 12, 11, 10)]
         self.levels: deque[float] = deque([0.0] * BARS, maxlen=BARS)
         self.root = root
+        self._make_label_layer(tk)
         log.info("overlay ready")
 
         root.after(FRAME_MS, self._tick)
@@ -358,7 +375,68 @@ class Overlay:
         self._layout = (lines, font.metrics("linespace"))
         return self._layout
 
+    # -- numbered labels ---------------------------------------------------
+
+    def _make_label_layer(self, tk) -> None:
+        """A second click-through, never-focused window for the labels, made
+        once (like the pill) and moved over the target window when needed."""
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=KEY)
+        win.attributes("-transparentcolor", KEY)
+        win.attributes("-alpha", 0.88)  # see-through enough to read what's under
+        win.attributes("-topmost", True)
+        win.geometry("10x10+-32000+-32000")
+        self.label_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
+        self.label_canvas.pack(fill="both", expand=True)
+        win.update()
+        self.label_hwnd = user32.GetParent(win.winfo_id())
+        ex = user32.GetWindowLongW(self.label_hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(
+            self.label_hwnd, GWL_EXSTYLE,
+            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        )
+        user32.ShowWindow(self.label_hwnd, SW_HIDE)
+        self.label_win = win
+        self.label_font = ("Segoe UI Semibold", -int(12 * self.s))
+
+    def _draw_labels(self) -> None:
+        self._labels_drawn = self._labels_version
+        labels = self._labels
+        c = self.label_canvas
+        c.delete("all")
+        if not labels:
+            user32.ShowWindow(self.label_hwnd, SW_HIDE)
+            return
+        pad = int(30 * self.s)
+        x0 = min(r[0] for _, r in labels) - pad
+        y0 = min(r[1] for _, r in labels) - pad
+        x1 = max(r[2] for _, r in labels) + pad
+        y1 = max(r[3] for _, r in labels) + pad
+        w, h = x1 - x0, y1 - y0
+        c.config(width=w, height=h)
+        s = self.s
+        bh = int(17 * s)
+        for n, (left, top, right, bottom) in labels:
+            text = str(n)
+            bw = int((9 + 7 * len(text)) * s)
+            # Top-left corner of the control, nudged inside it, so the label
+            # sits on what it names without hiding all of it.
+            x = left - x0 + int(2 * s)
+            y = top - y0 + int(2 * s)
+            c.create_rectangle(x, y, x + bw, y + bh, fill=LABEL_BG, outline=LABEL_EDGE)
+            c.create_text(x + bw / 2, y + bh / 2, text=text, fill=LABEL_TEXT, font=self.label_font)
+        if not user32.SetWindowPos(
+            self.label_hwnd, HWND_TOPMOST, x0, y0, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW
+        ):
+            log.warning("label layer SetWindowPos failed (error %d)", ctypes.get_last_error())
+
     def _tick(self) -> None:
+        if self._labels_version != self._labels_drawn:
+            try:
+                self._draw_labels()
+            except Exception:
+                log.warning("drawing labels failed", exc_info=True)
         try:
             self._frame()
         except Exception:

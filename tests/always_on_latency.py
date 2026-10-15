@@ -30,6 +30,7 @@ def main() -> int:
     cpu = "--cpu" in sys.argv
     wake.WAKE_DIR = T.TMP / "wake"
     cfg = Config() if cpu else load()[0]
+    cfg.history.enabled = False  # never into your own history
     if cpu:
         cfg.whisper.model, cfg.whisper.device, cfg.whisper.compute_type = "small.en", "cpu", "int8"
     cfg.cleanup.method = "rules"

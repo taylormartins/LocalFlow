@@ -203,6 +203,15 @@ class AlwaysOnConfig:
 
 
 @dataclass
+class HistoryConfig:
+    #: Save every dictation to history.jsonl (this PC only) for the history
+    #: window: tray > Dictation history..., or "show history" in command mode.
+    enabled: bool = True
+    #: Oldest entries are dropped past this many.
+    max_items: int = 500
+
+
+@dataclass
 class VocabularyConfig:
     #: Proper nouns and jargon Whisper mangles. Fed to Whisper as a prompt hint
     #: and to the cleanup model as a spelling authority.
@@ -223,6 +232,7 @@ class Config:
     sounds: SoundsConfig = field(default_factory=SoundsConfig)
     style: StyleConfig = field(default_factory=StyleConfig)
     always_on: AlwaysOnConfig = field(default_factory=AlwaysOnConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
     vocabulary: VocabularyConfig = field(default_factory=VocabularyConfig)
 
 

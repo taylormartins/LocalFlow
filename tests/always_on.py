@@ -61,6 +61,7 @@ def build(*parts) -> np.ndarray:
 def main() -> int:
     wake.WAKE_DIR = TMP / "wake"
     cfg = Config()
+    cfg.history.enabled = False  # never into your own history
     cfg.whisper.model, cfg.whisper.device, cfg.whisper.compute_type = "small.en", "cpu", "int8"
     cfg.cleanup.method = "rules"
     cfg.audio.boost = "none"
@@ -177,6 +178,16 @@ def main() -> int:
                         say(STOP), 1.0, say("Scroll down."), 2.0))
     expect("the stop phrase leaves command mode",
            ran(ev) == ["scroll_down"] and mode(ev)[-1:] == ["off"], f"events={ev}")
+
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Move the window"), 0.4,
+                        say("to the middle of the screen."), 2.5))
+    expect("a request said in pieces is put together", ran(ev) == ["center"], f"events={ev}")
+
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Make me a sandwich"), 0.4,
+                        say("with extra cheese."), 2.5))
+    unknown = [t for k, t in ev if k == "unknown"]
+    expect("an unknown request is one request, not two",
+           not ran(ev) and len(unknown) == 1 and "cheese" in unknown[0], f"events={ev}")
 
     got, ev = run(build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Scratch that."), 2.0))
     expect("'scratch that' after a dictation", ran(ev) == ["scratch"], f"events={ev}")
