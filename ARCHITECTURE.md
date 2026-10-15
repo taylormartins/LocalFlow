@@ -379,8 +379,17 @@ phrase (while dictating) is among them.
   counted as speech for about two minutes, so the stop phrase's burst never
   ended.
 - **Voice commands** (`commands.py`, `desktop.py`). Each command is a few
-  spoken patterns (`[optional]`, `(a|b)`, a `{slot}` at the end), matched
-  with wake's worst-word alignment at 0.8. The whole utterance must be the
+  spoken patterns (`[optional]`, `(a|b)`, a `{slot}` anywhere), compiled to
+  groups and matched directly (`Pattern.match`, a memoised walk over words
+  x groups, worst word >= 0.8, ties to the shortest slot). They used to be
+  expanded into every combination: by 1.14 that was 42,119 forms, and one
+  22-word burst took 62 s to check (214 s with the "in <window>" splits).
+  Every dictation's first burst is checked for commands, so the listener
+  fell behind and missed stop phrases. Now 155 patterns, about 0.6 ms a
+  burst. `tests/command_phrases.py` fails above 20 ms. Bursts over 16 words
+  aren't commands (except "type ..."), and "in <window>" splits only try
+  names of up to 4 words. The listener skips non-dictation speech more than
+  10 s old (`STALE`), and logs any check slower than 2 s. The whole utterance must be the
   command, give or take a lead-in ("okay", "please"). Actions run on one
   worker thread (`Runner`), because UI Automation is COM.
   - After the stop phrase a window opens (`command_window`, 5 s), and

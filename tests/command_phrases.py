@@ -75,6 +75,24 @@ def main() -> int:
         ok = got == want
         failures += not ok
         print(f"  {'pass' if ok else 'FAIL'}  {heard!r}: {got}" + ("" if ok else f"  (want {want})"))
+
+    # Speed: every burst of speech is checked for commands while you talk.
+    # Writing the patterns out in full once made a 15-word burst take a
+    # minute, and the listener fell behind and missed stop phrases.
+    import time
+
+    talk = [normalise("so i was thinking we should put the new build on the server in the morning"),
+            normalise("move the window to the top right of my monitor"),
+            normalise("open a new tab in chrome and then go back to the terminal on screen two")]
+    started = time.perf_counter()
+    for _ in range(20):
+        for w in talk:
+            g.parse(w)
+    each = (time.perf_counter() - started) / (20 * len(talk)) * 1000
+    ok = each < 20
+    failures += not ok
+    print(f"  {'pass' if ok else 'FAIL'}  parsing a burst takes {each:.1f} ms (must be under 20)")
+
     print("\nall passed" if not failures else f"\n{failures} FAILED")
     return 1 if failures else 0
 

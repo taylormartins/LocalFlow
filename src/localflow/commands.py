@@ -18,7 +18,8 @@ COM objects belong to the thread that made them.
 
 from __future__ import annotations
 
-import itertools
+import difflib
+import functools
 import json
 import logging
 import queue
@@ -35,6 +36,8 @@ log = logging.getLogger(__name__)
 
 #: Every fixed word of a pattern must be at least this close to what was heard.
 ACCEPT = 0.8
+#: Longer than this, a burst is talk, not a command (except "type ...").
+MAX_COMMAND_WORDS = 16
 #: A spoken name must fit a window, app or button at least this well.
 NAME_ACCEPT = 0.72
 #: Said around a command without changing it.
@@ -706,34 +709,86 @@ YES = ["yes", "yes please", "yeah", "do it", "confirm", "go ahead", "okay do it"
 NO = ["no", "cancel", "do not", "stop", "never mind", "nope"]
 
 
-def _options(text: str) -> list[list[str]]:
-    """Every word list "minimize [the] (window|app)" allows."""
-    parts = re.findall(r"\[[^\]]*\]|\([^)]*\)|[^\s\[\]()]+", text)
-    options = []
-    for p in parts:
-        if p.startswith("["):
-            options.append([""] + p[1:-1].split("|"))
-        elif p.startswith("("):
-            options.append(p[1:-1].split("|"))
-        else:
-            options.append([p])
-    out = []
-    for combo in itertools.product(*options):
-        words = normalise(" ".join(c for c in combo if c))
-        if words or not text.strip():
-            out.append(words)
-    return out
+@dataclass
+class Pattern:
+    """A spoken pattern compiled to groups, matched without expanding it.
+
+    Each group is a list of alternatives (word lists); [] among them means
+    the group is optional. None is the slot. Writing every combination out
+    instead gave 42,000 forms, and checking one long burst of ordinary
+    speech against them took a minute - the listener fell that far behind
+    and missed stop phrases.
+    """
+    command: Command
+    groups: list[list[list[str]] | None]
+
+    @staticmethod
+    def compile(command: Command, text: str) -> Pattern:
+        groups: list[list[list[str]] | None] = []
+        for part in re.findall(r"\{\w+\}|\[[^\]]*\]|\([^)]*\)|[^\s\[\]()]+", text):
+            if part.startswith("{"):
+                groups.append(None)
+            elif part.startswith("["):
+                groups.append([[]] + [normalise(a) for a in part[1:-1].split("|")])
+            elif part.startswith("("):
+                groups.append([normalise(a) for a in part[1:-1].split("|")])
+            else:
+                groups.append([normalise(part)])
+        return Pattern(command, groups)
+
+    def match(self, words: list[str]) -> tuple[float, list[str]] | None:
+        """(score, slot words) for the best reading of all of ``words``, or
+        None. Score = the worst word's similarity; ties go to the shortest
+        slot, so "move chrome to the left" names "chrome"."""
+        n, groups = len(words), self.groups
+        best: dict[tuple[int, int], tuple[float, int, tuple[int, int]]] = {}
+
+        def go(i: int, g: int) -> tuple[float, int, tuple[int, int]] | None:
+            # -> (score, slot length, slot span) for words[i:] against groups[g:]
+            if g == len(groups):
+                return (1.0, 0, (0, 0)) if i == n else None
+            key = (i, g)
+            if key in best:
+                return best[key]
+            result = None
+            group = groups[g]
+            if group is None:  # the slot: one or more words
+                for j in range(i + 1, n + 1):
+                    rest = go(j, g + 1)
+                    if rest is not None:
+                        cand = (rest[0], -(j - i), (i, j))
+                        if result is None or cand[:2] > result[:2]:
+                            result = cand
+            else:
+                for alt in group:
+                    k = len(alt)
+                    if i + k > n:
+                        continue
+                    score = 1.0
+                    for a, b in zip(words[i : i + k], alt):
+                        score = min(score, _word_sim(a, b))
+                        if score < ACCEPT:
+                            break
+                    if score < ACCEPT:
+                        continue
+                    rest = go(i + k, g + 1)
+                    if rest is not None:
+                        cand = (min(score, rest[0]), rest[1], rest[2])
+                        if result is None or cand[:2] > result[:2]:
+                            result = cand
+            best[key] = result
+            return result
+
+        r = go(0, 0)
+        if r is None:
+            return None
+        a, b = r[2]
+        return r[0], words[a:b]
 
 
-def _expand(pattern: str) -> list[tuple[list[str], str | None, list[str]]]:
-    """A pattern -> (words before the slot, slot name, words after it) for
-    every form it allows. The slot can sit anywhere: "move {name} to the
-    center"."""
-    m = re.search(r"\{(\w+)\}", pattern)
-    if not m:
-        return [(w, None, []) for w in _options(pattern) if w]
-    before, after = pattern[: m.start()], pattern[m.end():]
-    return [(x, m.group(1), y) for x in _options(before) for y in _options(after) if x or y]
+@functools.lru_cache(maxsize=65536)
+def _word_sim(a: str, b: str) -> float:
+    return 1.0 if a == b else difflib.SequenceMatcher(None, a, b).ratio()
 
 
 #: Said after a command to aim it at a window: "new tab in Chrome".
@@ -773,11 +828,8 @@ class Grammar:
     extra: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self.forms: list[tuple[Command, list[str], str | None, list[str]]] = []
-        for c in COMMANDS:
-            for p in c.patterns + self.extra.get(c.name, []):
-                for before, slot, after in _expand(p):
-                    self.forms.append((c, before, slot, after))
+        self.patterns = [Pattern.compile(c, p) for c in COMMANDS
+                         for p in c.patterns + self.extra.get(c.name, [])]
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
         self.yes = [normalise(s) for s in YES]
@@ -801,8 +853,10 @@ class Grammar:
             if words[i] not in _WHERE:
                 continue
             head, tail = words[:i], _clean_name(words[i + 1 :])
+            if not tail or len(tail) > 4:
+                continue  # a window's name is a few words, not the rest of a sentence
             p = self._parse(head)
-            if p is None or p.command.name in ("switch", "open", "type") or not tail:
+            if p is None or p.command.name in ("switch", "open", "type"):
                 continue
             if best is not None and best.score >= p.score and resolvable(best):
                 continue
@@ -814,29 +868,17 @@ class Grammar:
         return best
 
     def _parse(self, words: list[str]) -> Parsed | None:
+        # Commands are short; only "type ..." carries free text of any length.
+        if len(words) > MAX_COMMAND_WORDS and not (words and _word_sim(words[0], "type") >= ACCEPT):
+            return None
         best: Parsed | None = None
-        for c, before, slot, after in self.forms:
-            nb, na = len(before), len(after)
-            if slot is None:
-                if abs(len(words) - nb) > 1:
-                    continue
-                score, arg = _aligned(words, before), ""
-            else:
-                score, arg = 0.0, ""
-                for k in {max(nb - 1, 0), nb, nb + 1} if nb else {0}:
-                    for j in {max(na - 1, 0), na, na + 1} if na else {0}:
-                        if k + j >= len(words) or (nb and not k) or (na and not j):
-                            continue
-                        s1 = _aligned(words[:k], before) if nb else 1.0
-                        s2 = _aligned(words[len(words) - j :], after) if na else 1.0
-                        sc = min(s1, s2)
-                        middle = words[k : len(words) - j]
-                        if not c.text_slot:
-                            middle = _clean_name(middle)
-                        # Ties: the reading whose fixed words cover more, so
-                        # "move chrome to the left" names "chrome", not "chrome to the".
-                        if sc > score or (sc == score and arg and len(middle) < len(arg.split())):
-                            score, arg = sc, " ".join(middle)
+        for pat in self.patterns:
+            m = pat.match(words)
+            if m is None:
+                continue
+            score, slot = m
+            c = pat.command
+            arg = " ".join(slot if c.text_slot else _clean_name(slot))
             if score >= ACCEPT and (best is None or score > best.score
                                     or (score == best.score and len(arg.split()) < len(best.arg.split()))):
                 best = Parsed(c, "", score, where=arg) if c.aim and arg else Parsed(c, arg, score)

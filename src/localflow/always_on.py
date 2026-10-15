@@ -57,6 +57,10 @@ STOP_MARGIN = 0.05
 #: A phrase scoring at least this (but under the accept level) is logged as
 #: a near miss: "start phrase? heard 'okay listen merry gold' (0.78)".
 NEAR = 0.7
+#: Speech this many seconds old is not acted on as a start phrase or command.
+STALE = 10.0
+#: A phrase check slower than this is logged: it delays everything after it.
+SLOW_CHECK = 2.0
 #: Score given to a guessed command ("for us to enter" -> submit).
 ACCEPT_GUESS = 0.8
 #: In command mode, a request that isn't a command yet is held until this
@@ -381,6 +385,14 @@ class Listener:
                 self._busy = False
 
     def _check(self, a: int, b: int) -> None:
+        behind = (self.ring.end - b) / RATE
+        if behind > STALE and not self.dictating:
+            # Fallen behind (a slow check, a busy PC): speech this old isn't
+            # a start phrase or a command any more. Once a burst checked 17 s
+            # late started a dictation nobody asked for. (A late stop phrase
+            # is still used: it cuts the running dictation in the right place.)
+            log.warning("always-on: skipped speech from %.0fs ago - the listener fell behind", behind)
+            return
         clip = self.ring.get(a, b)
         if clip.size < 0.3 * RATE:
             return
@@ -392,7 +404,15 @@ class Listener:
         if not words:
             return
         self.on_event("heard", " ".join(w.text for w in words))
+        try:
+            self._handle(a, b, clip, words)
+        finally:
+            took = time.perf_counter() - started
+            if took > SLOW_CHECK:
+                log.warning("always-on: checking %.1fs of speech took %.1fs (%d words)",
+                            len(clip) / RATE, took, len(words))
 
+    def _handle(self, a: int, b: int, clip, words) -> None:
         fresh = max(0.0, (self._consumed - a) / RATE)  # skip words a phrase already used
         if self.commanding:
             self._command_burst(a, b, words, clip, fresh)
