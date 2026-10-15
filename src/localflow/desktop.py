@@ -508,6 +508,22 @@ def set_placement(hwnd: int, saved) -> bool:
     return True
 
 
+def sleep_pc() -> None:
+    """Put the PC to sleep (not hibernate), as Start > Power > Sleep does."""
+    import win32api
+    import win32security
+
+    # Needs the shutdown privilege switched on in our own token first.
+    token = win32security.OpenProcessToken(
+        win32api.GetCurrentProcess(),
+        win32security.TOKEN_ADJUST_PRIVILEGES | win32security.TOKEN_QUERY)
+    luid = win32security.LookupPrivilegeValue(None, win32security.SE_SHUTDOWN_NAME)
+    win32security.AdjustTokenPrivileges(token, False, [(luid, win32security.SE_PRIVILEGE_ENABLED)])
+    # SetSuspendState(hibernate=False, force=False, wakeup_events_disabled=False)
+    if not ctypes.WinDLL("powrprof").SetSuspendState(False, False, False):
+        raise OSError(f"SetSuspendState failed (error {ctypes.get_last_error()})")
+
+
 def window_rect(hwnd: int) -> tuple[int, int, int, int]:
     r = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(r))

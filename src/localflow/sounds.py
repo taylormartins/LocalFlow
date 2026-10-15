@@ -80,6 +80,15 @@ def _click() -> np.ndarray:
     return np.concatenate([one, gap, 0.6 * one])
 
 
+def _triple_click() -> np.ndarray:
+    # "Are you sure?": three crisp clicks, evenly spaced.
+    rng = np.random.default_rng(11)
+    n = int(RATE * 0.006)
+    one = np.convolve(rng.standard_normal(n) * _env(n, 0.0002, 900), np.ones(4) / 4, mode="same")
+    gap = np.zeros(int(RATE * 0.11))
+    return np.concatenate([one, gap, one, gap, one])
+
+
 def _chime(freqs: list[float]) -> np.ndarray:
     notes = []
     for f in freqs:
@@ -101,6 +110,7 @@ BUILT_IN: dict[str, Callable[[], np.ndarray]] = {
     "faint pop": _faint_pop,
     "blip": _blip,
     "click": _click,
+    "triple click": _triple_click,
     "chime up": lambda: _chime([659.25, 987.77]),   # E5 -> B5
     "chime down": lambda: _chime([987.77, 659.25]),  # B5 -> E5
     "soft": _soft,

@@ -36,7 +36,7 @@ from .audio import resolve_candidates
 from .commands import Ctx, Grammar, Parsed, Runner, describe, is_noise, plan_with_llm, resolvable, trim
 from .config import Config
 from .engine import State
-from .wake import RATE, Detector, Hit, Phrases, find, strip_phrases
+from .wake import RATE, Detector, Hit, Phrases, find, normalise, strip_phrases
 
 log = logging.getLogger(__name__)
 
@@ -134,7 +134,10 @@ class Listener:
         self.commanding_announced = False
         self._mode_until = 0  # absolute samples: leaves command mode after this much quiet
         self._mode_msg = ""
-        self._confirm: list[Parsed] | None = None  # an LLM plan waiting for "yes"
+        #: Waiting for a confirmation: (plan, accepted answers, deadline in
+        #: samples). An LLM plan that closes or sends waits for "yes"; a
+        #: command with its own word (sleep: "goodnight") waits for that.
+        self._confirm: tuple[list[Parsed], list[list[str]], int] | None = None
         self._dict_heard = False  # anything said yet in this dictation
         self._scratched_at = 0.0  # the dictation "scratch that" already removed
         #: The last phrase that came close but wasn't accepted: (which, heard).
@@ -659,15 +662,20 @@ class Listener:
             self.leave_commands()
             return
         if self._confirm is not None:
-            plan, self._confirm = self._confirm, None
-            if self.grammar.is_one(texts, self.grammar.yes):
+            plan, answers, deadline = self._confirm
+            self._confirm = None
+            if a < deadline and self.grammar.is_one(texts, answers):
+                log.info("always-on: confirmed %s", ", ".join(map(str, plan)))
                 for p in plan:
-                    self._do(p)
+                    self._do(p, confirmed=True)
                 return
             if self.grammar.is_one(texts, self.grammar.no):
                 self._show("Cancelled")
                 return
-            # Anything else: a new request; the plan is dropped.
+            self._show("Cancelled")
+            if a < deadline:
+                return  # an answer that wasn't the word: cancelled, nothing else
+            # Too late: just a new request.
         if self.grammar.is_one(texts, self.grammar.enter):
             self._show("Command mode - say a command")
             return
@@ -742,7 +750,7 @@ class Listener:
             self.on_event("plan", ", ".join(map(str, plan)))
             if any(p.command.risky for p in plan):
                 # Closing or sending something waits for a "yes".
-                self._confirm = plan
+                self._confirm = (plan, self.grammar.yes, self.ring.end + 10 * RATE)
                 self._show("Say yes to: " + "; ".join(describe(p) for p in plan))
                 return
             for p in plan:
@@ -765,10 +773,13 @@ class Listener:
             last_any=h.text if h else "",
         )
 
-    def _do(self, p: Parsed, after_dictation: bool = False) -> None:
+    def _do(self, p: Parsed, after_dictation: bool = False, confirmed: bool = False) -> None:
         """Run a command on the command thread. After a dictation, it waits
         for the paste to finish, and a key command goes to the window the text
-        went into."""
+        went into. One with a confirmation word (sleep) only arms itself."""
+        if p.command.confirm and not confirmed:
+            self._arm(p)
+            return
         self.on_event("ran", str(p))
         if p.command.name == "scratch" and self.engine.history:
             self._scratched_at = self.engine.history[-1].at
@@ -790,6 +801,28 @@ class Listener:
                     go()
 
         self.runner.submit(p, self._ctx(), wrap)
+
+    def _arm(self, p: Parsed) -> None:
+        """Triple click, then wait for the command's own word ("goodnight")."""
+        word = p.command.confirm[0]
+        if not self.commanding:
+            self._enter_commands()
+        data = None
+        try:
+            from .sounds import _duration, play, render
+
+            data = render("triple click", self.cfg.sounds.volume or 0.5)
+            play(data)
+        except Exception:
+            log.debug("triple click failed", exc_info=True)
+        # The clicks themselves (picked up by the mic) are not an answer.
+        cue = (_duration(data) if data else 0.3) + 0.3
+        self._consumed = max(self._consumed, self.ring.end + int(cue * RATE))
+        self._confirm = ([p], [normalise(w) for w in p.command.confirm],
+                         self.ring.end + int((cue + 10) * RATE))
+        log.info("always-on: %s armed - waiting for %r", p.command.name, word)
+        self.on_event("confirm", p.command.name)
+        self._show(f'Say "{word}" to {describe(p)}')
 
     def _command_done(self, p: Parsed, message: str, ok: bool) -> None:
         self.on_event("done" if ok else "failed", message)

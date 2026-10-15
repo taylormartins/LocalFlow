@@ -438,6 +438,13 @@ phrase (while dictating) is among them.
     inverse (submit, close, click, save) record nothing. Plain "undo" undoes
     the last command only if it is in `SMART_UNDO` and under 30 s old;
     otherwise it is Ctrl+Z.
+  - **Confirmation words** (`Command.confirm`): "sleep" only arms itself
+    (`Listener._arm`). It plays the triple click, marks the click's own audio
+    as consumed so the mic can't answer for you, and waits up to 10 s for
+    "goodnight". Any other speech cancels it. `desktop.sleep_pc` enables
+    SeShutdownPrivilege, then calls `SetSuspendState(False, False, False)`.
+    The "LocalFlow resume" task (Power-Troubleshooter event 1) restarts the
+    app on wake. Tests run with inject=False, so they never sleep the PC.
   - A slot command naming a window that doesn't exist goes to the LLM when
     there is one (`Listener._usable`), not straight to an error.
 - **Terminals** (`inject.in_terminal`, `terminal_single_line`): a dictation

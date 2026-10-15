@@ -304,6 +304,7 @@ too. Commands work without an LLM:
 | switch window · show desktop | windows |
 | undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
 | undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
+| put the computer to sleep · go to sleep | three clicks, then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
 | paste that again · show history | re-pastes the last dictation · opens the history window |
 
 Any command can be aimed at a window by ending it with "in *name*": **"open

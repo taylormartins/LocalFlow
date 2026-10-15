@@ -189,6 +189,20 @@ def main() -> int:
     expect("an unknown request is one request, not two",
            not ran(ev) and len(unknown) == 1 and "cheese" in unknown[0], f"events={ev}")
 
+    # Sleep: the listener here runs with inject=False, so nothing is ever
+    # carried out - "ran" only reports what would have happened.
+    def confirms(ev):
+        return [t for k, t in ev if k == "confirm"]
+
+    got, ev = run(build(1.0, say(START + " Put the computer to sleep."), 1.5, say("Goodnight."), 2.0))
+    expect("sleep waits for 'goodnight', then runs",
+           confirms(ev) == ["sleep"] and ran(ev) == ["sleep"], f"events={ev}")
+    got, ev = run(build(1.0, say(START + " Put the computer to sleep."), 1.5, say("Okay, thanks."), 2.0))
+    expect("anything but 'goodnight' cancels it",
+           confirms(ev) == ["sleep"] and not ran(ev), f"events={ev}")
+    got, ev = run(build(1.0, say(START + " Put the computer to sleep."), 12.0, say("Goodnight."), 2.0))
+    expect("'goodnight' too late does nothing", not ran(ev), f"events={ev}")
+
     got, ev = run(build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Scratch that."), 2.0))
     expect("'scratch that' after a dictation", ran(ev) == ["scratch"], f"events={ev}")
 

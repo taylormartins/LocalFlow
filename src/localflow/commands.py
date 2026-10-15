@@ -75,6 +75,8 @@ class Command:
     risky: bool = False
     #: The slot is free text (typed as is), not a name to look up.
     text_slot: bool = False
+    #: Runs only once this is said next ("goodnight"), after a triple click.
+    confirm: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -440,6 +442,13 @@ def _undo_smart(arg: str, ctx: Ctx) -> str:
     return "Undo"
 
 
+def _sleep(arg: str, ctx: Ctx) -> str:
+    time.sleep(0.6)  # let the pill and the log catch up
+    log.info("commands: putting the PC to sleep")
+    desktop.sleep_pc()
+    return "Sleeping"
+
+
 def _type(arg: str, ctx: Ctx) -> str:
     if ctx.paste is None:
         raise CommandError("can't type here")
@@ -581,6 +590,10 @@ Command("place_top_left", ["(move|put|snap) [it|the window] [to|on] [the] top le
             _show_labels, "number everything clickable in the window in front; then say 'click <number>'"),
     Command("hide_labels", ["hide [the] [click] (labels|numbers)", "clear [the] (labels|numbers)",
                             "(labels|numbers) off"], hide_labels, "take the numbered labels away"),
+    Command("sleep", ["put [the|my|this] (computer|pc) to sleep", "(sleep|suspend) [the|my|this] (computer|pc)",
+                      "go to sleep", "(computer|pc) (sleep|go to sleep)", "sleep mode"],
+            _sleep, "put the computer to sleep (asks you to say goodnight first)",
+            confirm=["goodnight", "good night", "good nite", "night night"]),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     # Buttons and text.
     Command("click", ["click [on] [number] {name}", "tap {name}"], _click,
@@ -597,7 +610,7 @@ BY_NAME = {c.name: c for c in COMMANDS}
 
 #: Said in command mode to leave it (the stop phrase works too).
 EXIT = ["exit command mode", "exit commands", "stop commands", "leave command mode",
-        "exit", "done", "that is all", "go to sleep"]
+        "exit", "done", "that is all"]
 #: Said after the start phrase (or after a dictation) to enter command mode.
 ENTER = ["command mode", "commands", "take commands", "control mode"]
 #: Answers to "say yes to ..." for a risky plan.

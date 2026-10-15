@@ -373,6 +373,8 @@ def cmd_listen(args, cfg) -> int:
             print(f"{stamp()}  ->  command: {text} (not run: listen mode pastes and presses nothing)")
         elif kind == "unknown":
             print(f"{stamp()}  ??? not a command: {text}")
+        elif kind == "confirm":
+            print(f"{stamp()}  ... {text}: waiting for the confirmation word")
         elif kind == "plan":
             print(f"{stamp()}  LLM plan: {text}")
 
