@@ -660,10 +660,14 @@ def _update_outcome() -> tuple[str, str] | None:
     can say "Updated to X" even when the version number didn't change. A
     failure is in update.result; it's only news for a few minutes.
     """
-    from .updates import current
+    from .updates import current, install_incomplete, installed
 
     root = config_mod.PROJECT_ROOT
     marker = root / ".updated"
+    if install_incomplete():
+        marker.unlink(missing_ok=True)
+        return "error", (f"LocalFlow {current()} isn't fully installed (still {installed()}) - "
+                         "tray > Finish installing")
     if marker.exists():
         marker.unlink(missing_ok=True)
         return "ok", f"Updated to LocalFlow {current()}"
@@ -680,10 +684,10 @@ def _update_outcome() -> tuple[str, str] | None:
 
 def _version_change() -> str:
     """The new version if this is the first run since an update, else ""."""
-    from importlib.metadata import version
+    from .updates import current
 
     try:
-        now = version("localflow")
+        now = current()
         seen_file = config_mod.PROJECT_ROOT / ".version"
         seen = seen_file.read_text(encoding="ascii").strip() if seen_file.exists() else ""
         if seen != now:

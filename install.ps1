@@ -251,12 +251,17 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 Ok (uv --version)
 
 Step 'Python and dependencies (first run downloads ~1.5 GB)'
+# The Windows certificate store first: behind a TLS-inspecting proxy
+# (Zscaler and the like) the proxy's root certificate is only there, and uv's
+# own certificates failed only after minutes of retries - long enough for an
+# update to look hung. The store has the public roots too, so this works
+# everywhere. (UV_NATIVE_TLS is the same switch for older uv versions.)
+$env:UV_SYSTEM_CERTS = '1'
+$env:UV_NATIVE_TLS = '1'
 uv sync --no-dev
 if ($LASTEXITCODE) {
-    # Usually a TLS-inspecting proxy (Zscaler and the like): its root
-    # certificate is in the Windows store, which uv ignores by default.
-    Note 'retrying with the Windows certificate store (corporate proxy?)'
-    $env:UV_SYSTEM_CERTS = '1'
+    Note 'retrying with uv''s own certificates'
+    Remove-Item Env:UV_SYSTEM_CERTS, Env:UV_NATIVE_TLS -ErrorAction SilentlyContinue
     uv sync --no-dev
     if ($LASTEXITCODE) { throw 'uv sync failed - see the output above.' }
 }
@@ -390,6 +395,14 @@ if (-not $NoStartup) {
         uv run --no-dev localflow install-startup | Out-Null
         Ok 'Startup shortcut created'
     }
+}
+
+# Everything above succeeded: record which code this install is for. The
+# updater installs again whenever this doesn't match (an install that died
+# half way used to leave new code on old dependencies, "up to date").
+if (Test-Path (Join-Path $root '.git')) {
+    $head = (git -C $root rev-parse HEAD 2>$null)
+    if ($head) { Set-Content -Path (Join-Path $root '.installed') -Value $head.Trim() -Encoding ascii }
 }
 
 if (-not $NoLaunch -and $modelReady) {

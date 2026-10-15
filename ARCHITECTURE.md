@@ -464,6 +464,18 @@ phrase (while dictating) is among them.
   leaves `.updated` just before restarting us. `cli._update_outcome` turns
   that into "Updated to X" before the models load, and also reports a
   failure from the last 15 minutes in `update.result`.
+- **Half-finished installs**: `updates.current()` is the version in
+  pyproject.toml (the code on disk). `installed()` is the package metadata,
+  which only changes when an install completes. A mismatch means new code
+  on an old install: the tray offers "Finish installing", and startup says
+  so. install.ps1 writes `.installed` (the commit) after it succeeds;
+  update.ps1 says "already up to date" only when that matches. Otherwise
+  it installs again. One install had died on the work PC: it showed 1.7.0
+  on 1.13.0 code and offered an update to the version it already had.
+  install.ps1 uses the Windows certificate store first (`UV_SYSTEM_CERTS`,
+  `UV_NATIVE_TLS`): behind Zscaler, uv's own certificates failed only after
+  minutes of retries. The tray reads update.log's `== step` lines for
+  progress and calls it stuck after 5 minutes without a new line.
 - **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
   (gitignored, trimmed to `max_items`). The window is its own process
   (`localflow history`). It records the foreground window at launch, and

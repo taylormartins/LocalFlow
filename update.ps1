@@ -81,9 +81,16 @@ if ($LASTEXITCODE) { Fail 'could not reach GitHub (git fetch)' }
 
 $before = (git rev-parse HEAD).Trim()
 $target = (git rev-parse origin/main).Trim()
+$stamp = Join-Path $root '.installed'
+$installed = if (Test-Path $stamp) { (Get-Content $stamp -ErrorAction SilentlyContinue | Select-Object -First 1) } else { '' }
 if ($before -eq $target -and -not $Force) {
-    Log 'already up to date'
-    Done 3 'already up to date'
+    if ("$installed".Trim() -eq $target) {
+        Log 'already up to date'
+        Done 3 'already up to date'
+    }
+    # The code is current but its install never finished (it died half way,
+    # or this copy predates the .installed stamp): run the install again.
+    Log 'code is current but the last install did not finish: installing again'
 }
 
 # Tracked files edited by hand would be overwritten: refuse rather than lose
@@ -114,8 +121,11 @@ if ($NoStartup) { $installArgs += '-NoStartup' }
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'install.ps1') @installArgs 2>&1 |
     ForEach-Object { Log "  $_" }
 if ($LASTEXITCODE) {
+    Log 'FAILED: install step failed'
+    # The outcome first, so the restarted copy can read it at startup.
+    Set-Content -Path $resultFile -Value '1 the install step failed - see update.log' -Encoding ascii
     if ($depsChanged -and -not $NoRestart) { Start-LocalFlow }  # we stopped it; bring it back regardless
-    Fail 'install step failed - see update.log'
+    exit 1
 }
 
 # Tells the restarted copy to say "Updated to ..." (it removes the file).

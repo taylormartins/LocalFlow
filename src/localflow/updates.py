@@ -24,10 +24,32 @@ CHECK_EVERY = 6 * 3600
 
 
 def current() -> str:
+    """The version of the code on disk (pyproject.toml).
+
+    Not the installed package's metadata: that only changes when an install
+    finishes, so after one that died half way it still said 1.7.0 on 1.13.0
+    code, and the tray offered an update to the version already there.
+    """
+    try:
+        import tomllib
+
+        with (PROJECT_ROOT / "pyproject.toml").open("rb") as fh:
+            return str(tomllib.load(fh)["project"]["version"])
+    except Exception:
+        return installed()
+
+
+def installed() -> str:
+    """The version the last finished install set up (package metadata)."""
     try:
         return version("localflow")
     except Exception:
         return "?"
+
+
+def install_incomplete() -> bool:
+    """New code on an old install: the dependencies may be missing or stale."""
+    return installed() != current()
 
 
 def parse(v: str) -> tuple[int, ...]:
@@ -69,6 +91,8 @@ class Checker:
 
     def label(self) -> str:
         now = current()
+        if install_incomplete():
+            return f"Version {now} - install not finished"
         if self.latest is None:
             return f"Version {now}"
         if self.update_available:

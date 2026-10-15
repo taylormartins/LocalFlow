@@ -37,4 +37,5 @@ update.log
 update.result
 .version
 .updated
+.installed
 .quit

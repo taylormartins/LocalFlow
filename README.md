@@ -139,11 +139,17 @@ pill and as a notification (Windows can hide notifications; the pill always
 shows):
 
 - *Checking for updates…*
-- *Updating to 1.13.0…*, then LocalFlow restarts (the tray icon may vanish
-  for a minute while new parts install)
+- *Updating to 1.13.0…*, then the step it's on (*Updating: Python and
+  dependencies…*), then LocalFlow restarts (the tray icon may vanish for a
+  minute while new parts install). If nothing moves for 5 minutes it says
+  *Update stuck?* and which step, rather than leaving you guessing.
 - *Updated to LocalFlow 1.13.0*, shown by the restarted LocalFlow straight
   away, before its models finish loading
 - or *Up to date: LocalFlow 1.13.0*, or *Update failed - see update.log*
+
+If an update was interrupted half way, the tray says *Version 1.13.0 - install
+not finished* and offers **Finish installing 1.13.0**. Updating also notices
+this by itself and completes the install.
 
 Double-clicking `update.cmd` in the LocalFlow folder does the same with
 visible output.

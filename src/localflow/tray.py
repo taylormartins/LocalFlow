@@ -35,6 +35,24 @@ STATE_COLOURS = {
 }
 
 
+def _update_step(log_file, start: int) -> str:
+    """The installer's current step ("Python and dependencies") from the part
+    of update.log written by this run."""
+    import re
+
+    try:
+        with open(log_file, "rb") as fh:
+            fh.seek(start)
+            text = fh.read().decode("ascii", "replace")
+    except OSError:
+        return ""
+    steps = re.findall(r"== ([^\r\n]+)", text)
+    if not steps:
+        return "fetching" if "update started" in text else ""
+    step = steps[-1].strip()
+    return re.sub(r"\s*\(.*?\)$", "", step)[:28]
+
+
 def open_history() -> None:
     """The history window, as its own process (it has a Tk loop of its own)."""
     from .proc import run_localflow
@@ -322,8 +340,12 @@ class Tray:
     # -- update ------------------------------------------------------------
 
     def _update_label(self) -> str:
+        from .updates import current, install_incomplete
+
         if self._updating:
             return "Updating..."
+        if install_incomplete():
+            return f"Finish installing {current()}"
         if self.updates.update_available:
             return f"Update to {self.updates.latest}"
         return "Check for updates"
@@ -351,18 +373,40 @@ class Tray:
         self.engine.notice("Checking for updates…", "info", 30)
 
         def watch() -> None:
+            from .updates import install_incomplete
+
             latest = self.updates.check()
-            if self.updates.update_available:
-                msg = f"Updating {current()} → {latest}. LocalFlow restarts when it's done."
-                self.engine.notice(f"Updating to {latest}…", "info", 600)
-                self.notify(msg + " The tray icon may disappear for a minute.")
+            if self.updates.update_available or install_incomplete():
+                target = latest if self.updates.update_available else current()
+                self.engine.notice(f"Updating to {target}…", "info", 600)
+                self.notify(f"Updating to LocalFlow {target}. It restarts when it's done; "
+                            "the tray icon may disappear for a minute.")
+            log_file = PROJECT_ROOT / "update.log"
+            start_size = log_file.stat().st_size if log_file.exists() else 0
             launch_detached_powershell(PROJECT_ROOT / "update.ps1")
-            deadline = time.monotonic() + 20 * 60
+            self.updates.latest = latest or self.updates.latest
+            deadline = time.monotonic() + 30 * 60
+            last_change, last_size, step = time.monotonic(), start_size, ""
             while time.monotonic() < deadline:
                 time.sleep(2)
                 try:
                     code, _, msg = result.read_text(encoding="ascii").strip().partition(" ")
                 except OSError:
+                    # Still running: show its current step, and notice if it stalls.
+                    size = log_file.stat().st_size if log_file.exists() else 0
+                    if size != last_size:
+                        last_change, last_size = time.monotonic(), size
+                        now_step = _update_step(log_file, start_size)
+                        if now_step and now_step != step:
+                            step = now_step
+                            self.engine.notice(f"Updating: {step}…", "info", 600)
+                    elif time.monotonic() - last_change > 5 * 60:
+                        where = step or "starting"
+                        self.engine.notice(f"Update stuck? ({where})", "error", 30)
+                        self.notify(f"The update hasn't moved for 5 minutes (at: {where}). "
+                                    "It may still finish; update.log in the LocalFlow folder "
+                                    "shows what it's doing. You can try Update again.")
+                        break
                     continue
                 if code == "3":
                     self.engine.notice(f"Up to date: LocalFlow {current()}", "ok", 8)
