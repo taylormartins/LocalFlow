@@ -249,6 +249,17 @@ While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
 can't record the room indefinitely.
 
+**Paste where I started.** Tray ▸ **Paste where I started**. The text goes to
+the window you were in when the dictation began (start phrase or hotkey), not
+wherever you've clicked since. So you can start a message in a terminal or a
+chat box, then keep working in other windows while you talk.
+
+When the text is ready, LocalFlow brings that window back, pastes, presses
+Enter if you said "submit", and returns you to the window you'd moved to. If
+the original window was closed in the meantime, the text goes to the
+clipboard instead (the pill says so), never into some other window. It works
+with hotkeys too.
+
 **Voice commands after the stop phrase.** Say **"submit"** straight after the
 stop phrase, either after a pause or in the same breath ("...that will be all,
 submit"). LocalFlow presses **Enter** as soon as the text has been pasted, so
@@ -527,6 +538,7 @@ Everything lives in `config.toml`. The interesting knobs:
 | Setting | Notes |
 |---|---|
 | `audio.device` | Substring of the input name, e.g. `"Scarlett Solo"`. `""` = the Windows default mic. `uv run localflow devices` lists them. |
+| `inject.paste_to` | `focus` (default) or `start`: paste into the window you began in (tray: **Paste where I started**). |
 | `audio.boost` | Mic boost: `none`, `low`, `medium`, `high` or `auto` (also in the tray). |
 | `audio.gain` | Extra fixed multiplier before the boost; rarely needed. |
 | `whisper.model` | `large-v3-turbo` is the sweet spot on a GPU. `large-v3` is more accurate but slower; `distil-large-v3` is faster, English only. On CPU: `small.en` or `base.en`. |

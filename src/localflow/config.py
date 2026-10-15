@@ -85,6 +85,11 @@ class InjectConfig:
     type_interval: float = 0.004
     #: Also leave the result on the clipboard when pasting fails.
     clipboard_fallback: bool = True
+    #: Where the text goes. "focus" = whichever window has focus when it's
+    #: ready. "start" = the window you were in when the dictation began, so
+    #: you can click around while talking; a "submit" lands there too, and
+    #: you're returned to where you'd got to. Toggle: tray > Paste where I started.
+    paste_to: str = "focus"
 
 
 @dataclass

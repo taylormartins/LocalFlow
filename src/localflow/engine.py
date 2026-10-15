@@ -80,6 +80,9 @@ class Engine:
         #: Set by always-on mode: finishes its dictation when a hotkey is used
         #: mid-way, so the key acts as a manual stop.
         self.external_stop: Callable[[], None] | None = None
+        #: The window the current/last dictation started in (paste_to = "start").
+        self._target = None
+        self.last_target = None
 
     # -- observers ---------------------------------------------------------
 
@@ -144,6 +147,7 @@ class Engine:
         if self.recorder.recording:
             return
         self._cleanup_enabled_for_run = cleanup
+        self._capture_target()
         try:
             self.recorder.start()
         except Exception as exc:
@@ -169,9 +173,49 @@ class Engine:
         threading.Thread(
             target=self._process_and_inject,
             args=(audio, self._cleanup_enabled_for_run, inject),
+            kwargs={"target": self._target},
             daemon=True,
             name="localflow-pipeline",
         ).start()
+
+    # -- paste where I started ---------------------------------------------
+
+    @property
+    def targeted(self) -> bool:
+        return self.cfg.inject.paste_to == "start"
+
+    def _capture_target(self) -> None:
+        self._target = None
+        if self.targeted:
+            try:
+                from . import window
+
+                self._target = window.current()
+                log.info("will paste into %s", self._target)
+            except Exception:
+                log.debug("could not read the focused window", exc_info=True)
+
+    def in_target(self, target, fn: Callable[[], None]) -> None:
+        """Run ``fn`` (a paste, a key press) inside ``target``, then go back to
+        the window that had focus. Raises InjectError if ``target`` is gone or
+        won't come forward: typing into the wrong window is worse than not."""
+        if target is None:
+            fn()
+            return
+        from . import window
+        from .inject import InjectError
+
+        if not window.alive(target):
+            raise InjectError("the window you started in was closed")
+        back = window.current()
+        if not window.activate(target):
+            raise InjectError("couldn't switch back to the window you started in")
+        try:
+            fn()
+        finally:
+            if back and back.hwnd != target.hwnd and window.alive(back):
+                time.sleep(0.15)  # let the target take the keys before it loses focus
+                window.activate(back)
 
     # -- always-on (audio fed in by always_on.Listener) ---------------------
 
@@ -180,6 +224,7 @@ class Engine:
         if not self.recorder.start_external():
             return False
         self._cleanup_enabled_for_run = True
+        self._capture_target()
         self.recorder.feed(prefill)
         self._set_state(State.RECORDING, detail)
         return True
@@ -205,6 +250,7 @@ class Engine:
         threading.Thread(
             target=self._process_and_inject,
             args=(audio, True, inject, "always-on", transform, done),
+            kwargs={"target": self._target},
             daemon=True,
             name="localflow-pipeline",
         ).start()
@@ -213,6 +259,7 @@ class Engine:
         self, audio: np.ndarray, cleanup: bool, inject: bool, source: str = "desktop",
         transform: Callable[[str], str] | None = None,
         done: Callable[[str], None] | None = None,
+        target=None,
     ) -> None:
         try:
             result = self.process(audio, cleanup=cleanup, source=source, transform=transform)
@@ -235,24 +282,40 @@ class Engine:
             log.warning("empty transcript: %s", detail)
             return
 
+        def after() -> None:
+            # Inside the target window when there is one, so a "submit" heard
+            # while this was transcribing presses Enter there, before we leave.
+            if done is not None:
+                try:
+                    done(result.text)
+                except Exception:
+                    log.exception("after-delivery action failed")
+
+        self.last_target = target
         if inject:
             self._set_state(State.INJECTING, result.text[:60])
             try:
-                self.injector.send(result.text)
+                self.in_target(target, lambda: (self.injector.send(result.text), after()))
             except Exception as exc:
                 log.error("injection failed: %s", exc)
-                self._set_state(State.ERROR, f"could not insert text: {exc}")
+                if target is not None:
+                    from .inject import set_clipboard_text
+
+                    try:
+                        set_clipboard_text(result.text)
+                    except Exception:
+                        pass
+                    self._set_state(State.ERROR, f"{exc} - text is on the clipboard")
+                else:
+                    self._set_state(State.ERROR, f"could not insert text: {exc}")
                 return
+        else:
+            after()
 
         self._set_state(
             State.IDLE,
             f"{len(result.text)} chars in {result.total_seconds:.1f}s ({result.speedup:.0f}x)",
         )
-        if done is not None:
-            try:
-                done(result.text)
-            except Exception:
-                log.exception("after-delivery action failed")
 
     def preview(self, audio: np.ndarray) -> str | None:
         """Transcribe for the live overlay, or None if the pipeline is busy.

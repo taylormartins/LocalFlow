@@ -479,15 +479,29 @@ class Listener:
             self._delivered = bool(text)
             name, self._pending = self._pending, None
         if name and text:
-            self._run_command(name)
+            # On the pipeline thread, inside the target window if pasting
+            # there: run it now, before LocalFlow switches back.
+            self._run_command(name, now=True)
 
-    def _run_command(self, name: str) -> None:
+    def _run_command(self, name: str, now: bool = False) -> None:
         action = COMMANDS.get(name)
         if action is None:
             log.warning("always-on: no action for command %r", name)
             return
         if self.inject:
-            threading.Thread(target=action, daemon=True, name=f"localflow-cmd-{name}").start()
+            if now:
+                action()
+            else:
+                # Said after the paste: go back to that window to do it.
+                target = self.engine.last_target if self.engine.targeted else None
+
+                def run() -> None:
+                    try:
+                        self.engine.in_target(target, action)
+                    except Exception as exc:
+                        log.warning("always-on: %s not run: %s", name, exc)
+
+                threading.Thread(target=run, daemon=True, name=f"localflow-cmd-{name}").start()
         self.on_event("ran", name)
 
     # -- testing -------------------------------------------------------------

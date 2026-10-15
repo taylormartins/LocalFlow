@@ -70,6 +70,11 @@ instructions = ""
 method = "paste"
 restore_clipboard = true
 paste_delay = 0.08
+# Where the text goes: "focus" = whichever window has focus when it's ready;
+# "start" = the window you were in when the dictation began (click around
+# while you talk; "submit" presses Enter there too; you're brought back).
+# Tray: Paste where I started.
+paste_to = "focus"
 
 [hotkeys]
 # pynput syntax: "<f9>", "<ctrl>+<alt>+d", "<ctrl>+<shift>+<space>".

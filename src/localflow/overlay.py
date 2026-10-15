@@ -125,6 +125,8 @@ def _short_error(detail: str) -> str:
     if d.startswith("could not insert"):
         # Only reached when the clipboard fallback failed too (see inject.py).
         return "Couldn't insert the text"
+    if "window you started in" in d:
+        return "Window gone - text on clipboard"
     if "could not be downloaded" in d:
         return "Speech model not downloaded"
     return detail or "Something went wrong"

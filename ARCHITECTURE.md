@@ -385,6 +385,20 @@ phrase (while dictating) is among them.
   waits for `Engine.finish_external(done=...)`, which fires after delivery.
   "submit" waits 0.15 s and taps Enter, marked `OWN_INPUT`, because Ctrl+V
   is processed asynchronously and an earlier Enter overtook it.
+- **Paste where I started** (`inject.paste_to = "start"`, `window.py`). The
+  foreground window and its focused control are captured when a dictation
+  starts (`Engine._capture_target`). `Engine.in_target` brings that window
+  forward, pastes, runs the `done` callback (so a pending "submit" presses
+  Enter there), then re-activates the window that had focus.
+  - Windows only lets the process that sent the last input change the
+    foreground, so `window.activate` taps `VK_MASK` (marked `OWN_INPUT`)
+    first, falls back to `AttachThreadInput`, and verifies the switch.
+  - If the window is gone, or won't come forward, the text goes to the
+    clipboard and the state is an error. Never type into a guessed window.
+  - A "submit" said after the paste goes back to `Engine.last_target` for
+    the Enter.
+  - Tested across processes (the foreground lock doesn't apply within one).
+  - Window titles are kept out of the log: they can be personal.
 - `tests/always_on.py` checks the whole loop with TTS: enrol, a conversation,
   no pause after the start phrase, and four near-miss sentences. Measured on
   this PC: about 1% of one core and about 160 MB while listening.
@@ -402,6 +416,7 @@ uv run localflow clean "text"               # see what the rules do (--llm for O
 uv run python tests/bench_models.py         # latency vs quality across models
 uv run python tests/hotkeys.py              # hold/toggle/cancel state machine
 uv run python tests/always_on.py            # always-on end to end with TTS (CPU)
+uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
 uv run localflow transcribe clip.wav        # pipeline without a microphone

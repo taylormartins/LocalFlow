@@ -104,6 +104,11 @@ class Tray:
                     lambda icon, item: self._open_setup(),
                     visible=lambda _: self.always_on is not None,
                 ),
+                pystray.MenuItem(
+                    "Paste where I started",
+                    self._toggle_paste_to,
+                    checked=lambda _: self.engine.cfg.inject.paste_to == "start",
+                ),
                 pystray.MenuItem(lambda _: self._keys_label(), self._keys_menu(pystray)),
                 pystray.MenuItem(
                     "Turn Caps Lock off",
@@ -236,6 +241,21 @@ class Tray:
                 self.icon.update_menu()
 
         threading.Thread(target=run, daemon=True, name="localflow-setup").start()
+
+    def _toggle_paste_to(self, icon, item) -> None:
+        cfg = self.engine.cfg.inject
+        cfg.paste_to = "focus" if cfg.paste_to == "start" else "start"
+        try:
+            from .config import save_setting
+
+            save_setting("inject", "paste_to", cfg.paste_to)
+        except OSError as exc:
+            log.warning("could not save paste target: %s", exc)
+        self.notify(
+            "Text goes to the window you were in when you started dictating"
+            if cfg.paste_to == "start" else "Text goes to whichever window has focus when it's ready"
+        )
+        icon.update_menu()
 
     # -- update ------------------------------------------------------------
 
