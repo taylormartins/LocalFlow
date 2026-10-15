@@ -91,9 +91,9 @@ PINK = "#e86fb0"
 #: Always-on command mode.
 TEAL = "#2ec4b6"
 #: Numbered click labels: dark text on yellow reads over any background.
-LABEL_BG = "#ffd60a"
-LABEL_EDGE = "#1d1e22"
-LABEL_TEXT = "#111111"
+LABEL_BG = "#1d1e22"
+LABEL_TEXT = "#ffd60a"
+LABEL_EDGE = "#ffd60a"  # outline of what the number clicks
 #: Previous-sentence context in the live text.
 DIM_TEXT = "#8b8e98"
 
@@ -384,7 +384,7 @@ class Overlay:
         win.overrideredirect(True)
         win.configure(bg=KEY)
         win.attributes("-transparentcolor", KEY)
-        win.attributes("-alpha", 0.88)  # see-through enough to read what's under
+        win.attributes("-alpha", self.cfg.label_opacity)  # see what's under them
         win.attributes("-topmost", True)
         win.geometry("10x10+-32000+-32000")
         self.label_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
@@ -424,6 +424,9 @@ class Overlay:
             # sits on what it names without hiding all of it.
             x = left - x0 + int(2 * s)
             y = top - y0 + int(2 * s)
+            # The control's own outline, so it's clear what the number clicks.
+            c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
+                               outline=LABEL_EDGE, width=1)
             c.create_rectangle(x, y, x + bw, y + bh, fill=LABEL_BG, outline=LABEL_EDGE)
             c.create_text(x + bw / 2, y + bh / 2, text=text, fill=LABEL_TEXT, font=self.label_font)
         if not user32.SetWindowPos(

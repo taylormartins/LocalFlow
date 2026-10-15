@@ -300,7 +300,10 @@ too. Commands work without an LLM:
 | scratch that · undo · redo · select all · copy · cut · paste · save · find | editing |
 | scroll up / down · page up / down · go to the top / bottom | moving around |
 | new tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
-| switch window · show desktop · snap left / right | windows |
+| move *[it / Chrome]* to the top right · bottom left · left half · right · top half | fills that quarter or half of the window's own monitor |
+| switch window · show desktop | windows |
+| undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
+| undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
 | paste that again · show history | re-pastes the last dictation · opens the history window |
 
 Any command can be aimed at a window by ending it with "in *name*": **"open
@@ -310,7 +313,8 @@ for you to finish (about 2 seconds of quiet) and takes the whole sentence
 together.
 
 **Numbered click labels.** Say **"show labels"** and every button, link, tab
-and field in the window in front gets a small yellow number. Say **"click
+and field in the window in front gets a small see-through number, with a thin
+outline showing exactly what it clicks (`overlay.label_opacity`, 0.7). Say **"click
 17"** and that one is clicked, then the labels go away. "Show labels" again
 brings fresh ones. This reads the same accessibility tree screen readers use,
 so it works in browsers, Explorer, Office and most Windows apps. Some apps

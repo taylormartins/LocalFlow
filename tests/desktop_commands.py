@@ -39,6 +39,25 @@ $f.Controls.Add($b)
 '''
 
 
+def monitors() -> list[tuple[int, int, int, int, int]]:
+    """(left, top, right, bottom, dpi) of each monitor, real pixels."""
+    from ctypes import wintypes
+
+    desktop.per_monitor_dpi()
+    out = []
+    proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+                              ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+
+    def each(h, _hdc, r, _l):
+        dx, dy = ctypes.c_uint(), ctypes.c_uint()
+        ctypes.windll.shcore.GetDpiForMonitor(h, 0, ctypes.byref(dx), ctypes.byref(dy))
+        out.append((r.contents.left, r.contents.top, r.contents.right, r.contents.bottom, dx.value))
+        return True
+
+    ctypes.windll.user32.EnumDisplayMonitors(0, 0, proc(each), 0)
+    return out
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="localflow-desktop-"))
     out = tmp / "clicked.txt"
@@ -105,11 +124,58 @@ def main() -> int:
         mid_y = (rect.top + rect.bottom) // 2 - (area.top + area.bottom) // 2
         expect("'center fennel' centres it", abs(mid_x) <= 2 and abs(mid_y) <= 2,
                f"{r} off by {mid_x},{mid_y}")
+        print("place / undo")
+        desktop.per_monitor_dpi()
+        cmds._undo.clear()
+        before = desktop.window_rect(hwnd)
+        r = say("move fennel to the top right")
+        a = desktop.work_area(hwnd)
+        got = desktop.window_rect(hwnd)
+        want = ((a.left + a.right) // 2, a.top, a.right, (a.top + a.bottom) // 2)
+        expect("'move fennel to the top right' fills that quarter of its own monitor",
+               all(abs(x - y) <= 12 for x, y in zip(got, want)), f"{r} {got} vs {want}")
+        r = say("undo last command")
+        expect("'undo last command' puts it back", desktop.window_rect(hwnd) == before,
+               f"{r} {desktop.window_rect(hwnd)} vs {before}")
+        r = say("undo last command")
+        expect("nothing left to undo is said, not guessed", r is not None and not r[2], str(r))
+        before = desktop.window_rect(hwnd)
+        say("maximize fennel")
+        r = say("undo")
+        expect("plain 'undo' right after a window command undoes it",
+               not user32.IsZoomed(hwnd) and desktop.window_rect(hwnd) == before, str(r))
+
+        print("labels on another monitor's scaling")
+        mons = monitors()
+        other = next((m for m in mons if m[4] != mons[0][4]), None)
+        if other:
+            user32.SetWindowPos(hwnd, 0, other[0] + 100, other[1] + 200, 0, 0, 0x0001 | 0x0004)
+            time.sleep(0.4)
+            say("switch to fennel")
         out.unlink(missing_ok=True)
         r = say("show me numbered click labels on screen", wait=0.6)
         names = [c.name for c in cmds._labelled]
         expect("labels shown", r is not None and r[2] and "Approve" in names, f"{r} {names}")
         expect("label layer visible", bool(user32.IsWindowVisible(overlay.label_hwnd)))
+        if "Approve" in names:
+            # The drawn outline must sit on the control's real position.
+            from localflow import commands as c2
+
+            ctl = c2._labelled[names.index("Approve")]
+            uia, _ = desktop._automation()
+            real = ctl.element.CurrentBoundingRectangle
+            expect("label position = the button's real position (mixed DPI)",
+                   (real.left, real.top, real.right, real.bottom) == ctl.rect,
+                   f"{ctl.rect} vs {(real.left, real.top, real.right, real.bottom)}")
+            shot = tmp / "labels.png"
+            try:
+                from PIL import ImageGrab
+
+                l, t, rr, b = desktop.window_rect(hwnd)
+                ImageGrab.grab((l - 10, t - 10, rr + 10, b + 10), all_screens=True).save(shot)
+                print(f"    (screenshot: {shot})")
+            except Exception as exc:
+                print(f"    (no screenshot: {exc})")
         n = names.index("Approve") + 1 if "Approve" in names else 99
         r = say(f"click {n}", wait=1.0)
         expect(f"'click {n}' presses Approve", out.exists(), str(r))

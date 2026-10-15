@@ -70,6 +70,24 @@ KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP = 0x1, 0x2
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_WHEEL = 0x2, 0x4, 0x800
 
 
+def per_monitor_dpi() -> None:
+    """Make this thread see real pixels on every monitor.
+
+    With monitors at different scalings, a thread that isn't per-monitor
+    aware gets window and control positions scaled to the main monitor's
+    DPI. Numbered labels drawn in real pixels then missed their controls on
+    every other screen. Every thread that reads or sets positions calls this.
+    """
+    try:
+        user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+    except (AttributeError, OSError):
+        pass
+
+
+user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+
+
 def sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
@@ -349,7 +367,7 @@ _uia_lock = threading.Lock()
 #: Control types worth clicking: buttons, links, menu items, tabs, list and
 #: tree items, check boxes, radio buttons, combo boxes, split buttons.
 _CLICKABLE = {50000, 50005, 50011, 50019, 50007, 50024, 50002, 50013, 50003, 50031,
-              50020, 50023, 50004}
+              50004}  # (not Text: a link's text is reported apart from the link)
 UIA_NAME, UIA_TYPE, UIA_RECT = 30005, 30003, 30001
 UIA_ENABLED, UIA_OFFSCREEN = 30010, 30022
 UIA_INVOKE, UIA_SELECTION_ITEM, UIA_TOGGLE, UIA_EXPAND = 10000, 10010, 10015, 10005
@@ -393,6 +411,7 @@ def controls(hwnd: int, named: bool = True) -> list[Control]:
     cond = uia.CreateAndCondition(
         uia.CreatePropertyCondition(UIA_ENABLED, True),
         uia.CreatePropertyCondition(UIA_OFFSCREEN, False))
+    per_monitor_dpi()
     started = time.perf_counter()
     found = root.FindAllBuildCache(4, cond, cache)  # TreeScope_Descendants
     out = []
@@ -410,6 +429,28 @@ def controls(hwnd: int, named: bool = True) -> list[Control]:
         out.append(Control(name, kind, (r.left, r.top, r.right, r.bottom), el))
     log.debug("%d clickable controls in %.2fs", len(out), time.perf_counter() - started)
     return out
+
+
+#: Where "move it to the top right" puts a window: fractions of the work area
+#: of the monitor the window is on (left, top, right, bottom).
+PLACES = {
+    "left": (0, 0, .5, 1), "right": (.5, 0, 1, 1), "top": (0, 0, 1, .5), "bottom": (0, .5, 1, 1),
+    "top left": (0, 0, .5, .5), "top right": (.5, 0, 1, .5),
+    "bottom left": (0, .5, .5, 1), "bottom right": (.5, .5, 1, 1),
+    "full": (0, 0, 1, 1),
+}
+
+
+def place(hwnd: int, where: str) -> None:
+    """Fill a half or a quarter of the window's own monitor."""
+    fl, ft, fr, fb = PLACES[where]
+    if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        time.sleep(0.15)
+    a = work_area(hwnd)
+    w, h = a.right - a.left, a.bottom - a.top
+    user32.SetWindowPos(hwnd, 0, a.left + int(w * fl), a.top + int(h * ft),
+                        int(w * (fr - fl)), int(h * (fb - ft)), 0x0004 | 0x0010)
 
 
 def center(hwnd: int) -> None:
@@ -438,6 +479,39 @@ user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
 user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                 ctypes.c_int, ctypes.c_int, wintypes.UINT]
+
+
+class WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [("length", wintypes.UINT), ("flags", wintypes.UINT), ("showCmd", wintypes.UINT),
+                ("ptMinPosition", wintypes.POINT), ("ptMaxPosition", wintypes.POINT),
+                ("rcNormalPosition", wintypes.RECT)]
+
+
+def get_placement(hwnd: int) -> tuple[WINDOWPLACEMENT, tuple[int, int, int, int]] | None:
+    """Everything needed to put a window back: its state (normal, maximised,
+    minimised), its normal position, and where it actually is now."""
+    if not hwnd or not user32.IsWindow(hwnd):
+        return None
+    wp = WINDOWPLACEMENT(length=ctypes.sizeof(WINDOWPLACEMENT))
+    if not user32.GetWindowPlacement(hwnd, ctypes.byref(wp)):
+        return None
+    return wp, window_rect(hwnd)
+
+
+def set_placement(hwnd: int, saved) -> bool:
+    if not saved or not user32.IsWindow(hwnd):
+        return False
+    wp, (l, t, r, b) = saved
+    user32.SetWindowPlacement(hwnd, ctypes.byref(wp))
+    if wp.showCmd == 1:  # SW_SHOWNORMAL: the exact spot, not just the normal rect
+        user32.SetWindowPos(hwnd, 0, l, t, r - l, b - t, 0x0004 | 0x0010)
+    return True
+
+
+def window_rect(hwnd: int) -> tuple[int, int, int, int]:
+    r = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return r.left, r.top, r.right, r.bottom
 
 
 def work_area(hwnd: int) -> wintypes.RECT:

@@ -142,6 +142,7 @@ class Listener:
         self._held: list[str] = []  # command mode: words of an unfinished request
         self._held_at = 0  # absolute samples: end of the held request's last burst
         self._llm_lock = threading.Lock()  # one LLM request at a time
+        self._file_run = False  # run_file(): everything on the calling thread
         self._levels: deque[float] = deque(maxlen=int(2.0 * RATE / FRAME))
         self._since_floor = 0
         self._run = 0
@@ -268,8 +269,11 @@ class Listener:
         elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
               and self.ring.end - self._held_at > HOLD * RATE):
             request, self._held = " ".join(self._held), []
-            threading.Thread(target=self._finish_request, args=(request,), daemon=True,
-                             name="localflow-command-request").start()
+            if self._file_run:
+                self._finish_request(request)  # repeatable timing in tests
+            else:
+                threading.Thread(target=self._finish_request, args=(request,), daemon=True,
+                                 name="localflow-command-request").start()
         if self.dictating:
             idle = (self.ring.end - self._last_speech) / RATE
             if idle > self.cfg.always_on.idle_stop_seconds or self.engine.recorder.overflowed:
@@ -670,12 +674,12 @@ class Listener:
         # The rest of a request begun in the last burst, or a command alone.
         if self._held:
             p = self.grammar.parse(self._held_words() + texts)
-            if p is not None:
+            if p is not None and self._usable(p):
                 self._held = []
                 self._take(p)
                 return
         p = self.grammar.parse(texts)
-        if p is not None:
+        if p is not None and self._usable(p):
             self._held = []
             self._take(p)
             return
@@ -698,16 +702,25 @@ class Listener:
         if not self.commanding:
             return
         p = self.grammar.parse(request.split())
-        if p is not None:
+        if p is not None and (self._usable(p) or not self._llm_on()):
             self._take(p)
         else:
             self._ask_llm(request)
+
+    def _llm_on(self) -> bool:
+        return self.cfg.always_on.command_llm and self.engine.cleaner.uses_llm
+
+    def _usable(self, p: Parsed) -> bool:
+        """A command naming a window or app that doesn't exist ("show me what's
+        clickable" read as "switch to 'what'") goes to the LLM, if there is
+        one, rather than failing."""
+        return not p.arg or not self._llm_on() or resolvable(p)
 
     def _ask_llm(self, request: str) -> None:
         """Not a known command: let the LLM, if there is one, map it onto known
         commands. Without one, say what was heard so it can be rephrased."""
         cleaner = self.engine.cleaner
-        if not (self.cfg.always_on.command_llm and cleaner.uses_llm):
+        if not self._llm_on():
             self._not_understood(request)
             return
         self._show("Working it out…")
@@ -796,6 +809,7 @@ class Listener:
         order but without real time, waiting for detection after each chunk so
         timing-dependent behaviour matches live use."""
         self.running = True
+        self._file_run = True
         self.engine.external_stop = self.finish
         step = int(chunk * RATE)
         for i in range(0, len(audio), step):

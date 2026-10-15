@@ -205,20 +205,58 @@ _labelled: list[desktop.Control] = []
 MAX_LABELS = 300
 
 
+def label_targets(items: list[desktop.Control], bounds: tuple[int, int, int, int]
+                  ) -> list[desktop.Control]:
+    """What gets a number: inside the window, one per spot, in reading order.
+
+    A control mostly inside another clickable one of similar size is the same
+    target twice (a link and the box around it), so only the outer one is
+    kept. A small link inside a big panel keeps its own number.
+    """
+    bl, bt, br, bb = bounds
+    items = [c for c in items
+             if c.rect[0] < br and c.rect[2] > bl and c.rect[1] < bb and c.rect[3] > bt]
+
+    def area(r):
+        return max(1, (r[2] - r[0]) * (r[3] - r[1]))
+
+    items.sort(key=lambda c: -area(c.rect))
+    kept: list[desktop.Control] = []
+    for c in items:
+        l, t, r, b = c.rect
+        inside = False
+        for k in kept:
+            kl, kt, kr, kb = k.rect
+            if l >= kl - 3 and t >= kt - 3 and r <= kr + 3 and b <= kb + 3 and area(k.rect) < 4 * area(c.rect):
+                inside = True
+                break
+        if not inside:
+            kept.append(c)
+    kept.sort(key=lambda c: (c.rect[1] // 12, c.rect[0]))
+    return kept[:MAX_LABELS]
+
+
+def _place(where: str) -> Callable[[str, Ctx], str]:
+    def run(arg: str, ctx: Ctx) -> str:
+        if arg:
+            w, score = desktop.find_window(arg)
+            if w is None or score < NAME_ACCEPT:
+                raise CommandError(f"no window called {arg}")
+            hwnd, what = w.hwnd, _shown(w, arg)
+        else:
+            hwnd, what = desktop.foreground(), "window"
+        if not hwnd:
+            raise CommandError("no window in front")
+        desktop.place(hwnd, where)
+        return f"Moved {what} to the {where}" if where != "full" else f"{what} fills the screen"
+    return run
+
+
 def _show_labels(arg: str, ctx: Ctx) -> str:
     hwnd = desktop.foreground()
     if not hwnd:
         raise CommandError("no window in front")
-    items = desktop.controls(hwnd, named=False)
-    # Reading order, and one label per spot (a button and its icon share one).
-    items.sort(key=lambda c: (c.rect[1] // 12, c.rect[0]))
-    seen, unique = set(), []
-    for c in items:
-        key = (c.rect[0] // 6, c.rect[1] // 6)
-        if key not in seen:
-            seen.add(key)
-            unique.append(c)
-    unique = unique[:MAX_LABELS]
+    unique = label_targets(desktop.controls(hwnd, named=False), desktop.window_rect(hwnd))
     if not unique:
         raise CommandError("nothing clickable found")
     _labelled[:] = unique
@@ -287,6 +325,118 @@ def _paste_again(arg: str, ctx: Ctx) -> str:
     return f"Pasted again ({len(ctx.last_any.split())} words)"
 
 
+# -- undo ----------------------------------------------------------------------
+
+#: Commands that move or resize a window: undone by putting it back exactly.
+MOVES = {"center", "next_monitor", "previous_monitor", "maximize", "minimize", "restore",
+         "place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
+         "place_left", "place_right", "place_top", "place_bottom"}
+#: Commands undone by pressing other keys in the same window.
+INVERSE_KEYS = {
+    "new_tab": "ctrl+w", "close_tab": "ctrl+shift+t", "reopen_tab": "ctrl+w",
+    "next_tab": "ctrl+shift+tab", "previous_tab": "ctrl+tab", "page_down": "pageup",
+    "page_up": "pagedown", "back": "alt+right", "forward": "alt+left", "redo": "ctrl+z",
+    "undo": "ctrl+y", "desktop": "win+d", "switch_window": "alt+tab",
+}
+#: Plain "undo" right after one of these undoes it, rather than pressing Ctrl+Z
+#: in the app (which would undo some typing instead of the window move).
+SMART_UNDO = MOVES | {"switch", "open", "new_tab", "close_tab", "reopen_tab", "next_tab",
+                      "previous_tab", "scroll_down", "scroll_up", "show_labels", "desktop",
+                      "switch_window"}
+SMART_UNDO_SECONDS = 30.0
+
+
+@dataclass
+class UndoStep:
+    name: str
+    label: str
+    run: Callable[[], None]
+    at: float = field(default_factory=time.time)
+
+
+_undo: list[UndoStep] = []
+
+
+def _focus_hwnd(hwnd: int) -> None:
+    from . import window
+
+    if hwnd and not window.activate(window.Target(hwnd, None, "")):
+        raise CommandError("that window is gone")
+
+
+def _target(p: Parsed, before_fg: int) -> int:
+    """The window a command acts on: named, aimed at with "in", or in front."""
+    for name in (p.arg if p.command.name in MOVES else "", p.where):
+        if name:
+            w, score = desktop.find_window(name)
+            if w is not None and score >= NAME_ACCEPT:
+                return w.hwnd
+    return before_fg
+
+
+def undo_step(p: Parsed, ctx: Ctx, before_fg: int, after_fg: int, target: int, saved,
+              result: str) -> UndoStep | None:
+    """How to take back a command that just ran, if it can be."""
+    name = p.command.name
+    label = describe(p)
+    if name in MOVES and saved:
+        def put_back() -> None:
+            if not desktop.set_placement(target, saved):
+                raise CommandError("that window is gone")
+            _focus_hwnd(target)
+        return UndoStep(name, label, put_back)
+    if name in ("switch", "open") and before_fg and before_fg != after_fg:
+        return UndoStep(name, label, lambda: _focus_hwnd(before_fg))
+    if name in INVERSE_KEYS:
+        keys = INVERSE_KEYS[name]
+
+        def inverse() -> None:
+            if name not in ("desktop", "switch_window"):
+                _focus_hwnd(after_fg)
+                time.sleep(0.1)
+            desktop.press(keys)
+        return UndoStep(name, label, inverse)
+    if name in ("scroll_down", "scroll_up"):
+        notches = 5 if name == "scroll_down" else -5
+        return UndoStep(name, label, lambda: desktop.scroll(notches))
+    if name in ("type", "paste_again"):
+        text = p.arg if name == "type" else ctx.last_any
+        n = len(text.replace("\r\n", "\n"))
+
+        def unType() -> None:
+            _focus_hwnd(after_fg)
+            time.sleep(0.1)
+            desktop.press("backspace", n)
+        return UndoStep(name, label, unType)
+    if name == "scratch" and ctx.last_text and ctx.paste is not None:
+        text = ctx.last_text
+
+        def unScratch() -> None:
+            if ctx.in_target is not None:
+                ctx.in_target(ctx.last_target, lambda: ctx.paste(text))
+            else:
+                ctx.paste(text)
+        return UndoStep(name, label, unScratch)
+    if name == "show_labels":
+        return UndoStep(name, label, lambda: hide_labels())
+    return None
+
+
+def _undo_command(arg: str, ctx: Ctx) -> str:
+    if not _undo:
+        raise CommandError("no command to undo")
+    step = _undo.pop()
+    step.run()
+    return f"Undid {step.label}"
+
+
+def _undo_smart(arg: str, ctx: Ctx) -> str:
+    if _undo and _undo[-1].name in SMART_UNDO and time.time() - _undo[-1].at < SMART_UNDO_SECONDS:
+        return _undo_command(arg, ctx)
+    desktop.press("ctrl+z")
+    return "Undo"
+
+
 def _type(arg: str, ctx: Ctx) -> str:
     if ctx.paste is None:
         raise CommandError("can't type here")
@@ -326,7 +476,7 @@ COMMANDS: list[Command] = [
             _keys("enter", "Enter", delay=0.15), "press Enter", keys=True, risky=True),
     Command("new_line", ["new line", "next line", "line break"], _keys("shift+enter", "New line"),
             "new line without sending (Shift+Enter)", keys=True),
-    Command("scratch", ["scratch that", "delete that", "undo that", "strike that"], _scratch,
+    Command("scratch", ["scratch that", "delete that", "strike that"], _scratch,
             "delete the text LocalFlow just pasted", keys=True),
     Command("tab", ["[press] tab"], _keys("tab", "Tab"), "press Tab", keys=True),
     Command("shift_tab", ["[press] shift tab"], _keys("shift+tab", "Shift+Tab"),
@@ -337,7 +487,11 @@ COMMANDS: list[Command] = [
             "press Backspace", keys=True),
     Command("delete_word", ["delete (word|last word)"], _keys("ctrl+backspace", "Deleted word"),
             "delete the word before the cursor", keys=True),
-    Command("undo", ["undo"], _keys("ctrl+z", "Undo"), "undo (Ctrl+Z)", keys=True),
+    Command("undo", ["undo", "undo that"], _undo_smart,
+            "undo (Ctrl+Z); right after a window or tab command, undoes that command", keys=True),
+    Command("undo_command", ["undo [the|that] last command", "undo [that|the] command",
+                             "undo last", "take that back", "put it back", "reverse that"],
+            _undo_command, "undo the last voice command, where it can be undone"),
     Command("redo", ["redo"], _keys("ctrl+y", "Redo"), "redo (Ctrl+Y)", keys=True),
     Command("select_all", ["select all"], _keys("ctrl+a", "Selected all"), "select all",
             keys=True),
@@ -389,6 +543,30 @@ COMMANDS: list[Command] = [
                        "(move|put|bring) [the] window to the (center|middle) [of the screen|of my screen|of the monitor|of my monitor]",
                        "(move|put|bring) {name} to the (center|middle) [of the screen|of my screen|of the monitor|of my monitor]"],
             _center, "move a window to the middle of its screen"),
+Command("place_top_left", ["(move|put|snap) [it|the window] [to|on] [the] top left [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] top left [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("top left"), "put a window in the top left quarter of its own monitor"),
+    Command("place_top_right", ["(move|put|snap) [it|the window] [to|on] [the] top right [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] top right [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("top right"), "put a window in the top right quarter of its own monitor"),
+    Command("place_bottom_left", ["(move|put|snap) [it|the window] [to|on] [the] bottom left [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] bottom left [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("bottom left"), "put a window in the bottom left quarter of its own monitor"),
+    Command("place_bottom_right", ["(move|put|snap) [it|the window] [to|on] [the] bottom right [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] bottom right [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("bottom right"), "put a window in the bottom right quarter of its own monitor"),
+    Command("place_left", ["(move|put|snap) [it|the window] [to|on] [the] left [half|side] [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] left [half|side] [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("left"), "put a window in the left half of its own monitor"),
+    Command("place_right", ["(move|put|snap) [it|the window] [to|on] [the] right [half|side] [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] right [half|side] [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("right"), "put a window in the right half of its own monitor"),
+    Command("place_top", ["(move|put|snap) [it|the window] [to|on] [the] top half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] top half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("top"), "put a window in the top half of its own monitor"),
+    Command("place_bottom", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
+                       "(move|put|snap) {name} [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
+            _place("bottom"), "put a window in the bottom half of its own monitor"),
     Command("next_monitor", ["move [it|the window] to the (next|other) (monitor|screen)",
                              "move [it|the window] (right|to the right) a (monitor|screen)"],
             _keys("win+shift+right", "Moved to the next screen"), "move the window to the next monitor"),
@@ -400,10 +578,6 @@ COMMANDS: list[Command] = [
     Command("hide_labels", ["hide [the] [click] (labels|numbers)", "clear [the] (labels|numbers)",
                             "(labels|numbers) off"], hide_labels, "take the numbered labels away"),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
-    Command("snap_left", ["snap [window] left", "snap [it] left"], _keys("win+left",
-            "Snapped left"), "snap the window to the left half"),
-    Command("snap_right", ["snap [window] right", "snap [it] right"], _keys("win+right",
-            "Snapped right"), "snap the window to the right half"),
     # Buttons and text.
     Command("click", ["click [on] [number] {name}", "press {name}", "tap {name}"], _click,
             "click a button, link, tab or menu item by its name, or a numbered label by its number"),
@@ -535,13 +709,15 @@ class Grammar:
                         s1 = _aligned(words[:k], before) if nb else 1.0
                         s2 = _aligned(words[len(words) - j :], after) if na else 1.0
                         sc = min(s1, s2)
-                        if sc > score:
-                            middle = words[k : len(words) - j]
-                            if not c.text_slot:
-                                middle = _clean_name(middle)
+                        middle = words[k : len(words) - j]
+                        if not c.text_slot:
+                            middle = _clean_name(middle)
+                        # Ties: the reading whose fixed words cover more, so
+                        # "move chrome to the left" names "chrome", not "chrome to the".
+                        if sc > score or (sc == score and arg and len(middle) < len(arg.split())):
                             score, arg = sc, " ".join(middle)
             if score >= ACCEPT and (best is None or score > best.score
-                                    or (score == best.score and not arg and best.arg)):
+                                    or (score == best.score and len(arg.split()) < len(best.arg.split()))):
                 best = Parsed(c, arg, score)
         return best
 
@@ -569,7 +745,8 @@ def resolvable(p: Parsed) -> bool:
     dictation that merely starts like a command ("open the file and...")
     stay a dictation."""
     name = p.command.name
-    if name in ("switch", "minimize", "maximize", "restore", "close_window") and p.arg:
+    if (name in ("switch", "minimize", "maximize", "restore", "close_window", "center")
+            or name.startswith("place_")) and p.arg:
         _, score = desktop.find_window(p.arg)
         return score >= NAME_ACCEPT
     if name == "open":
@@ -683,6 +860,7 @@ class Runner:
         self._jobs.put((p, ctx, wrap))
 
     def _loop(self) -> None:
+        desktop.per_monitor_dpi()
         try:
             import comtypes
 
@@ -692,17 +870,29 @@ class Runner:
         while True:
             p, ctx, wrap = self._jobs.get()
             result: list[str] = []
+            undo: list[UndoStep | None] = []
             try:
                 def go() -> None:
+                    name = p.command.name
+                    before_fg = desktop.foreground()
+                    target = _target(p, before_fg) if name in MOVES else 0
+                    saved = desktop.get_placement(target) if target else None
                     if p.where:
                         _switch(p.where, ctx)
                         time.sleep(0.2)  # let it take focus before the keys
                     result.append(p.command.action(p.arg, ctx))
+                    if name not in ("undo_command", "undo") or not result[-1].startswith("Undid"):
+                        if name not in ("undo_command",):
+                            undo.append(undo_step(p, ctx, before_fg, desktop.foreground(), target,
+                                                  saved, result[-1]))
 
                 if wrap is not None:
                     wrap(go)
                 else:
                     go()
+                if undo and undo[0] is not None:
+                    _undo.append(undo[0])
+                    del _undo[:-20]
                 log.info("commands: %s done", p.command.name)
                 self.on_done(p, result[0] if result else "", True)
             except CommandError as exc:

@@ -117,6 +117,7 @@ margin = 18
 speech_rms = 0.009
 # Live transcript under the waveform (display only; pasted text is the full pass).
 live_text = true
+label_opacity = 0.7        # numbered click labels: 0.3 faint ... 1.0 solid
 live_interval = 1.0        # seconds between updates (one GPU Whisper pass each)
 live_window = 30.0         # only the newest this-many seconds are re-transcribed
 live_context_words = 5     # dimmed words kept from the previous sentence

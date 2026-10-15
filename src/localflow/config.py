@@ -130,6 +130,8 @@ class OverlayConfig:
     #: Live transcript under the waveform while you speak. Display only - the
     #: pasted text still comes from the full transcription after you stop.
     live_text: bool = True
+    #: Numbered click labels (command mode "show labels"): 0.3 faint - 1.0 solid.
+    label_opacity: float = 0.7
     #: Seconds between live updates (each is one Whisper pass on the GPU).
     live_interval: float = 1.0
     #: Only the most recent this-many seconds are re-transcribed each update.

@@ -424,6 +424,22 @@ phrase (while dictating) is among them.
     second click-through, no-activate window made once on its Tk thread
     (`desktop.label_sink`). "click N" invokes `_labelled[N-1]` and clears
     them. Leaving command mode clears them too.
+  - **DPI**: every thread that reads or sets screen positions calls
+    `desktop.per_monitor_dpi()` (the command thread does so at start). With
+    monitors at 150/125/100 %, a thread without it got UIA rectangles scaled
+    to the main monitor, and the labels missed their controls on the others.
+    Text controls (a link's text) aren't labelled. A control inside a
+    clickable one of under 4x its area is the same target and is dropped.
+  - **Undo** (`UndoStep`, `_undo`, up to 20): the Runner snapshots the
+    foreground window and, for `MOVES`, the target's `WINDOWPLACEMENT` and
+    rect before each command. Afterwards `undo_step` records the inverse:
+    placement back, refocus, inverse keys (`INVERSE_KEYS`), opposite scroll,
+    backspaces for typed text, re-paste for "scratch that". Commands with no
+    inverse (submit, close, click, save) record nothing. Plain "undo" undoes
+    the last command only if it is in `SMART_UNDO` and under 30 s old;
+    otherwise it is Ctrl+Z.
+  - A slot command naming a window that doesn't exist goes to the LLM when
+    there is one (`Listener._usable`), not straight to an error.
 - **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
   (gitignored, trimmed to `max_items`). The window is its own process
   (`localflow history`). It records the foreground window at launch, and
