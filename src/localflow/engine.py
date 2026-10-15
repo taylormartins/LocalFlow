@@ -35,6 +35,8 @@ class State(str, Enum):
     CLEANING = "cleaning"
     STYLING = "styling"
     INJECTING = "injecting"
+    #: Always-on command mode: what's said is taken as commands.
+    COMMAND = "command"
     ERROR = "error"
 
 
@@ -231,6 +233,16 @@ class Engine:
 
     def feed(self, block: np.ndarray) -> None:
         self.recorder.feed(block)
+
+    def cancel_external(self) -> None:
+        """Drop a fed dictation unprocessed (it turned out to be a command)."""
+        if self.recorder.external:
+            self.recorder.cancel()
+            self._set_state(State.IDLE, "cancelled")
+
+    def announce(self, state: State, detail: str = "") -> None:
+        """Show a state that isn't the pipeline's own (always-on command mode)."""
+        self._set_state(state, detail)
 
     def finish_external(
         self, keep: int | None = None, transform: Callable[[str], str] | None = None,

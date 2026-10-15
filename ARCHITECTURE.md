@@ -378,13 +378,38 @@ phrase (while dictating) is among them.
   (TTS padding, and also mics with suppression or a gate). Room hiss then
   counted as speech for about two minutes, so the stop phrase's burst never
   ended.
-- **Voice commands** (`always_on.COMMANDS`, `[always_on].commands`). After
-  the stop phrase a window opens (`command_window`, 4 s). A burst inside it
-  that is only a command (at most one extra word) runs it. Processing starts
-  at the stop phrase regardless. A command heard before the paste is done
-  waits for `Engine.finish_external(done=...)`, which fires after delivery.
-  "submit" waits 0.15 s and taps Enter, marked `OWN_INPUT`, because Ctrl+V
-  is processed asynchronously and an earlier Enter overtook it.
+- **Voice commands** (`commands.py`, `desktop.py`). Each command is a few
+  spoken patterns (`[optional]`, `(a|b)`, a `{slot}` at the end), matched
+  with wake's worst-word alignment at 0.8. The whole utterance must be the
+  command, give or take a lead-in ("okay", "please"). Actions run on one
+  worker thread (`Runner`), because UI Automation is COM.
+  - After the stop phrase a window opens (`command_window`, 5 s), and
+    reopens for 5 s when the text is pasted (`_delivered_now`). The live log
+    showed every missed "submit" came after a long dictation, where the
+    paste landed 4-6 s after the stop phrase. A burst in the window that
+    parses runs it. A slot command must resolve ("go to the shops" is talk).
+    One heard before the paste waits for `finish_external(done=...)`. Key
+    commands run inside the target window, others after the paste.
+  - "submit" waits 0.15 s before Enter, because Ctrl+V is processed
+    asynchronously and an earlier Enter overtook it.
+  - **Command mode**: the start phrase plus "command mode", or plus a
+    resolvable command (in the same burst, or the first burst within 4 s of
+    the start, which then cancels the fed dictation). Every burst is then a
+    command until "exit", the stop phrase or `command_mode_seconds`. The
+    start phrase there starts a dictation. `State.COMMAND` drives a teal pill.
+  - The **LLM layer** (`plan_with_llm`) only runs in command mode, for
+    utterances the patterns miss, with the cleanup model. JSON output, steps
+    validated against `BY_NAME`; unknown ones are dropped. Plans with a
+    `risky` command (close, submit) wait for "yes".
+  - `desktop.py`: windows via EnumWindows (visible, unowned, not cloaked),
+    named by exe stem, FileDescription and aliases, then title. Apps from
+    `shell:AppsFolder` (desktop and Store apps), launched through
+    `os.startfile`, never a console. Buttons via UI Automation
+    (`FindAllBuildCache` on enabled, on-screen controls), invoked through
+    Invoke/SelectionItem/Toggle/ExpandCollapse, or a click at the centre.
+- **Near misses**: a phrase scoring 0.7 to the accept level is logged with
+  just the matching words, and `Listener.last_near` feeds the tray's
+  "Accept ... as the start phrase".
 - **Paste where I started** (`inject.paste_to = "start"`, `window.py`). The
   foreground window and its focused control are captured when a dictation
   starts (`Engine._capture_target`). `Engine.in_target` brings that window
@@ -417,6 +442,7 @@ uv run python tests/bench_models.py         # latency vs quality across models
 uv run python tests/hotkeys.py              # hold/toggle/cancel state machine
 uv run python tests/always_on.py            # always-on end to end with TTS (CPU)
 uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
+uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer)
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
 uv run localflow transcribe clip.wav        # pipeline without a microphone

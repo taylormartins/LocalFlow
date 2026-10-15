@@ -25,7 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from localflow import window  # noqa: E402
-from localflow.always_on import COMMANDS  # noqa: E402
+from localflow.commands import BY_NAME, Ctx  # noqa: E402
 from localflow.config import Config  # noqa: E402
 from localflow.engine import Engine, Result  # noqa: E402
 from localflow.inject import get_clipboard_text  # noqa: E402
@@ -79,7 +79,7 @@ def main() -> int:
         focus(b); time.sleep(0.3)
         say("book the meeting room")
         engine._process_and_inject(silence, True, True, "test", None,
-                                   lambda t: COMMANDS["submit"](), target=target)
+                                   lambda t: BY_NAME["submit"].action("", Ctx()), target=target)
         time.sleep(0.8)
         s = state()
         expect("A got the text and Enter", s["enter"] == [["A", "book the meeting room"]], str(s["enter"]))

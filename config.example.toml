@@ -153,11 +153,16 @@ model = ""           # "" = cleanup model; "gemma4:12B" = stronger voices, ~2.8 
 enabled = false
 model = "base.en"          # listens for the phrases only; CPU, ~160 MB
 idle_stop_seconds = 45.0   # finish on our own after this much silence
-command_window = 4.0       # seconds after the stop phrase in which a command counts
+command_window = 5.0       # a command after a dictation counts this long after the
+                           # stop phrase, and again after the text is pasted
+command_mode_seconds = 30.0  # command mode ends after this long without a command
+command_llm = true         # command mode asks the cleanup LLM (if in use) about
+                           # requests the built-in commands don't cover
 
 [always_on.commands]
-# Said on its own right after the stop phrase; runs once the text is pasted.
-submit = ["submit", "send it", "press enter", "hit enter"]   # presses Enter
+# Extra spellings for voice commands, added to the built-in ones (names and
+# built-ins in commands.py). Example:
+# submit = ["fire away"]
 
 [vocabulary]
 # Proper nouns and jargon Whisper tends to mangle. These are fed to Whisper as

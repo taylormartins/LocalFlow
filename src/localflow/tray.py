@@ -30,6 +30,7 @@ STATE_COLOURS = {
     State.TRANSCRIBING: (56, 139, 232),
     State.CLEANING: (137, 87, 229),
     State.INJECTING: (46, 160, 90),
+    State.COMMAND: (46, 196, 182),
     State.ERROR: (219, 68, 68),
 }
 
@@ -103,6 +104,17 @@ class Tray:
                     "Set up always-on phrases...",
                     lambda icon, item: self._open_setup(),
                     visible=lambda _: self.always_on is not None,
+                ),
+                pystray.MenuItem(
+                    "Command mode",
+                    self._toggle_commands,
+                    checked=lambda _: bool(self.always_on and self.always_on.commanding),
+                    visible=lambda _: bool(self.always_on and self.always_on.running),
+                ),
+                pystray.MenuItem(
+                    lambda _: self._near_label(),
+                    lambda icon, item: self._accept_near(),
+                    visible=lambda _: bool(self.always_on and self.always_on.last_near),
                 ),
                 pystray.MenuItem(
                     "Paste where I started",
@@ -241,6 +253,43 @@ class Tray:
                 self.icon.update_menu()
 
         threading.Thread(target=run, daemon=True, name="localflow-setup").start()
+
+    def _toggle_commands(self, icon, item) -> None:
+        lis = self.always_on
+        if lis is None:
+            return
+        if lis.commanding:
+            lis.leave_commands()
+        else:
+            lis.enter_commands()
+        icon.update_menu()
+
+    def _near_label(self) -> str:
+        near = self.always_on.last_near if self.always_on else None
+        if not near:
+            return ""
+        which, heard = near
+        return f'Accept "{heard}" as the {which} phrase'
+
+    def _accept_near(self) -> None:
+        """A phrase that was heard but not accepted: take it as a spelling."""
+        lis = self.always_on
+        near = lis.last_near if lis else None
+        if not near:
+            return
+        which, heard = near
+        from .wake import Phrases
+
+        phrases = Phrases.load()
+        phrase = getattr(phrases, which)
+        if heard not in phrase.variants:
+            phrase.variants.append(heard)
+            phrases.save()
+            lis.reload()
+        lis.last_near = None
+        log.info("always-on: added a %s phrase spelling", which)
+        self.notify(f'"{heard}" now counts as your {which} phrase')
+        self.icon.update_menu()
 
     def _toggle_paste_to(self, icon, item) -> None:
         cfg = self.engine.cfg.inject

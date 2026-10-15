@@ -89,6 +89,7 @@ def main() -> int:
         events.clear()
         lis = Listener(engine, cfg, inject=False, on_event=lambda k, t: events.append((k, t)))
         lis.run_file(audio)
+        lis.leave_commands()
         for _ in range(600):
             if not engine.recording and engine.state.value in ("idle", "error"):
                 break
@@ -136,7 +137,8 @@ def main() -> int:
         ("no command", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 3.0), False),
         ("'submit' inside a sentence", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.6,
                                               say("Submit the form tomorrow, after lunch."), 2.0), False),
-        ("'submit' after the window", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 6.0, say("Submit."), 2.0), False),
+        ("'submit' after the window", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 8.0, say("Submit."), 2.0), False),
+        ("'press enter'", build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Press enter."), 2.0), True),
     ]
     for name, audio, want in cases:
         got, ev = run(audio)
@@ -146,6 +148,38 @@ def main() -> int:
         if ran:
             order = [k for k, _ in ev]
             expect("  ...and only after the text", order.index("ran") > order.index("stop"), str(order))
+
+    print("\ncommand mode")
+
+    def ran(ev):
+        return [t for k, t in ev if k == "ran"]
+
+    def mode(ev):
+        return [t for k, t in ev if k == "command-mode"]
+
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Scroll down."), 1.0,
+                        say("Next tab."), 1.0, say("Exit."), 2.0))
+    expect("start phrase + 'command mode', two commands, exit",
+           not got and mode(ev)[:1] == ["on"] and mode(ev)[-1:] == ["off"]
+           and ran(ev) == ["scroll_down", "next_tab"], f"dictations={got} events={ev}")
+
+    got, ev = run(build(1.0, say(START), 0.8, say("Scroll down."), 1.0, say("Go to the top."), 2.0))
+    expect("start phrase, pause, a command: command mode, no dictation",
+           not got and ran(ev) == ["scroll_down", "top"], f"dictations={got} events={ev}")
+
+    got, ev = run(build(1.0, say(START), 0.6, say("Open the file and check the numbers for March."),
+                        0.8, say(STOP), 2.0))
+    expect("a dictation that starts like a command stays a dictation",
+           len(got) == 1 and "numbers" in got[0].lower() and not ran(ev),
+           f"dictations={got} events={ev}")
+
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Scroll down."), 1.0,
+                        say(STOP), 1.0, say("Scroll down."), 2.0))
+    expect("the stop phrase leaves command mode",
+           ran(ev) == ["scroll_down"] and mode(ev)[-1:] == ["off"], f"events={ev}")
+
+    got, ev = run(build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Scratch that."), 2.0))
+    expect("'scratch that' after a dictation", ran(ev) == ["scratch"], f"events={ev}")
 
     print("\nsimilar phrases must not start anything")
     for sentence in (

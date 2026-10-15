@@ -5,7 +5,7 @@ A phrase is recognised two ways, and both come from the setup takes:
   * Text. A small Whisper model transcribes each burst of speech, and the
     words are fuzzy-matched against every known spelling of the phrase: the
     one typed in, any alternatives typed in, and - most useful - whatever the
-    model actually heard during setup ("listen to me, Rarity"), because that is
+    model actually heard during setup ("okay listen, merry gold"), because that is
     what it will hear next time too.
   * Sound. Each setup take is kept as a voice template (log-mel features).
     A phrase that reads right but doesn't line up with the templates under
@@ -324,7 +324,7 @@ def learn_limit(templates: list[np.ndarray]) -> float:
 def expand(alternate: str, phrase: str) -> list[str]:
     """An alternative spelling as a whole phrase.
 
-    Typing just "Varity" must mean "listen to me varity", never the bare word:
+    Typing just "Merrigold" must mean "okay listen merrigold", never the bare word:
     a one-word variant would fire every time the name came up in conversation.
     So a shorter alternative replaces the stretch of the phrase it most
     resembles; a full-length one is used as is.

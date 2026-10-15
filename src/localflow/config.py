@@ -189,14 +189,17 @@ class AlwaysOnConfig:
     #: Lower catches more mishearings and more lookalikes ("Mary told" for
     #: "marigold"); add spellings in setup rather than lowering this.
     accept: float = 0.85
-    #: Voice commands said right after the stop phrase, name -> spellings.
-    #: The action runs once the dictation has been pasted. Built in:
-    #:   submit - press Enter (send the message / run the command)
-    commands: dict[str, list[str]] = field(
-        default_factory=lambda: {"submit": ["submit", "send it", "press enter", "hit enter"]}
-    )
-    #: Seconds after the stop phrase in which a command counts.
-    command_window: float = 4.0
+    #: Extra spellings for voice commands, name -> spellings (see commands.py
+    #: for the names and the built-in ones, e.g. submit = "submit", "press enter").
+    commands: dict[str, list[str]] = field(default_factory=dict)
+    #: Seconds in which a command said after a dictation counts: from the stop
+    #: phrase, and again from the moment the text is pasted.
+    command_window: float = 5.0
+    #: Command mode ends after this many seconds without a command.
+    command_mode_seconds: float = 30.0
+    #: In command mode, ask the cleanup LLM (if it's in use and reachable) to
+    #: work out requests the built-in commands don't cover.
+    command_llm: bool = True
 
 
 @dataclass

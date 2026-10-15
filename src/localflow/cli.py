@@ -358,6 +358,16 @@ def cmd_listen(args, cfg) -> int:
             print(f"{stamp()}  >>> START phrase ({text}) - dictating")
         elif kind == "stop":
             print(f"{stamp()}  <<< STOP phrase ({text})")
+        elif kind == "near":
+            print(f"{stamp()}  ??? close but not accepted: {text}")
+        elif kind == "command-mode":
+            print(f"{stamp()}  === command mode {text}")
+        elif kind == "ran":
+            print(f"{stamp()}  ->  command: {text} (not run: listen mode pastes and presses nothing)")
+        elif kind == "unknown":
+            print(f"{stamp()}  ??? not a command: {text}")
+        elif kind == "plan":
+            print(f"{stamp()}  LLM plan: {text}")
 
     engine.on_result(lambda r: print(f"{stamp()}  DICTATION: {r.text!r}  (raw: {r.raw!r})"))
     listener = Listener(engine, cfg, inject=False, on_event=event)

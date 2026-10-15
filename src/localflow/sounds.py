@@ -192,6 +192,12 @@ class SoundCues:
             # paste goes to ERROR instead, so this cue only ever means "delivered".
             play(self.sound(self.cfg.paste))
             return
+        if state == State.COMMAND and prev not in (State.COMMAND, State.RECORDING):
+            play(self.sound(self.cfg.start))  # command mode is listening
+            return
+        if prev == State.COMMAND and state == State.IDLE:
+            play(self.sound(self.cfg.paste))  # and has stopped
+            return
         if state == State.RECORDING and prev != State.RECORDING:
             # Fired once the stream is open, so the cue means "the mic is live".
             data = self.sound(self.cfg.start)

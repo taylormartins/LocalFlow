@@ -88,6 +88,8 @@ PURPLE = "#a07cf0"
 GREEN = "#43b974"
 AMBER = "#e0a33a"
 PINK = "#e86fb0"
+#: Always-on command mode.
+TEAL = "#2ec4b6"
 #: Previous-sentence context in the live text.
 DIM_TEXT = "#8b8e98"
 
@@ -166,7 +168,7 @@ class Overlay:
         self._layout_key = None
         self._layout: tuple[list, int] = ([], 0)
         # Written by engine hooks on any thread, read by the Tk thread.
-        self._mode = "hidden"  # hidden | recording | busy | done | message
+        self._mode = "hidden"  # hidden | recording | busy | done | message | command
         self._label = ""
         self._colour = TEXT
         self._since = time.monotonic()
@@ -212,6 +214,9 @@ class Overlay:
             return
         elif state == State.IDLE and detail == "no speech detected":
             mode, label, colour, hide_at = "message", "No speech detected", AMBER, now + 2.5
+        elif state == State.COMMAND:
+            # Stays up for as long as command mode lasts.
+            mode, label, colour = "command", detail or "Command mode", TEAL
         elif state == State.ERROR:
             mode, label, colour, hide_at = "message", _short_error(detail), RED, now + 4.0
         # IDLE otherwise (cancelled, ready) and LOADING: stay out of the way.
@@ -428,6 +433,12 @@ class Overlay:
                     cx - 4 * s, mid, cx - 1 * s, mid + 3.5 * s, cx + 4.5 * s, mid - 3.5 * s,
                     fill=BG, width=max(2, int(2 * s)),
                 )
+            elif mode == "command":
+                # Breathing ring: listening for a command.
+                rr = r * (0.85 + 0.15 * math.sin(elapsed * 3))
+                c.create_oval(cx - rr, mid - rr, cx + rr, mid + rr, outline=self._colour,
+                              width=max(2, int(2.5 * s)))
+                c.create_text(cx, mid, text="›", fill=self._colour, font=self.font_bold)
             else:  # message
                 c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
                 c.create_text(cx, mid, text="!", fill=BG, font=self.font_bold)

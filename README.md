@@ -268,12 +268,50 @@ cleanup start at the stop phrase, without waiting to see whether a command
 follows.
 
 - "send it", "press enter" and "hit enter" also work.
-- A command counts only within 4 seconds of the stop phrase
-  (`always_on.command_window`), and only said on its own: "submit the form
-  tomorrow" is just talk.
+- Any command from the list below works here too. Key commands such as
+  **"scratch that"** (deletes the text just pasted), **"new line"** and
+  **"undo"** act on the window the text went into.
+- A command counts within 5 seconds of the stop phrase, and again for 5
+  seconds after the text appears (`always_on.command_window`). So waiting to
+  see a long dictation land before saying "submit" works.
+- A command only counts said on its own: "submit the form tomorrow" is just
+  talk.
 
-More commands are planned. Spellings are configurable under
-`[always_on.commands]`.
+**Command mode: control the computer by voice.** Say the start phrase
+followed by **"command mode"**, or by a command itself ("Okay listen,
+Marigold. Switch to Chrome."). The pill turns teal and everything you say is
+taken as a command until you say **"exit"**, the stop phrase, or nothing for
+30 seconds (`always_on.command_mode_seconds`). The start phrase still starts a
+dictation from command mode. Tray ▸ **Command mode** switches it on and off
+too. Commands work without an LLM:
+
+| Say | Does |
+|---|---|
+| switch to / go to / show *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title) |
+| open / launch *Notepad*, *Spotify*, *youtube dot com* | switches to it if it's open, starts it if not; opens websites |
+| minimize / maximize / restore / close *[name]* | the window in front, or the one named |
+| click / press *Send*, *Reply all*, *File* | clicks a button, link, tab or menu item by its name |
+| type *running five minutes late* | types the words |
+| submit / press enter · new line · tab · escape · backspace | keys |
+| scratch that · undo · redo · select all · copy · cut · paste · save · find | editing |
+| scroll up / down · page up / down · go to the top / bottom | moving around |
+| new tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
+| switch window · show desktop · snap left / right | windows |
+
+With the cleanup LLM in use (`cleanup.method = "llm"` and Ollama running),
+command mode also understands requests the table doesn't cover: "get rid of
+this tab", "put Spotify away", "open Notepad and type hello". The LLM can only
+pick steps from the table above, never anything else. A plan that closes or
+sends something waits for you to say **"yes"** ("no" cancels).
+(`always_on.command_llm = false` turns this off.)
+
+**When a phrase isn't caught.** A phrase that came close but wasn't accepted
+is logged (`start phrase? heard 'okay listen merry gold' (0.78)`), and the tray
+offers **Accept "okay listen merry gold" as the start phrase**, a one-click
+spelling. `uv run localflow listen` shows everything heard live.
+
+Extra spellings for any command go under `[always_on.commands]` (names in
+`commands.py`).
 
 Always-on works the same on a PC without an LLM or GPU. Listening uses its own
 small model, and the cleanup falls back to the algorithmic rules.

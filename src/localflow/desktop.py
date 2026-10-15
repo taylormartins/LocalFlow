@@ -1,0 +1,438 @@
+"""Reach into the desktop for voice commands: keys, windows, apps, buttons.
+
+Everything here is plain Win32 / UI Automation, no LLM. Keys LocalFlow sends
+are stamped OWN_INPUT so its own keyboard hook lets them through.
+
+  * Windows: the visible top-level windows, each with its program's file name
+    ("chrome") and description ("Google Chrome"), so "switch to Chrome",
+    "go to Visual Studio Code" and "show the terminal" all find something.
+  * Apps: the Start menu's full app list (shell:AppsFolder), which covers
+    both ordinary programs and Store apps, for "open Notepad".
+  * Buttons: UI Automation lists the named controls of the window in front,
+    the same tree screen readers use, for "click Send".
+
+Window titles are matched but never logged: they can be personal.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import difflib
+import logging
+import os
+import re
+import threading
+import time
+from ctypes import wintypes
+from dataclasses import dataclass
+from pathlib import Path
+
+from .hotkey import OWN_INPUT
+
+log = logging.getLogger(__name__)
+
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+dwmapi = ctypes.WinDLL("dwmapi")
+
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetWindow.restype = wintypes.HWND
+user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.IsZoomed.argtypes = [wintypes.HWND]
+user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, ctypes.c_size_t]
+user32.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+                               ctypes.c_size_t]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p,
+                                         wintypes.DWORD]
+
+GW_OWNER = 4
+GWL_EXSTYLE = -20
+WS_EX_TOOLWINDOW = 0x80
+DWMWA_CLOAKED = 14
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+WM_CLOSE = 0x0010
+SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE = 3, 6, 9
+KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP = 0x1, 0x2
+MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_WHEEL = 0x2, 0x4, 0x800
+
+
+def sim(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+# -- keys ------------------------------------------------------------------
+
+KEYS = {
+    "enter": 0x0D, "tab": 0x09, "escape": 0x1B, "backspace": 0x08, "delete": 0x2E,
+    "space": 0x20, "shift": 0x10, "ctrl": 0x11, "alt": 0x12, "win": 0x5B,
+    "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+    "pageup": 0x21, "pagedown": 0x22, "end": 0x23, "home": 0x24,
+    "f4": 0x73, "f5": 0x74,
+}
+#: Keys that need the extended flag, or Windows takes them for the numpad.
+_EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2E, 0x5B}
+
+
+def press(chord: str, times: int = 1) -> None:
+    """Press a chord like "ctrl+shift+tab" (letters by name: "ctrl+a")."""
+    vks = [KEYS[k] if k in KEYS else ord(k.upper()) for k in chord.split("+")]
+    for _ in range(times):
+        for vk in vks:
+            user32.keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY if vk in _EXTENDED else 0, OWN_INPUT)
+        for vk in reversed(vks):
+            flags = KEYEVENTF_KEYUP | (KEYEVENTF_EXTENDEDKEY if vk in _EXTENDED else 0)
+            user32.keybd_event(vk, 0, flags, OWN_INPUT)
+
+
+def scroll(notches: int) -> None:
+    """Mouse wheel over whatever is under the pointer. Positive = up."""
+    user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, ctypes.c_uint32(notches * 120).value, OWN_INPUT)
+
+
+def click_at(x: int, y: int) -> None:
+    user32.SetCursorPos(x, y)
+    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, OWN_INPUT)
+    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, OWN_INPUT)
+
+
+# -- windows ---------------------------------------------------------------
+
+@dataclass
+class Win:
+    hwnd: int
+    title: str
+    exe: str  # file stem, lower case: "chrome", "windowsterminal"
+    description: str  # "Google Chrome", or "" if the file doesn't say
+
+    def names(self) -> list[str]:
+        """What a person might call it."""
+        out = [self.exe, self.description]
+        out += ALIASES_BY_EXE.get(self.exe, [])
+        return [n.lower() for n in out if n]
+
+    @property
+    def label(self) -> str:
+        """For the pill and the log: the program, never the window title."""
+        return self.description or self.exe
+
+
+#: Everyday names that don't appear in the program's own name.
+ALIASES = {
+    "browser": ["chrome", "msedge", "firefox", "brave", "opera", "vivaldi"],
+    "web browser": ["chrome", "msedge", "firefox", "brave"],
+    "edge": ["msedge"],
+    "terminal": ["windowsterminal", "wt", "cmd", "powershell", "pwsh"],
+    "command prompt": ["cmd", "windowsterminal"],
+    "file explorer": ["explorer"],
+    "explorer": ["explorer"],
+    "files": ["explorer"],
+    "vs code": ["code"],
+    "vscode": ["code"],
+    "code": ["code"],
+    "word": ["winword"],
+    "excel": ["excel"],
+    "powerpoint": ["powerpnt"],
+    "outlook": ["outlook", "olk"],
+    "teams": ["ms-teams", "teams"],
+    "settings": ["systemsettings"],
+    "spotify": ["spotify"],
+    "discord": ["discord"],
+    "slack": ["slack"],
+}
+ALIASES_BY_EXE: dict[str, list[str]] = {}
+for _name, _exes in ALIASES.items():
+    for _exe in _exes:
+        ALIASES_BY_EXE.setdefault(_exe, []).append(_name)
+
+_desc_cache: dict[str, str] = {}
+
+
+def _exe_path(hwnd: int) -> str:
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return buf.value
+        return ""
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def _description(path: str) -> str:
+    if path not in _desc_cache:
+        desc = ""
+        try:
+            import win32api
+
+            lang, page = win32api.GetFileVersionInfo(path, "\\VarFileInfo\\Translation")[0]
+            desc = win32api.GetFileVersionInfo(
+                path, f"\\StringFileInfo\\{lang:04x}{page:04x}\\FileDescription") or ""
+        except Exception:
+            pass
+        _desc_cache[path] = desc.strip()
+    return _desc_cache[path]
+
+
+def _cloaked(hwnd: int) -> bool:
+    """Hidden by the shell (another virtual desktop, a suspended Store app)."""
+    value = ctypes.c_int(0)
+    dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ctypes.byref(value), ctypes.sizeof(value))
+    return bool(value.value)
+
+
+def windows() -> list[Win]:
+    """Visible app windows, front to back (the order Alt+Tab shows them)."""
+    found: list[Win] = []
+
+    def each(hwnd, _):
+        if (not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, GW_OWNER)
+                or user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW
+                or _cloaked(hwnd)):
+            return True
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, buf, 256)
+        if not buf.value:
+            return True
+        path = _exe_path(hwnd)
+        exe = Path(path).stem.lower() if path else ""
+        if exe in ("textinputhost", "shellexperiencehost", "searchhost", "startmenuexperiencehost"):
+            return True
+        if exe == "explorer" and buf.value == "Program Manager":
+            return True  # the desktop itself
+        found.append(Win(int(hwnd), buf.value, exe, _description(path) if path else ""))
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(each), 0)
+    return found
+
+
+def name_score(spoken: str, names: list[str]) -> float:
+    """How well a spoken name fits a list of names for one thing."""
+    spoken = " ".join(_words(spoken))
+    if not spoken:
+        return 0.0
+    best = 0.0
+    for name in names:
+        name = " ".join(_words(name))
+        if not name:
+            continue
+        best = max(best, sim(spoken, name), sim(spoken.replace(" ", ""), name.replace(" ", "")))
+        # "chrome" in "google chrome": each spoken word found in the name.
+        words = name.split()
+        hits = [max(sim(w, x) for x in words) for w in spoken.split()]
+        if hits and min(hits) >= 0.85:
+            best = max(best, 0.9 * min(hits))
+    return best
+
+
+def find_window(spoken: str, wins: list[Win] | None = None) -> tuple[Win | None, float]:
+    """The window best fitting a spoken name: its program first, then its title."""
+    wins = windows() if wins is None else wins
+    best, best_score = None, 0.0
+    for w in wins:
+        score = name_score(spoken, w.names())
+        # The title counts a little less: "switch to budget" -> "Budget.xlsx - Excel".
+        title_words = _words(w.title)
+        spoken_words = _words(spoken)
+        if title_words and spoken_words:
+            hits = [max(sim(s, t) for t in title_words) for s in spoken_words]
+            score = max(score, 0.88 * min(hits))
+        if score > best_score:  # ties: the one nearer the front wins
+            best, best_score = w, score
+    return best, best_score
+
+
+def foreground() -> int:
+    return int(user32.GetForegroundWindow() or 0)
+
+
+def focus(w: Win) -> bool:
+    from . import window
+
+    return window.activate(window.Target(w.hwnd, None, ""))
+
+
+def show(hwnd: int, how: int) -> None:
+    user32.ShowWindow(hwnd, how)
+
+
+def close(hwnd: int) -> None:
+    """Ask the window to close, as its X button would (it may ask to save)."""
+    user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+# -- apps ------------------------------------------------------------------
+
+@dataclass
+class App:
+    name: str
+    parsing_name: str  # what shell:AppsFolder\<this> launches
+
+
+_apps: list[App] = []
+_apps_at = 0.0
+_apps_lock = threading.Lock()
+
+
+def apps(max_age: float = 300.0) -> list[App]:
+    """The Start menu's app list (desktop programs and Store apps)."""
+    global _apps, _apps_at
+    with _apps_lock:
+        if _apps and time.monotonic() - _apps_at < max_age:
+            return _apps
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        out = []
+        try:
+            shell = win32com.client.Dispatch("Shell.Application")
+            folder = shell.NameSpace("shell:AppsFolder")
+            for item in folder.Items():
+                name, path = item.Name, item.Path
+                if name and path and not re.search(r"uninstall|readme|help|documentation",
+                                                   name, re.I):
+                    out.append(App(name, path))
+        except Exception as exc:
+            log.warning("could not read the app list: %s", exc)
+        _apps, _apps_at = out, time.monotonic()
+        return out
+
+
+def find_app(spoken: str) -> tuple[App | None, float]:
+    best, best_score = None, 0.0
+    for app in apps():
+        names = [app.name] + [a for a, exes in ALIASES.items()
+                              if any(e in app.parsing_name.lower() for e in exes)]
+        score = name_score(spoken, names)
+        if score > best_score or (score == best_score and best and len(app.name) < len(best.name)):
+            best, best_score = app, score
+    return best, best_score
+
+
+def launch(app: App) -> None:
+    os.startfile("shell:AppsFolder\\" + app.parsing_name)
+
+
+def open_url(url: str) -> None:
+    os.startfile(url)
+
+
+# -- buttons (UI Automation) -------------------------------------------------
+
+_uia = None
+_uia_lock = threading.Lock()
+
+#: Control types worth clicking: buttons, links, menu items, tabs, list and
+#: tree items, check boxes, radio buttons, combo boxes, split buttons.
+_CLICKABLE = {50000, 50005, 50011, 50019, 50007, 50024, 50002, 50013, 50003, 50031,
+              50020, 50023, 50004}
+UIA_NAME, UIA_TYPE, UIA_RECT = 30005, 30003, 30001
+UIA_ENABLED, UIA_OFFSCREEN = 30010, 30022
+UIA_INVOKE, UIA_SELECTION_ITEM, UIA_TOGGLE, UIA_EXPAND = 10000, 10010, 10015, 10005
+
+
+def _automation():
+    global _uia
+    with _uia_lock:
+        if _uia is None:
+            import comtypes
+            import comtypes.client
+
+            comtypes.CoInitialize()
+            comtypes.client.GetModule("UIAutomationCore.dll")
+            from comtypes.gen import UIAutomationClient as UIA
+
+            _uia = (comtypes.client.CreateObject(UIA.CUIAutomation, interface=UIA.IUIAutomation),
+                    UIA)
+        return _uia
+
+
+@dataclass
+class Control:
+    name: str
+    kind: int
+    rect: tuple[int, int, int, int]
+    element: object
+
+
+def controls(hwnd: int, limit: float = 3.0) -> list[Control]:
+    """Named, enabled, on-screen clickable controls of a window."""
+    uia, UIA = _automation()
+    import comtypes
+
+    comtypes.CoInitialize()  # per thread; harmless if already done
+    root = uia.ElementFromHandle(hwnd)
+    cache = uia.CreateCacheRequest()
+    for prop in (UIA_NAME, UIA_TYPE, UIA_RECT, UIA_ENABLED, UIA_OFFSCREEN):
+        cache.AddProperty(prop)
+    cond = uia.CreateAndCondition(
+        uia.CreatePropertyCondition(UIA_ENABLED, True),
+        uia.CreatePropertyCondition(UIA_OFFSCREEN, False))
+    started = time.perf_counter()
+    found = root.FindAllBuildCache(4, cond, cache)  # TreeScope_Descendants
+    out = []
+    for i in range(found.Length):
+        el = found.GetElement(i)
+        try:
+            kind, name = el.CachedControlType, (el.CachedName or "").strip()
+        except Exception:
+            continue
+        if kind not in _CLICKABLE or not name:
+            continue
+        r = el.CachedBoundingRectangle
+        out.append(Control(name, kind, (r.left, r.top, r.right, r.bottom), el))
+    log.debug("%d clickable controls in %.2fs", len(out), time.perf_counter() - started)
+    return out
+
+
+def find_control(spoken: str, items: list[Control]) -> tuple[Control | None, float]:
+    best, best_score = None, 0.0
+    for c in items:
+        score = name_score(spoken, [c.name])
+        if score > best_score:
+            best, best_score = c, score
+    return best, best_score
+
+
+def activate_control(c: Control) -> None:
+    """Invoke it the way UI Automation offers; click its middle as a last resort."""
+    _, UIA = _automation()
+    for pattern, iface, method in (
+        (UIA_INVOKE, UIA.IUIAutomationInvokePattern, "Invoke"),
+        (UIA_SELECTION_ITEM, UIA.IUIAutomationSelectionItemPattern, "Select"),
+        (UIA_TOGGLE, UIA.IUIAutomationTogglePattern, "Toggle"),
+        (UIA_EXPAND, UIA.IUIAutomationExpandCollapsePattern, "Expand"),
+    ):
+        try:
+            p = c.element.GetCurrentPatternAs(pattern, iface._iid_)
+            if p:
+                getattr(p.QueryInterface(iface), method)()
+                return
+        except Exception:
+            continue
+    left, top, right, bottom = c.rect
+    click_at((left + right) // 2, (top + bottom) // 2)

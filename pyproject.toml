@@ -1,6 +1,6 @@
 [project]
 name = "localflow"
-version = "1.8.0"
+version = "1.9.0"
 description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"
@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Taylor Martins" }]
 requires-python = ">=3.12"
 dependencies = [
+    "comtypes>=1.4",
     "fastapi[standard]>=0.141.1",
     "faster-whisper>=1.2.1",
     "httpx>=0.28.1",

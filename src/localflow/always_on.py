@@ -14,6 +14,11 @@ Built for the smallest footprint that still reacts quickly:
     cleanup behave exactly as with a hotkey. The stop phrase's audio is cut
     off the end, and any word of either phrase that survives the cut is
     stripped from the transcript.
+  * Voice commands (commands.py): one said on its own straight after a
+    dictation ("submit", "scratch that"), or command mode, entered with the
+    start phrase followed by "command mode" or by a command itself, in
+    which everything said is taken as a command until "exit", the stop
+    phrase, or command_mode_seconds of quiet.
 """
 
 from __future__ import annotations
@@ -28,8 +33,10 @@ from collections.abc import Callable
 import numpy as np
 
 from .audio import resolve_candidates
+from .commands import Ctx, Grammar, Parsed, Runner, describe, is_noise, plan_with_llm, resolvable, trim
 from .config import Config
-from .wake import RATE, Detector, Hit, Phrases, find, normalise, strip_phrases
+from .engine import State
+from .wake import RATE, Detector, Hit, Phrases, find, strip_phrases
 
 log = logging.getLogger(__name__)
 
@@ -47,21 +54,9 @@ OVERLAP = 2.0
 #: the phrase is fixed by strip_phrases, erring into the dictation is not.
 START_MARGIN = 0.08
 STOP_MARGIN = 0.05
-
-
-def _press_enter() -> None:
-    # A moment for the target app to take in the paste first: Ctrl+V is
-    # processed asynchronously, and Enter overtaking it would send nothing.
-    time.sleep(0.15)
-    from .hotkey import _tap
-
-    _tap(0x0D)  # VK_RETURN, marked as our own input so the hook ignores it
-
-
-#: Actions for the voice commands in [always_on].commands.
-COMMANDS: dict[str, Callable[[], None]] = {
-    "submit": _press_enter,
-}
+#: A phrase scoring at least this (but under the accept level) is logged as
+#: a near miss: "start phrase? heard 'okay listen merry gold' (0.78)".
+NEAR = 0.7
 
 
 class Ring:
@@ -126,12 +121,20 @@ class Listener:
         self._cmd_from = 0  # absolute samples: the window opens at the stop phrase's end...
         self._cmd_until = 0  # ...and closes command_window seconds later
         self._delivered = False  # this dictation's text is in (paste done)
-        self._pending: str | None = None  # heard before the paste finished
+        self._pending: Parsed | None = None  # heard before the paste finished
         self._cmd_lock = threading.Lock()
-        self._commands = {
-            name: [normalise(s) for s in spellings if normalise(s)]
-            for name, spellings in cfg.always_on.commands.items()
-        }
+        self.grammar = Grammar(extra=cfg.always_on.commands)
+        self.runner = Runner(self._command_done)
+        # Command mode.
+        self.commanding = False
+        self.commanding_announced = False
+        self._mode_until = 0  # absolute samples: leaves command mode after this much quiet
+        self._mode_msg = ""
+        self._confirm: list[Parsed] | None = None  # an LLM plan waiting for "yes"
+        self._dict_heard = False  # anything said yet in this dictation
+        self._scratched_at = 0.0  # the dictation "scratch that" already removed
+        #: The last phrase that came close but wasn't accepted: (which, heard).
+        self.last_near: tuple[str, str] | None = None
         self._levels: deque[float] = deque(maxlen=int(2.0 * RATE / FRAME))
         self._since_floor = 0
         self._run = 0
@@ -169,6 +172,9 @@ class Listener:
         else:
             self._rate = RATE
         self.engine.external_stop = self.finish
+        if not getattr(self, "_hooked", False):
+            self.engine.on_state(self._on_engine_state)
+            self._hooked = True
         # On the GPU when the dictation model is: ~10x faster than the CPU,
         # and the phrase detection time is most of the wait for the cue.
         self.detector.device = "cuda" if self.engine.transcriber.device_in_use == "cuda" else "cpu"
@@ -203,6 +209,7 @@ class Listener:
         self.running = False
         if self.dictating:
             self.finish()
+        self.leave_commands("Always-on off")
         if self._stream is not None:
             try:
                 self._stream.stop()
@@ -249,6 +256,8 @@ class Listener:
                     # Cancelled (Esc) or finished elsewhere.
                     self.dictating = False
         self._segment(x)
+        if self.commanding and self.ring.end > self._mode_until:
+            self.leave_commands("Command mode off")
         if self.dictating:
             idle = (self.ring.end - self._last_speech) / RATE
             if idle > self.cfg.always_on.idle_stop_seconds or self.engine.recorder.overflowed:
@@ -299,11 +308,12 @@ class Listener:
                 self._quiet == int(PEEK * RATE / FRAME)
                 and not self._busy and self._bursts.empty()
                 # Only once the burst could hold the whole phrase: a pause
-                # inside it ("Listen to me, ...") would otherwise spend the
+                # inside it ("Okay listen, ...") would otherwise spend the
                 # detector on half a phrase right as the rest is said. A
                 # one-word command in its window gets checked early too.
                 and t - self._burst_start >= (
-                    int((0.4 + PREROLL) * RATE) if self._cmd_until > t else self._peek_min()
+                    int((0.4 + PREROLL) * RATE) if self._cmd_until > t or self.commanding
+                    else self._peek_min()
                 )
             ):
                 self._peeked = (self._burst_start, self._last_speech)
@@ -363,14 +373,22 @@ class Listener:
         self.on_event("heard", " ".join(w.text for w in words))
 
         fresh = max(0.0, (self._consumed - a) / RATE)  # skip words a phrase already used
+        if self.commanding:
+            self._command_burst(a, b, words, clip, fresh)
+            return
         if not self.dictating and self._cmd_until > a:
             if self._check_command(a, words, fresh):
                 return
         if not self.dictating:
-            if self.engine.recording or self.engine.state.value not in ("idle", "error"):
+            if self.engine.recording or self.engine.state.value not in ("idle", "error", "command"):
                 return  # a hotkey dictation or processing is under way
             hit = self.detector.check("start", words, clip, after=fresh)
             if hit is None:
+                self._near("start", words, fresh)
+                return
+            # "<start phrase>, switch to Chrome" / "..., command mode".
+            rest = [w for w in words if w.start >= hit.end - 0.05]
+            if rest and self._command_instead(a, rest):
                 return
             self._begin(a, b, hit)
             # Start and stop in one breath: check the rest of this burst too.
@@ -381,11 +399,39 @@ class Listener:
             return
 
         after = max(fresh, (self._dict_start - a) / RATE)
+        if not self._dict_heard:
+            # The first thing said after the start phrase, after a pause: a
+            # command on its own ("...Marigold. Switch to Chrome.") means
+            # command mode, not a dictation.
+            new = [w for w in words if w.start >= after - 0.05]
+            if new:
+                self._dict_heard = True
+                if (a + int(new[0].start * RATE) - self._dict_start < 4 * RATE
+                        and self._command_instead(a, new)):
+                    return
         hit = self.detector.check("stop", words, clip, after=after)
         if hit is not None:
             self._end(a, hit)
             # "...that will be all, submit" in one breath.
             self._check_command(a, words, (self._consumed - a) / RATE)
+        else:
+            self._near("stop", words, after)
+
+    def _near(self, which: str, words, after: float) -> None:
+        """Log a phrase that came close but wasn't accepted, so a missed
+        phrase explains itself (and its spelling can be added from the tray).
+        Only the few words that resembled the phrase are logged."""
+        pool = [w for w in words if w.start >= after - 0.05]
+        if not pool:
+            return
+        m = find([w.text for w in pool], self.detector.variants(which))
+        if m is None or not NEAR <= m.score < self.detector.accept:
+            return
+        heard = " ".join(w.text for w in pool[m.first : m.last + 1])
+        log.info("always-on: %s phrase? heard %r (%.2f, needs %.2f) - not accepted",
+                 which, heard, m.score, self.detector.accept)
+        self.last_near = (which, heard)
+        self.on_event("near", f"{which}: {heard}")
 
     def _begin(self, a: int, b: int, hit: Hit) -> None:
         log.info("always-on: start phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
@@ -404,6 +450,7 @@ class Listener:
             if not self.engine.start_external(prefill):
                 return
             self._dict_start = begin
+            self._dict_heard = False
             self._consumed = max(self._consumed, a + int(hit.end * RATE))
             self._last_speech = self.ring.end
             self.dictating = True
@@ -442,9 +489,9 @@ class Listener:
     def _check_command(self, a: int, words, fresh: float) -> bool:
         """A command said on its own, inside the window after the stop phrase.
 
-        "On its own" (the whole burst is the command, give or take a word) is
-        the guard: "...that will be all. Submit the form tomorrow, then" is
-        talk, not a command. Returns True if one was taken.
+        "On its own" (the whole burst is the command) is the guard: "...that
+        will be all. Submit the form tomorrow, then" is talk, not a command.
+        Returns True if one was taken.
         """
         lo = max(fresh, (self._cmd_from - a) / RATE)
         hi = (self._cmd_until - a) / RATE
@@ -452,57 +499,244 @@ class Listener:
         if not pool or pool[0].start > hi:
             return False
         texts = [w.text for w in pool]
-        for name, spellings in self._commands.items():
-            m = find(texts, spellings)
-            if m is None or m.score < self.detector.accept:
-                continue
-            longest = max(len(s) for s in spellings)
-            if len(texts) > longest + 1:
-                continue  # part of a sentence
-            self._consumed = max(self._consumed, a + int(pool[m.last].end * RATE))
-            with self._cmd_lock:
-                self._cmd_until = 0  # one command per dictation
-                ready = self._delivered
-                if not ready:
-                    self._pending = name
-            log.info("always-on: command %r (%r)", name, " ".join(texts))
-            self.on_event("command", name)
-            if ready:
-                self._run_command(name)
+        enter = self.grammar.is_one(texts, self.grammar.enter)
+        p = None if enter else self.grammar.parse(texts)
+        # A name that doesn't exist ("go to the shops") is talk, not a command.
+        if not enter and (p is None or (p.arg and p.command.name != "click"
+                                        and not resolvable(p))):
+            if len(trim(texts)) <= 6:
+                log.info("always-on: no command in %r", " ".join(texts))
+                self.on_event("unknown", " ".join(texts))
+            return False
+        self._consumed = max(self._consumed, a + int(pool[-1].end * RATE))
+        with self._cmd_lock:
+            self._cmd_until = 0  # one command per dictation
+            ready = self._delivered
+            if not ready and p is not None:
+                self._pending = p
+        if enter:
+            log.info("always-on: command mode (after a dictation)")
+            self._enter_commands()
             return True
-        return False
+        log.info("always-on: command %r (%r)", p.command.name, " ".join(texts))
+        self.on_event("command", p.command.name)
+        if ready:
+            self._do(p, after_dictation=True)
+        return True
 
     def _delivered_now(self, text: str) -> None:
         """The dictation's text is in. Run a command heard while it was being
-        transcribed, or let one said in the next few seconds run at once."""
+        transcribed, and keep the window open for one said in the next few
+        seconds: on a long dictation the text appears only as the window
+        would have closed, which is just when people say "submit"."""
         with self._cmd_lock:
             self._delivered = bool(text)
-            name, self._pending = self._pending, None
-        if name and text:
-            # On the pipeline thread, inside the target window if pasting
-            # there: run it now, before LocalFlow switches back.
-            self._run_command(name, now=True)
-
-    def _run_command(self, name: str, now: bool = False) -> None:
-        action = COMMANDS.get(name)
-        if action is None:
-            log.warning("always-on: no action for command %r", name)
+            p, self._pending = self._pending, None
+            if text and self._cmd_until:
+                self._cmd_until = max(
+                    self._cmd_until, self.ring.end + int(self.cfg.always_on.command_window * RATE))
+        if not (p and text):
             return
-        if self.inject:
-            if now:
-                action()
-            else:
-                # Said after the paste: go back to that window to do it.
-                target = self.engine.last_target if self.engine.targeted else None
+        if p.command.keys and p.command.name != "click":
+            # On the pipeline thread, inside the target window if pasting
+            # there: press it now, before LocalFlow switches back.
+            if self.inject:
+                try:
+                    p.command.action(p.arg, self._ctx())
+                except Exception as exc:
+                    log.warning("always-on: %s not run: %s", p.command.name, exc)
+            self.on_event("ran", str(p))
+        else:
+            self._do(p, after_dictation=True)
 
-                def run() -> None:
-                    try:
-                        self.engine.in_target(target, action)
-                    except Exception as exc:
-                        log.warning("always-on: %s not run: %s", name, exc)
+    # -- command mode -----------------------------------------------------------
 
-                threading.Thread(target=run, daemon=True, name=f"localflow-cmd-{name}").start()
-        self.on_event("ran", name)
+    def _command_instead(self, a: int, words) -> bool:
+        """Right after the start phrase: is this a command rather than the
+        start of a dictation? Only if it's a command in full whose target
+        exists, so "open the file and check it" is still dictated."""
+        texts = [w.text for w in words]
+        enter = self.grammar.is_one(texts, self.grammar.enter)
+        p = None if enter else self.grammar.parse(texts)
+        if not enter and (p is None or not resolvable(p)):
+            return False
+        if self.dictating:
+            with self._lock:
+                self.dictating = False
+            self.engine.cancel_external()
+        self._consumed = max(self._consumed, a + int(words[-1].end * RATE))
+        self._enter_commands()
+        if p is not None:
+            log.info("always-on: command %r", p.command.name)
+            self.on_event("command", p.command.name)
+            self._do(p)
+        return True
+
+    def enter_commands(self) -> None:
+        """Command mode from the tray (or anywhere outside the listener)."""
+        if self.running and not self.dictating:
+            self._enter_commands()
+
+    def _enter_commands(self) -> None:
+        self.commanding = True
+        self._confirm = None
+        self._extend_mode()
+        if not self.commanding_announced:
+            log.info("always-on: command mode")
+            self.commanding_announced = True
+        self.on_event("command-mode", "on")
+        self._show("Command mode - say a command")
+
+    def _extend_mode(self) -> None:
+        self._mode_until = self.ring.end + int(self.cfg.always_on.command_mode_seconds * RATE)
+
+    def leave_commands(self, message: str = "Command mode off") -> None:
+        if not self.commanding:
+            return
+        self.commanding = False
+        self.commanding_announced = False
+        self._confirm = None
+        log.info("always-on: command mode off (%s)", message)
+        self.on_event("command-mode", "off")
+        if self.engine.state == State.COMMAND:
+            self.engine.announce(State.IDLE, message)
+
+    def _show(self, message: str) -> None:
+        """Command mode's line in the pill (not over a dictation or a paste)."""
+        self._mode_msg = message
+        if self.commanding and not self.engine.recording and self.engine.state in (
+                State.IDLE, State.ERROR, State.COMMAND):
+            self.engine.announce(State.COMMAND, message)
+
+    def _on_engine_state(self, state, detail: str) -> None:
+        # A dictation or paste took over the pill; put command mode back after.
+        if state == State.IDLE and self.commanding:
+            threading.Timer(0.6, lambda: self._show(self._mode_msg)).start()
+
+    def _command_burst(self, a: int, b: int, words, clip, fresh: float) -> None:
+        if self.engine.recording or self.engine.state not in (
+                State.COMMAND, State.IDLE, State.ERROR):
+            return  # a hotkey dictation, or a paste, is under way
+        pool = [w for w in words if w.start >= fresh - 0.05]
+        texts = trim([w.text for w in pool])
+        if is_noise(texts):
+            return
+        self._consumed = max(self._consumed, a + int(pool[-1].end * RATE))
+        self._extend_mode()
+
+        hit = self.detector.check("start", pool, clip)
+        if hit is not None:
+            # The start phrase: a command right after it stays in command
+            # mode, anything else is a dictation.
+            rest = [w for w in pool if w.start >= hit.end - 0.05]
+            if rest and self._command_instead(a, rest):
+                return
+            self.leave_commands("Dictating")
+            self._begin(a, b, hit)
+            return
+        if self.detector.check("stop", pool, clip) is not None or self.grammar.is_one(
+                texts, self.grammar.exit):
+            self.leave_commands()
+            return
+        if self._confirm is not None:
+            plan, self._confirm = self._confirm, None
+            if self.grammar.is_one(texts, self.grammar.yes):
+                for p in plan:
+                    self._do(p)
+                return
+            if self.grammar.is_one(texts, self.grammar.no):
+                self._show("Cancelled")
+                return
+            # Anything else: a new request; the plan is dropped.
+        if self.grammar.is_one(texts, self.grammar.enter):
+            self._show("Command mode - say a command")
+            return
+        p = self.grammar.parse(texts)
+        if p is not None:
+            log.info("always-on: command %r", p.command.name)
+            self.on_event("command", p.command.name)
+            self._do(p)
+            return
+        self._ask_llm(" ".join(texts))
+
+    def _ask_llm(self, request: str) -> None:
+        """Not a known command: let the LLM, if there is one, map it onto known
+        commands. Without one, say what was heard so it can be rephrased."""
+        cleaner = self.engine.cleaner
+        if not (self.cfg.always_on.command_llm and cleaner.uses_llm):
+            self._not_understood(request)
+            return
+        self._show("Working it out…")
+
+        def go() -> None:
+            try:
+                plan = plan_with_llm(cleaner._client, self.cfg.cleanup.model, request)
+            except Exception as exc:
+                log.warning("always-on: LLM for commands unavailable: %s", exc)
+                plan = []
+            if not self.commanding:
+                return
+            if not plan:
+                self._not_understood(request)
+                return
+            log.info("always-on: LLM plan %s", ", ".join(map(str, plan)))
+            self.on_event("plan", ", ".join(map(str, plan)))
+            if any(p.command.risky for p in plan):
+                # Closing or sending something waits for a "yes".
+                self._confirm = plan
+                self._show("Say yes to: " + "; ".join(describe(p) for p in plan))
+                return
+            for p in plan:
+                self._do(p)
+
+        threading.Thread(target=go, daemon=True, name="localflow-command-llm").start()
+
+    def _not_understood(self, request: str) -> None:
+        log.info("always-on: not a command: %r", request[:80])
+        self.on_event("unknown", request)
+        self._show(f"Didn't catch: {request}")
+
+    def _ctx(self) -> Ctx:
+        h = self.engine.history[-1] if self.engine.history else None
+        fresh = h is not None and h.at != self._scratched_at
+        return Ctx(
+            last_text=h.text if fresh else "", last_at=h.at if h else 0.0,
+            last_target=self.engine.last_target if self.engine.targeted else None,
+            paste=self.engine.injector.send, in_target=self.engine.in_target,
+        )
+
+    def _do(self, p: Parsed, after_dictation: bool = False) -> None:
+        """Run a command on the command thread. After a dictation, it waits
+        for the paste to finish, and a key command goes to the window the text
+        went into."""
+        self.on_event("ran", str(p))
+        if p.command.name == "scratch" and self.engine.history:
+            self._scratched_at = self.engine.history[-1].at
+        if not self.inject:
+            if self.commanding:
+                self._show(f"(test) {describe(p)}")
+            return
+        wrap = None
+        if after_dictation:
+            target = self.engine.last_target if self.engine.targeted else None
+
+            def wrap(go: Callable[[], None]) -> None:
+                deadline = time.monotonic() + 5.0
+                while self.engine.state == State.INJECTING and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if p.command.keys:
+                    self.engine.in_target(target, go)
+                else:
+                    go()
+
+        self.runner.submit(p, self._ctx(), wrap)
+
+    def _command_done(self, p: Parsed, message: str, ok: bool) -> None:
+        self.on_event("done" if ok else "failed", message)
+        if self.commanding:
+            self._show(message if ok else f"✗ {message}")
+        elif not ok and self.engine.state == State.IDLE:
+            self.engine.announce(State.ERROR, message)
 
     # -- testing -------------------------------------------------------------
 
@@ -521,7 +755,19 @@ class Listener:
             self.ingest(audio[i : i + step])
             while not self._bursts.empty():
                 self._check(*self._bursts.get_nowait())
+                self._wait_for_pipeline()
         # Trailing quiet so a final burst ends.
         self.ingest(np.zeros(int(1.0 * RATE), dtype=np.float32))
         while not self._bursts.empty():
             self._check(*self._bursts.get_nowait())
+            self._wait_for_pipeline()
+
+    def _wait_for_pipeline(self) -> None:
+        """In a file run, a finished dictation is processed in no audio time,
+        as if the transcription were instant, so timings stay repeatable."""
+        busy = (State.RECORDING, State.TRANSCRIBING, State.CLEANING, State.STYLING,
+                State.INJECTING)
+        deadline = time.monotonic() + 60
+        while (not self.dictating and not self.engine.recording
+               and self.engine.state in busy and time.monotonic() < deadline):
+            time.sleep(0.02)
