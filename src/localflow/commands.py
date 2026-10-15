@@ -107,6 +107,14 @@ def _keys(chord: str, label: str, times: int = 1, delay: float = 0.0
     return run
 
 
+def _paste_keys(arg: str, ctx: Ctx) -> str:
+    desktop.press("ctrl+v")
+    # "Paste" said out loud is the answer to Windows Terminal's "are you sure?"
+    if desktop.confirm_terminal_paste(timeout=0.8):
+        return "Pasted (said yes to the terminal)"
+    return "Pasted"
+
+
 def _scratch(arg: str, ctx: Ctx) -> str:
     if not ctx.last_text or time.time() - ctx.last_at > 120:
         raise CommandError("nothing recent to scratch")
@@ -510,7 +518,7 @@ COMMANDS: list[Command] = [
             keys=True),
     Command("copy", ["copy [that]"], _keys("ctrl+c", "Copied"), "copy", keys=True),
     Command("cut", ["cut [that]"], _keys("ctrl+x", "Cut"), "cut", keys=True),
-    Command("paste", ["paste [that]"], _keys("ctrl+v", "Pasted"), "paste", keys=True),
+    Command("paste", ["paste [that]"], _paste_keys, "paste", keys=True),
     Command("save", ["save [that|this|it|file]"], _keys("ctrl+s", "Saved"), "save (Ctrl+S)",
             keys=True),
     Command("find", ["find"], _keys("ctrl+f", "Find"), "open Find (Ctrl+F)"),

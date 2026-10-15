@@ -1,9 +1,11 @@
-"""A multi-paragraph dictation + "submit" into Windows Terminal arrives whole.
+"""Dictations + "submit" into Windows Terminal arrive whole, however long.
 
 Windows Terminal stops a multi-line paste with a "you are about to paste
 multiple lines" warning. A long dictation (the cleanup splits it into
 paragraphs) sat behind it, and the "submit" Enter only clicked "Paste
-anyway". This opens a new Windows Terminal window running a tiny program
+anyway". Over 5 KiB it asks again ("paste more than 5 KiB?"), and LocalFlow
+now presses its "Paste anyway" itself. This opens a new Windows Terminal window
+running a tiny program
 that records each line it receives, pastes three paragraphs into it the way
 always-on does (paste where I started, then submit), and checks one
 submitted line came through. Briefly shows a terminal window.
@@ -88,6 +90,39 @@ def main() -> int:
         expect("one line arrived, submitted", len(lines) == 1, repr(lines))
         expect("all three paragraphs in it",
                bool(lines) and "First" in lines[0] and "Third and last" in lines[0], repr(lines[:1]))
+
+        # Over 5 KiB: Windows Terminal's "are you sure?" is answered for you.
+        big = " ".join(f"word{i}" for i in range(1100))  # ~7.4 KB
+        engine.process = lambda audio, **kw: Result(  # noqa: E731
+            text=big, raw=big, audio_seconds=1, transcribe_seconds=0, cleanup_seconds=0)
+        # in_target brings the test window forward and checks it really is in
+        # front before pasting (it never pastes into a different window).
+        if True:
+            engine._process_and_inject(
+                np.zeros(16000, np.float32), True, True, "test", None,
+                lambda t: BY_NAME["submit"].action("", Ctx(last_any=t, last_at=time.time())),
+                target=target)
+            time.sleep(2.0)
+            lines = out.read_text(encoding="utf-8").splitlines() if out.exists() else []
+            expect("7 KB dictation: warning answered, arrived whole, submitted",
+                   len(lines) == 2 and lines[1] == big, f"{len(lines)} lines, last {len(lines[-1]) if lines else 0} chars")
+
+        # "paste" in command mode, with a big clipboard.
+        from localflow.inject import set_clipboard_text
+
+        set_clipboard_text("x" * 6000)
+        window.activate(target)
+        time.sleep(0.3)
+        if desktop.foreground() != hwnd:
+            print("  SKIP  'paste' command: the test window isn't in front (PC in use?)")
+        else:
+            msg = BY_NAME["paste"].action("", Ctx())
+            time.sleep(0.3)
+            desktop.press("enter")
+            time.sleep(1.5)
+            lines = out.read_text(encoding="utf-8").splitlines() if out.exists() else []
+            expect("'paste' command: warning answered", msg.startswith("Pasted (said yes")
+                   and lines[-1:] == ["x" * 6000], f"{msg!r}, last line {len(lines[-1]) if lines else 0} chars")
     finally:
         if hwnd:
             desktop.close(hwnd)

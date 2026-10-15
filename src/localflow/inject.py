@@ -64,6 +64,18 @@ TERMINALS = {"windowsterminal", "wt", "cmd", "powershell", "pwsh", "conhost", "o
              "alacritty", "wezterm-gui", "mintty", "tabby", "hyper", "warp"}
 
 
+def _program() -> str:
+    """The program in front, for the log (never its window title)."""
+    try:
+        from pathlib import Path
+
+        from .desktop import _exe_path, foreground
+
+        return Path(_exe_path(foreground())).stem.lower() or "?"
+    except Exception:
+        return "?"
+
+
 def in_terminal() -> bool:
     """Is the window in front a terminal?"""
     try:
@@ -102,6 +114,7 @@ class Injector:
 
         try:
             self._paste(text)
+            log.info("pasted %d chars into %s", len(text), _program())
         except Exception as exc:
             log.warning("paste failed (%s)", exc)
             if self.cfg.clipboard_fallback:
@@ -139,6 +152,12 @@ class Injector:
         with kb.pressed(Key.ctrl):
             kb.press("v")
             kb.release("v")
+        # Windows Terminal asks before pasting over 5 KiB (or several lines,
+        # if they weren't joined): dictating it was the yes.
+        if len(text.encode("utf-8")) > 4000 or "\n" in text:
+            from .desktop import confirm_terminal_paste
+
+            confirm_terminal_paste()
 
         if self.cfg.restore_clipboard and previous is not None:
             # Restoring too eagerly races the paste for the same reason.

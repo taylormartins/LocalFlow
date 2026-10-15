@@ -170,8 +170,9 @@ def play(data: bytes | None) -> None:
 
         try:
             winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_NODEFAULT)
-        except Exception:
-            log.debug("sound playback failed", exc_info=True)
+        except Exception as exc:
+            # Was debug-only, so "I heard no sounds" left nothing to go on.
+            log.warning("sound didn't play: %s", exc)
 
     threading.Thread(target=run, daemon=True, name="localflow-sound").start()
 
@@ -197,6 +198,7 @@ class SoundCues:
         prev, self._prev = self._prev, state
         if not self.cfg.enabled:
             return
+        log.debug("cue for %s -> %s", prev.value, state.value)
         if prev == State.INJECTING and state == State.IDLE:
             # IDLE straight after INJECTING means the paste succeeded; a failed
             # paste goes to ERROR instead, so this cue only ever means "delivered".

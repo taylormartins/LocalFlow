@@ -484,6 +484,14 @@ phrase (while dictating) is among them.
   install), and the result file was never written (tray "Updating..." for
   ever). The default is now worked out after `param()`. Tests that pass
   `-Root` can't catch this: test with update.cmd from another directory.
+- **Terminal paste warnings**: over 5 KiB (or several lines) Windows
+  Terminal asks "Paste anyway?". After a paste of that size, and after the
+  "paste" voice command, `desktop.confirm_terminal_paste` looks for that
+  button by name in the window in front (UI Automation, up to 1 s) and
+  presses it. Never a blind Enter, which would send. UIA clients are per
+  thread now (`_uia_local`), since the pipeline thread uses it too.
+  Each paste logs "pasted N chars into <program>", and a cue that fails to
+  play logs a warning: a "no sounds" report had nothing to go on.
 - **Quit always quits**: `Tray._quit` starts `_exit_if_stuck`. If the
   clean shutdown (logged step by step) hasn't ended the process in 8 s, it
   dumps every thread's stack to crash.log and calls `os._exit(0)`. A work-PC

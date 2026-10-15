@@ -361,8 +361,7 @@ def open_url(url: str) -> None:
 
 # -- buttons (UI Automation) -------------------------------------------------
 
-_uia = None
-_uia_lock = threading.Lock()
+_uia_local = threading.local()
 
 #: Control types worth clicking: buttons, links, menu items, tabs, list and
 #: tree items, check boxes, radio buttons, combo boxes, split buttons.
@@ -374,19 +373,19 @@ UIA_INVOKE, UIA_SELECTION_ITEM, UIA_TOGGLE, UIA_EXPAND = 10000, 10010, 10015, 10
 
 
 def _automation():
-    global _uia
-    with _uia_lock:
-        if _uia is None:
-            import comtypes
-            import comtypes.client
+    """This thread's UI Automation client (COM objects stay on their thread)."""
+    uia = getattr(_uia_local, "uia", None)
+    if uia is None:
+        import comtypes
+        import comtypes.client
 
-            comtypes.CoInitialize()
-            comtypes.client.GetModule("UIAutomationCore.dll")
-            from comtypes.gen import UIAutomationClient as UIA
+        comtypes.CoInitialize()
+        comtypes.client.GetModule("UIAutomationCore.dll")
+        from comtypes.gen import UIAutomationClient as UIA
 
-            _uia = (comtypes.client.CreateObject(UIA.CUIAutomation, interface=UIA.IUIAutomation),
-                    UIA)
-        return _uia
+        uia = (comtypes.client.CreateObject(UIA.CUIAutomation, interface=UIA.IUIAutomation), UIA)
+        _uia_local.uia = uia
+    return uia
 
 
 @dataclass
@@ -534,6 +533,37 @@ def work_area(hwnd: int) -> wintypes.RECT:
     info = _MONITORINFO(cbSize=ctypes.sizeof(_MONITORINFO))
     user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info))
     return info.rcWork
+
+
+# -- terminal paste warnings ---------------------------------------------------
+
+#: The button on Windows Terminal's "paste more than 5 KiB" and "paste
+#: multiple lines" warnings.
+PASTE_ANYWAY = "Paste anyway"
+
+
+def confirm_terminal_paste(timeout: float = 1.0) -> bool:
+    """If Windows Terminal stopped a paste with a warning, press its "Paste
+    anyway". Asking LocalFlow to paste is the confirmation. Only that named
+    button is ever pressed, and only if it's there: never a blind Enter,
+    which would send the message instead. True if it pressed it."""
+    hwnd = foreground()
+    if not hwnd or Path(_exe_path(hwnd)).stem.lower() != "windowsterminal":
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.15)
+        try:
+            for c in controls(hwnd):
+                if c.kind == 50000 and c.name == PASTE_ANYWAY:
+                    activate_control(c)
+                    log.info("pressed Windows Terminal's 'Paste anyway'")
+                    time.sleep(0.2)
+                    return True
+        except Exception:
+            log.debug("could not look for the paste warning", exc_info=True)
+            return False
+    return False
 
 
 # -- numbered labels ---------------------------------------------------------
