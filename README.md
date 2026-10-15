@@ -309,6 +309,8 @@ too. Commands work without an LLM:
 | Say | Does |
 |---|---|
 | switch to / go to / show / select / pull up *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title). Spell a name that keeps being misheard: "select n o t i o n" |
+| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move 4 to the left" |
+| move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
@@ -357,6 +359,13 @@ into the window you were in, **Ctrl+C** copies it, **Del** deletes it, and
 **Clear all** empties it. It's kept in `history.jsonl` on this PC only and
 never logged. `history.enabled = false` stops the saving, and
 `history.max_items` (500) caps it.
+
+**A second listen for names.** The small model that listens for your phrases
+sometimes cuts an unusual name short ("okay listen, marig" for "...Marigold").
+When a start phrase comes close but isn't accepted, the same audio is checked
+again by the dictation model, which hears names far better. The phrase still
+has to match in full, and nothing is primed, so it doesn't trigger more
+easily on other speech. This only costs time on near misses.
 
 **When a phrase isn't caught.** A phrase that came close but wasn't accepted
 is logged (`start phrase? heard 'okay listen merry gold' (0.78)`), and the tray

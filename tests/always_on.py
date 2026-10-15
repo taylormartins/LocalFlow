@@ -85,10 +85,33 @@ def main() -> int:
     results, events = [], []
     engine.on_result(lambda r: results.append(r.text))
 
-    def run(audio: np.ndarray) -> tuple[list[str], list[tuple[str, str]]]:
+    def run(audio: np.ndarray, clip_name: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
         results.clear()
         events.clear()
         lis = Listener(engine, cfg, inject=False, on_event=lambda k, t: events.append((k, t)))
+        if clip_name:
+            # The small listening model loses the end of the name ("okay
+            # listen marig", the way it cut a name short in real use); the
+            # dictation model hears the audio as it is.
+            real = lis.detector.words
+
+            def clipped(audio, model=None):
+                words = real(audio, model=model)
+                if model is None:
+                    # "marig": 0.77 against "marigold", like the real misses
+                    # (0.80) - close, but under the 0.85 needed.
+                    out = []
+                    for w in words:
+                        if w.text == "gold" and out and out[-1].text == "marig":
+                            out[-1].end = w.end
+                            continue
+                        if w.text in ("marigold", "mary"):
+                            w.text = "marig"
+                        out.append(w)
+                    words = out
+                return words
+
+            lis.detector.words = clipped
         lis.run_file(audio)
         lis.leave_commands()
         for _ in range(600):
@@ -206,6 +229,15 @@ def main() -> int:
 
     got, ev = run(build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Scratch that."), 2.0))
     expect("'scratch that' after a dictation", ran(ev) == ["scratch"], f"events={ev}")
+
+    print("\nsecond listen on a near miss")
+    got, ev = run(build(1.0, say(START), 0.6, say("Order more coffee for the office."), 0.8,
+                        say(STOP), 2.0), clip_name=True)
+    expect("name lost by the listening model, heard on the second listen",
+           len(got) == 1 and "coffee" in got[0].lower(), f"dictations={got} events={ev}")
+    got, ev = run(build(1.0, say("Okay listen, Mary, can you pass the salt?"), 2.0), clip_name=True)
+    expect("a sentence that only starts like the phrase still doesn't start anything",
+           not got and not [e for e in ev if e[0] == "start"], f"events={ev}")
 
     print("\nsimilar phrases must not start anything")
     for sentence in (

@@ -404,8 +404,10 @@ class Listener:
             if self.engine.recording or self.engine.state.value not in ("idle", "error", "command"):
                 return  # a hotkey dictation or processing is under way
             hit = self.detector.check("start", words, clip, after=fresh)
+            if hit is None and self._near("start", words, fresh):
+                # Close but not quite: a second listen with the dictation model.
+                hit, words = self._second_opinion("start", clip, fresh, words)
             if hit is None:
-                self._near("start", words, fresh)
                 return
             # "<start phrase>, switch to Chrome" / "..., command mode".
             rest = [w for w in words if w.start >= hit.end - 0.05]
@@ -438,21 +440,49 @@ class Listener:
         else:
             self._near("stop", words, after)
 
-    def _near(self, which: str, words, after: float) -> None:
+    def _second_opinion(self, which: str, clip, fresh: float, words):
+        """The listening model is small, and names suffer: one start phrase in
+        four lost the last syllable of the name (a name like "Marigold"
+        heard as "mary go"). On a near miss, the same clip goes to the
+        dictation model, which hears names far better (no prompt, so it isn't
+        primed to hear the phrase). The rules don't change: every word must still match and the
+        voice check still applies. Costs time only on near misses, and only
+        if the dictation model is free."""
+        tr = self.engine.transcriber
+        if tr._model is None or not self.engine._pipeline_lock.acquire(blocking=False):
+            return None, words
+        try:
+            started = time.perf_counter()
+            better = self.detector.words(clip, model=tr._model)
+        except Exception:
+            log.debug("second opinion failed", exc_info=True)
+            return None, words
+        finally:
+            self.engine._pipeline_lock.release()
+        hit = self.detector.check(which, better, clip, after=fresh)
+        took = time.perf_counter() - started
+        if hit is not None:
+            log.info("always-on: %s phrase on a second listen (%r, %.2fs)", which, hit.heard, took)
+            return hit, better
+        log.info("always-on: second listen didn't hear the %s phrase either (%.2fs)", which, took)
+        return None, words
+
+    def _near(self, which: str, words, after: float) -> bool:
         """Log a phrase that came close but wasn't accepted, so a missed
         phrase explains itself (and its spelling can be added from the tray).
         Only the few words that resembled the phrase are logged."""
         pool = [w for w in words if w.start >= after - 0.05]
         if not pool:
-            return
+            return False
         m = find([w.text for w in pool], self.detector.variants(which))
         if m is None or not NEAR <= m.score < self.detector.accept:
-            return
+            return False
         heard = " ".join(w.text for w in pool[m.first : m.last + 1])
         log.info("always-on: %s phrase? heard %r (%.2f, needs %.2f) - not accepted",
                  which, heard, m.score, self.detector.accept)
         self.last_near = (which, heard)
         self.on_event("near", f"{which}: {heard}")
+        return True
 
     def _begin(self, a: int, b: int, hit: Hit) -> None:
         log.info("always-on: start phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
@@ -625,9 +655,10 @@ class Listener:
         self.commanding_announced = False
         self._confirm = None
         self._held = []
-        from .commands import hide_labels
+        from .commands import hide_labels, hide_windows
 
         hide_labels()
+        hide_windows()
         log.info("always-on: command mode off (%s)", message)
         self.on_event("command-mode", "off")
         if self.engine.state == State.COMMAND:
@@ -688,6 +719,16 @@ class Listener:
         if self.grammar.is_one(texts, self.grammar.enter):
             self._show("Command mode - say a command")
             return
+        # With the window list up, a number on its own ("three", "number 3")
+        # picks that window.
+        from . import desktop
+
+        n = desktop.number(" ".join(texts))
+        if n is not None and desktop.numbered and self._list_up():
+            from .commands import BY_NAME
+
+            self._take(Parsed(BY_NAME["switch"], str(n), 1.0))
+            return
         # The rest of a request begun in the last burst, or a command alone.
         if self._held:
             p = self.grammar.parse(self._held_words() + texts)
@@ -707,6 +748,12 @@ class Listener:
 
     def _held_words(self) -> list[str]:
         return " ".join(self._held).split()
+
+    def _list_up(self) -> bool:
+        """Is the window list on screen (shown in the last minute)?"""
+        from .commands import list_shown_at
+
+        return time.time() - list_shown_at() < 60
 
     def _take(self, p: Parsed) -> None:
         log.info("always-on: command %r", p.command.name)
@@ -755,7 +802,7 @@ class Listener:
             if not plan:
                 self._not_understood(request)
                 return
-            log.info("always-on: LLM plan %s", ", ".join(map(str, plan)))
+            log.info("always-on: LLM plan for %r: %s", request[:80], ", ".join(map(str, plan)))
             self.on_event("plan", ", ".join(map(str, plan)))
             if any(p.command.risky for p in plan):
                 # Closing or sending something waits for a "yes".

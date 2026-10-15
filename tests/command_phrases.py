@@ -44,6 +44,16 @@ CASES = [
     ("move chrome to the bottom left corner", "place_bottom_left", "chrome", ""),
     ("bring my chrome twitch window to the center of my monitor", "center", "chrome twitch", ""),
     ("go to the top", "top", "", ""),
+    # Telling look-alike windows apart: the numbered window list.
+    ("show windows", "show_windows", "", ""),
+    ("show me all the open windows", "show_windows", "", ""),
+    ("switch to 3", "switch", "3", ""),
+    ("close 2", "close_window", "2", ""),
+    ("move 2 to the top right", "place_top_right", "2", ""),
+    # Monitors by number.
+    ("move it to monitor 2", "to_monitor", "2", ""),
+    ("move it to the top right of monitor 3", "place_top_right_of", "3", ""),
+    ("show monitors", "show_monitors", "", ""),
     # Labels, undo, sleep.
     ("show me numbered click labels on screen", "show_labels", "", ""),
     ("click 17", "click", "17", ""),

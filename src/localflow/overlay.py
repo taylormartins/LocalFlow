@@ -188,14 +188,26 @@ class Overlay:
         self._labels: list = []
         self._labels_version = 0
         self._labels_drawn = 0
+        self._labels_big = False
+        self._list: list = []
+        self._list_version = 0
+        self._list_drawn = 0
         from . import desktop
 
         desktop.label_sink = self.set_labels
+        desktop.list_sink = self.set_list
 
-    def set_labels(self, labels: list) -> None:
-        """[(number, (left, top, right, bottom)), ...] in screen pixels; [] clears."""
+    def set_labels(self, labels: list, big: bool = False) -> None:
+        """[(number, (left, top, right, bottom)), ...] in screen pixels; [] clears.
+        big: one large number filling each box (monitor numbers)."""
         self._labels = list(labels)
+        self._labels_big = big
         self._labels_version += 1
+
+    def set_list(self, lines: list) -> None:
+        """The window list: [(number, "text"), ...]; [] hides it."""
+        self._list = list(lines)
+        self._list_version += 1
 
     # -- engine side -------------------------------------------------------
 
@@ -324,6 +336,7 @@ class Overlay:
         self.levels: deque[float] = deque([0.0] * BARS, maxlen=BARS)
         self.root = root
         self._make_label_layer(tk)
+        self._make_list_layer(tk)
         log.info("overlay ready")
 
         root.after(FRAME_MS, self._tick)
@@ -430,6 +443,13 @@ class Overlay:
         bh = int(17 * s)
         for n, (left, top, right, bottom) in labels:
             text = str(n)
+            if self._labels_big:
+                # A screen's number, big, in the middle of it.
+                c.create_rectangle(left - x0, top - y0, right - x0, bottom - y0,
+                                   fill=LABEL_BG, outline=LABEL_EDGE, width=max(2, int(3 * s)))
+                c.create_text((left + right) / 2 - x0, (top + bottom) / 2 - y0, text=text,
+                              fill=LABEL_TEXT, font=("Segoe UI Semibold", -int((bottom - top) * 0.6)))
+                continue
             bw = int((9 + 7 * len(text)) * s)
             # Top-left corner of the control, nudged inside it, so the label
             # sits on what it names without hiding all of it.
@@ -445,7 +465,67 @@ class Overlay:
         ):
             log.warning("label layer SetWindowPos failed (error %d)", ctypes.get_last_error())
 
+    # -- the window list ----------------------------------------------------
+
+    def _make_list_layer(self, tk) -> None:
+        """Like the labels: click-through, never focused, made once."""
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=KEY)
+        win.attributes("-transparentcolor", KEY)
+        win.attributes("-alpha", 0.98)  # solid: text behind it made it hard to read
+        win.attributes("-topmost", True)
+        win.geometry("10x10+-32000+-32000")
+        self.list_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
+        self.list_canvas.pack(fill="both", expand=True)
+        win.update()
+        self.list_hwnd = user32.GetParent(win.winfo_id())
+        ex = user32.GetWindowLongW(self.list_hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(
+            self.list_hwnd, GWL_EXSTYLE,
+            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        )
+        user32.ShowWindow(self.list_hwnd, SW_HIDE)
+        self.list_win = win
+
+    def _draw_list(self) -> None:
+        self._list_drawn = self._list_version
+        lines = self._list
+        c = self.list_canvas
+        c.delete("all")
+        if not lines:
+            user32.ShowWindow(self.list_hwnd, SW_HIDE)
+            return
+        s = self.s
+        row, pad = int(30 * s), int(18 * s)
+        head = int(34 * s)
+        w = int(820 * s)
+        h = head + row * len(lines) + pad
+        c.config(width=w, height=h)
+        _rounded(c, 0, 0, w - 1, h - 1, 14 * s)
+        c.create_text(pad, pad, anchor="nw", fill=DIM_TEXT, font=self.font,
+                      text='Windows - say "switch to" and a number, or "close 3", "move 2 to the left"')
+        for i, (n, text) in enumerate(lines):
+            y = head + pad // 2 + i * row
+            chip = int(28 * s)
+            c.create_rectangle(pad, y, pad + chip, y + row - int(6 * s), fill=TEAL, outline=TEAL)
+            c.create_text(pad + chip / 2, y + (row - int(6 * s)) / 2, text=str(n), fill=BG,
+                          font=self.font_bold)
+            label = text if len(text) <= 96 else text[:95] + "…"
+            c.create_text(pad + chip + int(12 * s), y + (row - int(6 * s)) / 2, text=label,
+                          anchor="w", fill=TEXT, font=self.font)
+        area = _work_area()
+        x = (area.left + area.right - w) // 2
+        y = (area.top + area.bottom - h) // 2
+        user32.SetWindowPos(self.list_hwnd, HWND_TOPMOST, x, y, w, h,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+
     def _tick(self) -> None:
+        if self._list_version != self._list_drawn:
+            try:
+                self._draw_list()
+            except Exception:
+                log.warning("drawing the window list failed", exc_info=True)
         if self._labels_version != self._labels_drawn:
             try:
                 self._draw_labels()

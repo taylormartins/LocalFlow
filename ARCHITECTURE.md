@@ -484,6 +484,21 @@ phrase (while dictating) is among them.
   install), and the result file was never written (tray "Updating..." for
   ever). The default is now worked out after `param()`. Tests that pass
   `-Root` can't catch this: test with update.cmd from another directory.
+- **Second listen** (`Listener._second_opinion`): a start phrase near
+  miss (`NEAR` to the accept level) is re-transcribed by the dictation
+  model, no prompt, if the pipeline is free (non-blocking lock), and
+  checked with the same rules and voice veto. In real use one start
+  attempt in four lost the end of the name this way (scored 0.80). Logged as "start
+  phrase on a second listen". tests/always_on.py fakes the small model
+  losing the name. A sentence that only starts like the phrase still
+  doesn't trigger.
+- **Window list and monitors**: "show windows" fills `desktop.numbered`
+  (Alt+Tab order, at most 20) and the overlay draws a solid list of each
+  window's title, program and screen. `find_window` takes a number as an
+  index into it, so every window command accepts "3". A bare number in
+  command mode picks from it while it's up. Monitors are numbered left to
+  right (`desktop.monitors`). `to_monitor` keeps the size and re-maximises;
+  `place_*_of` takes the number as its slot.
 - **Terminal paste warnings**: over 5 KiB (or several lines) Windows
   Terminal asks "Paste anyway?". After a paste of that size, and after the
   "paste" voice command, `desktop.confirm_terminal_paste` looks for that

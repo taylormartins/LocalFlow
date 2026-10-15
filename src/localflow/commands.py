@@ -134,7 +134,10 @@ def _scratch(arg: str, ctx: Ctx) -> str:
 
 
 def _switch(arg: str, ctx: Ctx) -> str:
+    picked = number(arg) is not None and bool(desktop.numbered)
     w, score = desktop.find_window(arg)
+    if picked:
+        hide_windows()
     if w is None or score < NAME_ACCEPT:
         raise CommandError(f"no window called {arg}")
     if not desktop.focus(w):
@@ -184,35 +187,7 @@ def _window_op(how: int, label: str) -> Callable[[str, Ctx], str]:
     return run
 
 
-_ONES = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
-         "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
-         "eighteen": 18, "nineteen": 19,
-         # what Whisper writes for a lone number now and then
-         "won": 1, "to": 2, "too": 2, "for": 4, "ate": 8}
-_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
-         "eighty": 80, "ninety": 90}
-
-
-def number(text: str) -> int | None:
-    """ "17", "seventeen", "number twenty one", "one hundred and five" -> int."""
-    words = [w for w in text.lower().replace("-", " ").split() if w not in ("number", "and", "#")]
-    if len(words) == 1 and words[0].isdigit():
-        return int(words[0])
-    total, seen = 0, False
-    for w in words:
-        if w.isdigit():
-            total += int(w)
-        elif w in _ONES:
-            total += _ONES[w]
-        elif w in _TENS:
-            total += _TENS[w]
-        elif w == "hundred" and seen:
-            total *= 100
-        else:
-            return None
-        seen = True
-    return total if seen else None
+number = desktop.number
 
 
 #: The controls numbered on screen now, label n = _labelled[n - 1].
@@ -251,8 +226,21 @@ def label_targets(items: list[desktop.Control], bounds: tuple[int, int, int, int
     return kept[:MAX_LABELS]
 
 
-def _place(where: str) -> Callable[[str, Ctx], str]:
+def _place(where: str, on_monitor: bool = False) -> Callable[[str, Ctx], str]:
     def run(arg: str, ctx: Ctx) -> str:
+        if on_monitor:
+            # "...top right of monitor 2": the slot is the monitor's number.
+            n = number(arg)
+            if n is None:
+                raise CommandError(f"which screen is {arg}?")
+            hwnd = desktop.foreground()
+            if not hwnd:
+                raise CommandError("no window in front")
+            try:
+                desktop.place(hwnd, where, monitor=n)
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+            return f"Moved to the {where} of screen {n}"
         if arg:
             w, score = desktop.find_window(arg)
             if w is None or score < NAME_ACCEPT:
@@ -265,6 +253,61 @@ def _place(where: str) -> Callable[[str, Ctx], str]:
         desktop.place(hwnd, where)
         return f"Moved {what} to the {where}" if where != "full" else f"{what} fills the screen"
     return run
+
+
+_list_at = [0.0]
+
+
+def list_shown_at() -> float:
+    return _list_at[0]
+
+
+def _show_windows(arg: str, ctx: Ctx) -> str:
+    wins = desktop.windows()[:20]
+    if not wins:
+        raise CommandError("no windows open")
+    if not desktop.show_window_list(wins):
+        raise CommandError("the window list needs the overlay (overlay.enabled)")
+    _list_at[0] = time.time()
+    return f"{len(wins)} windows - say switch to and a number"
+
+
+def hide_windows(arg: str = "", ctx: Ctx | None = None) -> str:
+    _list_at[0] = 0.0
+    desktop.hide_window_list()
+    return "Window list hidden"
+
+
+def _to_monitor(arg: str, ctx: Ctx) -> str:
+    n = number(arg)
+    if n is None:
+        raise CommandError(f"which screen is {arg}?")
+    hwnd = desktop.foreground()
+    if not hwnd:
+        raise CommandError("no window in front")
+    try:
+        desktop.to_monitor(hwnd, n)
+    except ValueError as exc:
+        raise CommandError(str(exc)) from exc
+    return f"Moved to screen {n}"
+
+
+def _show_monitors(arg: str, ctx: Ctx) -> str:
+    mons = desktop.monitors()
+    labels = []
+    for i, (_, whole, _) in enumerate(mons):
+        cx, cy = (whole.left + whole.right) // 2, (whole.top + whole.bottom) // 2
+        half = max(90, (whole.right - whole.left) // 16)
+        labels.append((i + 1, (cx - half, cy - half, cx + half, cy + half)))
+    desktop.show_labels(labels, big=True)
+
+    def clear() -> None:
+        time.sleep(4.0)
+        if not _labelled:
+            desktop.show_labels([])
+
+    threading.Thread(target=clear, daemon=True, name="localflow-monitor-numbers").start()
+    return f"{len(mons)} screens, numbered left to right"
 
 
 def _show_labels(arg: str, ctx: Ctx) -> str:
@@ -344,6 +387,9 @@ def _paste_again(arg: str, ctx: Ctx) -> str:
 
 #: Commands that move or resize a window: undone by putting it back exactly.
 MOVES = {"center", "next_monitor", "previous_monitor", "maximize", "minimize", "restore",
+         "to_monitor", "place_top_left_of", "place_top_right_of", "place_bottom_left_of",
+         "place_bottom_right_of", "place_left_of", "place_right_of", "place_top_of",
+         "place_bottom_of",
          "place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
          "place_left", "place_right", "place_top", "place_bottom"}
 #: Commands undone by pressing other keys in the same window.
@@ -594,6 +640,34 @@ Command("place_top_left", ["(move|put|snap) [it|the window] [to|on] [the] top le
     Command("place_bottom", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
                        "(move|put|snap) {name} [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
             _place("bottom"), "put a window in the bottom half of its own monitor"),
+Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("top left", on_monitor=True), "put the window in the top left of monitor N"),
+    Command("place_top_right_of", ["(move|put|snap) [it|the window] [to|on] [the] top right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("top right", on_monitor=True), "put the window in the top right of monitor N"),
+    Command("place_bottom_left_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("bottom left", on_monitor=True), "put the window in the bottom left of monitor N"),
+    Command("place_bottom_right_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("bottom right", on_monitor=True), "put the window in the bottom right of monitor N"),
+    Command("place_left_of", ["(move|put|snap) [it|the window] [to|on] [the] left [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("left", on_monitor=True), "put the window in the left of monitor N"),
+    Command("place_right_of", ["(move|put|snap) [it|the window] [to|on] [the] right [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("right", on_monitor=True), "put the window in the right of monitor N"),
+    Command("place_top_of", ["(move|put|snap) [it|the window] [to|on] [the] top half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("top", on_monitor=True), "put the window in the top of monitor N"),
+    Command("place_bottom_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+            _place("bottom", on_monitor=True), "put the window in the bottom of monitor N"),
+    Command("to_monitor", ["(move|put|send) [it|this|the window] to (monitor|screen|display) [number] {name}",
+                           "(monitor|screen|display) [number] {name}"],
+            _to_monitor, "move the window in front to monitor N (numbered left to right)"),
+    Command("show_monitors", ["show [me] [the] (monitors|screens|displays|monitor numbers|screen numbers)",
+                              "which (monitor|screen) is which", "number [the] (monitors|screens)"],
+            _show_monitors, "show each monitor's number on it for a few seconds"),
+    Command("show_windows", ["show [me] [all] [the] [available|open] windows", "list [the] [open] windows",
+                             "(which|what) windows are open", "window list", "show [me] [the] window numbers",
+                             "number [the] windows", "show [me] [the] window list"],
+            _show_windows, "a numbered list of open windows; then 'switch to 3', 'close 2', 'move 4 to the left'"),
+    Command("hide_windows", ["hide [the] (window list|windows list|list)", "close [the] (window list|list)"],
+            hide_windows, "hide the window list"),
     Command("next_monitor", ["move [it|the window] to the (next|other) (monitor|screen)",
                              "move [it|the window] (right|to the right) a (monitor|screen)"],
             _keys("win+shift+right", "Moved to the next screen"), "move the window to the next monitor"),

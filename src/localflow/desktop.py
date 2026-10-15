@@ -266,8 +266,150 @@ def name_score(spoken: str, names: list[str]) -> float:
     return best
 
 
+_ONES = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+         "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+         "eighteen": 18, "nineteen": 19,
+         # what Whisper writes for a lone number now and then
+         "won": 1, "to": 2, "too": 2, "for": 4, "ate": 8}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+         "eighty": 80, "ninety": 90}
+
+
+def number(text: str) -> int | None:
+    """ "17", "seventeen", "number twenty one", "one hundred and five" -> int."""
+    words = [w for w in text.lower().replace("-", " ").split() if w not in ("number", "and", "#")]
+    if len(words) == 1 and words[0].isdigit():
+        return int(words[0])
+    total, seen = 0, False
+    for w in words:
+        if w.isdigit():
+            total += int(w)
+        elif w in _ONES:
+            total += _ONES[w]
+        elif w in _TENS:
+            total += _TENS[w]
+        elif w == "hundred" and seen:
+            total *= 100
+        else:
+            return None
+        seen = True
+    return total if seen else None
+
+
+# -- the window list ("show windows") ------------------------------------------------
+
+#: The windows numbered in the list on screen now (or last shown): "switch to
+#: 3" means numbered[2]. Several terminals look alike by name; by number
+#: they don't.
+numbered: list[Win] = []
+#: Set by the overlay: draws [(number, "line"), ...] as a list, or [] hides it.
+list_sink = None
+
+
+def show_window_list(wins: list[Win]) -> bool:
+    numbered[:] = wins
+    if list_sink is None:
+        return False
+    mons = monitors()
+    lines = []
+    for i, w in enumerate(wins):
+        mon = monitor_of(w.hwnd, mons)
+        where = f"   ·  screen {mon}" if len(mons) > 1 and mon else ""
+        lines.append((i + 1, list_line(w) + where))
+    list_sink(lines)
+    return True
+
+
+#: Short program names for the list, where the description is long or vague.
+SHORT = {"windowsterminal": "Terminal", "cmd": "Command Prompt", "powershell": "PowerShell",
+         "pwsh": "PowerShell", "msedge": "Edge", "chrome": "Chrome", "explorer": "File Explorer",
+         "code": "VS Code", "winword": "Word", "excel": "Excel", "outlook": "Outlook"}
+
+
+def list_line(w: Win) -> str:
+    """"Localflow setup and usage  (Terminal)": the title first, since that's
+    what tells two terminals apart; the program after it unless the title
+    already says it."""
+    prog = SHORT.get(w.exe) or w.description or w.exe
+    title = w.title.strip()
+    for suffix in (f" - {w.description}", f" - {prog}", " - File Explorer", " - Google Chrome",
+                   " - Microsoft Edge", " - Notepad++"):
+        if suffix.strip(" -") and title.endswith(suffix):
+            title = title[: -len(suffix)]
+    if not title or title.lower() == prog.lower():
+        return prog
+    title = title if len(title) <= 70 else title[:69] + "…"
+    return f"{title}  ({prog})"
+
+
+def hide_window_list() -> None:
+    if list_sink is not None:
+        list_sink([])
+
+
+# -- monitors, numbered left to right ---------------------------------------------------
+
+MONITORENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+                                     ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+
+
+def monitors() -> list[tuple[int, wintypes.RECT, wintypes.RECT]]:
+    """(handle, whole screen, work area) per monitor, numbered left to right
+    (then top to bottom) - the order you see them on the desk."""
+    found = []
+
+    def each(h, _hdc, _r, _l):
+        info = _MONITORINFO(cbSize=ctypes.sizeof(_MONITORINFO))
+        user32.GetMonitorInfoW(h, ctypes.byref(info))
+        found.append((int(h), info.rcMonitor, info.rcWork))
+        return True
+
+    user32.EnumDisplayMonitors(0, 0, MONITORENUMPROC(each), 0)
+    found.sort(key=lambda m: (m[1].left, m[1].top))
+    return found
+
+
+def monitor_of(hwnd: int, mons=None) -> int:
+    """1-based number of the monitor a window is (mostly) on."""
+    mons = mons or monitors()
+    h = int(user32.MonitorFromWindow(hwnd, 2) or 0)
+    for i, (mh, _, _) in enumerate(mons):
+        if mh == h:
+            return i + 1
+    return 0
+
+
+def to_monitor(hwnd: int, n: int) -> None:
+    """Move a window to monitor n (1-based), keeping its size; a maximised
+    window comes up maximised there."""
+    mons = monitors()
+    if not 1 <= n <= len(mons):
+        raise ValueError(f"there is no screen {n} (there are {len(mons)})")
+    work = mons[n - 1][2]
+    zoomed = bool(user32.IsZoomed(hwnd))
+    if zoomed or user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        time.sleep(0.15)
+    l, t, r, b = window_rect(hwnd)
+    w = min(r - l, work.right - work.left)
+    h = min(b - t, work.bottom - work.top)
+    x = work.left + (work.right - work.left - w) // 2
+    y = work.top + (work.bottom - work.top - h) // 2
+    user32.SetWindowPos(hwnd, 0, x, y, w, h, 0x0004 | 0x0010)
+    if zoomed:
+        time.sleep(0.1)
+        user32.ShowWindow(hwnd, SW_MAXIMIZE)
+
+
 def find_window(spoken: str, wins: list[Win] | None = None) -> tuple[Win | None, float]:
-    """The window best fitting a spoken name: its program first, then its title."""
+    """The window best fitting a spoken name: its program first, then its title.
+    A number means that window in the list from "show windows"."""
+    n = number(spoken)
+    if n is not None and numbered:
+        if 1 <= n <= len(numbered) and user32.IsWindow(numbered[n - 1].hwnd):
+            return numbered[n - 1], 1.0
+        return None, 0.0
     wins = windows() if wins is None else wins
     best, best_score = None, 0.0
     for w in wins:
@@ -440,13 +582,19 @@ PLACES = {
 }
 
 
-def place(hwnd: int, where: str) -> None:
-    """Fill a half or a quarter of the window's own monitor."""
+def place(hwnd: int, where: str, monitor: int = 0) -> None:
+    """Fill a half or a quarter of the window's own monitor (or monitor n)."""
     fl, ft, fr, fb = PLACES[where]
     if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, SW_RESTORE)
         time.sleep(0.15)
-    a = work_area(hwnd)
+    if monitor:
+        mons = monitors()
+        if not 1 <= monitor <= len(mons):
+            raise ValueError(f"there is no screen {monitor} (there are {len(mons)})")
+        a = mons[monitor - 1][2]
+    else:
+        a = work_area(hwnd)
     w, h = a.right - a.left, a.bottom - a.top
     user32.SetWindowPos(hwnd, 0, a.left + int(w * fl), a.top + int(h * ft),
                         int(w * (fr - fl)), int(h * (fb - ft)), 0x0004 | 0x0010)
@@ -472,6 +620,8 @@ class _MONITORINFO(ctypes.Structure):
                 ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
 
 
+user32.EnumDisplayMonitors.argtypes = [wintypes.HDC, ctypes.c_void_p, ctypes.c_void_p,
+                                       wintypes.LPARAM]
 user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
 user32.MonitorFromWindow.restype = wintypes.HMONITOR
 user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
@@ -573,10 +723,10 @@ def confirm_terminal_paste(timeout: float = 1.0) -> bool:
 label_sink = None
 
 
-def show_labels(labels: list[tuple[int, tuple[int, int, int, int]]]) -> bool:
+def show_labels(labels: list[tuple[int, tuple[int, int, int, int]]], big: bool = False) -> bool:
     if label_sink is None:
         return False
-    label_sink(labels)
+    label_sink(labels, big)
     return True
 
 

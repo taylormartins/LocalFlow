@@ -438,9 +438,10 @@ class Detector:
                 self._model, self.device = small_whisper(self.model_name, self.device)
         return self._model
 
-    def words(self, audio: np.ndarray) -> list[Word]:
-        """Transcribe a short clip into timed, normalised words."""
-        model = self.load()
+    def words(self, audio: np.ndarray, model=None) -> list[Word]:
+        """Transcribe a short clip into timed, normalised words (with the
+        listening model, or ``model`` for a second opinion)."""
+        model = model or self.load()
         # temperature 0, once: a phrase cut off mid-way (the early check at a
         # short pause) looks "uncertain", and Whisper's fallback then decoded
         # it six times at rising temperatures - 6.7 s instead of 1.3 s on a
