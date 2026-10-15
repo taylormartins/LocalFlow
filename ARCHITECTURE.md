@@ -476,6 +476,14 @@ phrase (while dictating) is among them.
   `UV_NATIVE_TLS`): behind Zscaler, uv's own certificates failed only after
   minutes of retries. The tray reads update.log's `== step` lines for
   progress and calls it stuck after 5 minutes without a new line.
+- **update.ps1's folder**: Windows PowerShell 5.1 leaves `$PSScriptRoot`
+  empty in `param()` defaults when a script runs under `-File`, which is how
+  update.cmd and the tray start it. With `[string]$Root = $PSScriptRoot`,
+  every real update ran with no folder. git worked only because the tray
+  starts it inside the folder, install.ps1 was never found (new code, old
+  install), and the result file was never written (tray "Updating..." for
+  ever). The default is now worked out after `param()`. Tests that pass
+  `-Root` can't catch this: test with update.cmd from another directory.
 - **Quit always quits**: `Tray._quit` starts `_exit_if_stuck`. If the
   clean shutdown (logged step by step) hasn't ended the process in 8 s, it
   dumps every thread's stack to crash.log and calls `os._exit(0)`. A work-PC

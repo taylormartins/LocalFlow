@@ -21,12 +21,21 @@ param(
     [switch]$Force,
     # For testing against another checkout: which folder to update, and leave
     # the startup tasks and the running LocalFlow alone.
-    [string]$Root = $PSScriptRoot,
+    # (Defaults to this script's folder, worked out below: Windows PowerShell
+    # 5.1 leaves $PSScriptRoot empty in param() defaults under -File, which is
+    # how update.cmd and the tray start this.)
+    [string]$Root = '',
     [switch]$NoStartup,
     [switch]$NoRestart
 )
 
 $ErrorActionPreference = 'Continue'
+if (-not $Root) { $Root = $PSScriptRoot }
+if (-not $Root) { $Root = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Root -or -not (Test-Path $Root)) {
+    Write-Host 'update.ps1: could not tell which folder LocalFlow is in; run it as: update.ps1 -Root <folder>' -ForegroundColor Red
+    exit 1
+}
 $root = (Resolve-Path $Root).Path
 $logFile = Join-Path $root 'update.log'
 # The tray app launches this detached and can't see the exit code, so the
