@@ -107,6 +107,29 @@ class DeviceInfo:
         return f"[{self.index}] {self.name} ({self.hostapi}, {self.channels}ch @ {self.default_samplerate:.0f}Hz)"
 
 
+def refresh_devices() -> None:
+    """Make PortAudio read the device list (and Windows' defaults) again. It
+    otherwise keeps the list from when it started, so a mic plugged in later
+    is missing and an unplugged one lingers. Closes nothing itself, but
+    invalidates open streams: only call it with none open."""
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception as exc:
+        log.warning("could not refresh the device list: %s", exc)
+
+
+def microphones() -> list[str]:
+    """Input device names for a picker, one per microphone. The same mic is
+    listed once per Windows audio API (MME cuts names to 31 characters), so
+    WASAPI names are used where there are any."""
+    devices = list_input_devices()
+    wasapi = [d.name for d in devices if d.hostapi == "Windows WASAPI"]
+    names = wasapi or [d.name for d in devices if d.hostapi == "MME"] or [d.name for d in devices]
+    skip = ("sound mapper", "primary sound capture", "stereo mix")
+    return list(dict.fromkeys(n for n in names if not any(s in n.lower() for s in skip)))
+
+
 def list_input_devices() -> list[DeviceInfo]:
     hostapis = sd.query_hostapis()
     out = []

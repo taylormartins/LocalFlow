@@ -516,6 +516,18 @@ phrase (while dictating) is among them.
   thread now (`_uia_local`), since the pipeline thread uses it too.
   Each paste logs "pasted N chars into <program>", and a cue that fails to
   play logs a warning: a "no sounds" report had nothing to go on.
+- **Following the microphone** (`micwatch.py`, `Listener._watch_mic`).
+  PortAudio reads devices and defaults once, at start. Always-on holds one
+  stream for hours, so an undocked laptop left it on a vanished mic, deaf,
+  while hotkey dictations (a fresh stream each time) worked. Every 2 s the
+  watcher checks the stream is active, that audio arrived in the last 3 s,
+  and (when following the default) Windows' default capture endpoint ID
+  from Core Audio (IMMDeviceEnumerator via comtypes, about 1 ms). Any
+  change triggers `reopen`: finish a running dictation, close the stream,
+  restart PortAudio (`audio.refresh_devices`, only with no stream open),
+  and open again, retrying while there's no mic at all. The resampler is
+  rebuilt when the rate changes. Tray ▸ Microphone lists
+  `audio.microphones()` (WASAPI names, once each) and sets `audio.device`.
 - **Quit always quits**: `Tray._quit` starts `_exit_if_stuck`. If the
   clean shutdown (logged step by step) hasn't ended the process in 8 s, it
   dumps every thread's stack to crash.log and calls `os._exit(0)`. A work-PC

@@ -192,6 +192,10 @@ class Tray:
                     visible=lambda _: self._caps_on(),
                 ),
                 pystray.MenuItem(
+                    lambda _: f"Microphone: {self._mic_label()}",
+                    pystray.Menu(lambda: self._mic_items(pystray)),
+                ),
+                pystray.MenuItem(
                     lambda _: f"Mic boost: {self.engine.recorder.boost.capitalize()}",
                     self._boost_menu(pystray),
                 ),
@@ -354,6 +358,63 @@ class Tray:
         lis.last_near = None
         log.info("always-on: added a %s phrase spelling", which)
         self.notify(f'"{heard}" now counts as your {which} phrase')
+        self.icon.update_menu()
+
+    # -- microphone ---------------------------------------------------------
+
+    def _mic_label(self) -> str:
+        name = self.engine.cfg.audio.device
+        return (name[:28] + "…" if len(name) > 29 else name) if name else "system default"
+
+    def _mic_items(self, pystray) -> list:
+        from .audio import microphones
+
+        try:
+            names = microphones()
+        except Exception as exc:
+            log.warning("could not list microphones: %s", exc)
+            names = []
+        current = self.engine.cfg.audio.device
+
+        def pick(name: str):
+            def action(icon, item) -> None:
+                self._set_mic(name)
+            return action
+
+        items = [pystray.MenuItem("System default (follows Windows)", pick(""),
+                                  checked=lambda _: not self.engine.cfg.audio.device, radio=True)]
+        items += [pystray.MenuItem(n, pick(n), checked=lambda _, n=n: current == n, radio=True)
+                  for n in names]
+        items += [pystray.Menu.SEPARATOR,
+                  pystray.MenuItem("Refresh the list", lambda icon, item: self._refresh_mics())]
+        return items
+
+    def _set_mic(self, name: str) -> None:
+        self.engine.cfg.audio.device = name
+        try:
+            from .config import save_setting
+
+            save_setting("audio", "device", name)
+        except OSError as exc:
+            log.warning("could not save the microphone: %s", exc)
+        lis = self.always_on
+        if lis is not None and lis.running:
+            threading.Thread(target=lis.reopen, args=("microphone picked in the tray",),
+                             daemon=True, name="localflow-mic").start()
+        else:
+            self.engine.notice(f"Microphone: {name or 'system default'}", "info", 5)
+        self.icon.update_menu()
+
+    def _refresh_mics(self) -> None:
+        """Re-read the devices (PortAudio keeps the list from when it started)."""
+        lis = self.always_on
+        if lis is not None and lis.running:
+            threading.Thread(target=lis.reopen, args=("refreshing the microphone list",),
+                             daemon=True, name="localflow-mic").start()
+        elif not self.engine.recording:
+            from .audio import refresh_devices
+
+            refresh_devices()
         self.icon.update_menu()
 
     def _toggle_paste_to(self, icon, item) -> None:

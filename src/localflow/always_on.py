@@ -113,6 +113,9 @@ class Listener:
         self._blocks: queue.Queue[np.ndarray | None] = queue.Queue()
         self._bursts: queue.Queue[tuple[int, int] | None] = queue.Queue(maxsize=4)
         self._stream = None
+        self._last_block = 0.0  # monotonic time of the last audio from the mic
+        self._mic_id = ""  # Windows' default mic when the stream was opened
+        self.mic_name = ""  # what we're listening on, for the tray
         self._threads: list[threading.Thread] = []
         self.running = False
         self.paused = False
@@ -186,6 +189,9 @@ class Listener:
             t.start()
         if stream:
             self._open_stream()
+            self._watch_gen = getattr(self, "_watch_gen", 0) + 1
+            threading.Thread(target=self._watch_mic, args=(self._watch_gen,), daemon=True,
+                             name="localflow-mic-watch").start()
         else:
             self._rate = RATE
         self.engine.external_stop = self.finish
@@ -202,23 +208,93 @@ class Listener:
     def _open_stream(self) -> None:
         import sounddevice as sd
 
+        from . import micwatch
+
+        self._mic_id = micwatch.default_input_id()
         errors = []
         for device in resolve_candidates(self.cfg.audio.device) or [None]:
             rate = int(device.default_samplerate) if device else RATE
             try:
                 stream = sd.InputStream(
                     device=device.index if device else None, channels=1, samplerate=rate,
-                    dtype="float32", blocksize=0,
-                    callback=lambda indata, *_: self._blocks.put(indata[:, 0].copy()),
+                    dtype="float32", blocksize=0, callback=self._on_block,
                 )
                 stream.start()
             except Exception as exc:
                 errors.append(f"{device or 'default'}: {exc}")
                 continue
             self._stream, self._rate = stream, rate
+            self._last_block = time.monotonic()
+            self.mic_name = device.name if device else "system default"
+            log.info("always-on: listening on %s", self.mic_name)
             return
         self.running = False
         raise RuntimeError("always-on could not open the mic: " + "; ".join(errors))
+
+    def _on_block(self, indata, *_) -> None:
+        self._last_block = time.monotonic()
+        self._blocks.put(indata[:, 0].copy())
+
+    # -- following the microphone ----------------------------------------------
+
+    #: How often the mic is checked, and how long without audio means it's gone.
+    MIC_CHECK = 2.0
+    MIC_SILENT = 3.0
+
+    def _watch_mic(self, gen: int = 0) -> None:
+        """Reopen the mic when it disappears or Windows switches its default
+        (a USB-C dock unplugged, a headset plugged in). Always-on used to stay
+        on the old mic, deaf, until it was switched off and on again."""
+        from . import micwatch
+
+        while self.running and gen == getattr(self, "_watch_gen", 0):
+            time.sleep(self.MIC_CHECK)
+            if not self.running or self.paused or self._stream is None:
+                continue
+            reason = ""
+            if not getattr(self._stream, "active", True):
+                reason = "the microphone stopped"
+            elif time.monotonic() - self._last_block > self.MIC_SILENT:
+                reason = "no audio from the microphone"
+            elif not self.cfg.audio.device:
+                now = micwatch.default_input_id()
+                if now != self._mic_id:
+                    reason = "Windows switched the default microphone"
+            if reason:
+                self.reopen(reason)
+
+    def reopen(self, reason: str) -> None:
+        """Close the mic and open the right one again (default or the one picked)."""
+        if self.engine.recorder.recording and not self.engine.recorder.external:
+            return  # a hotkey dictation has the mic: try again on the next check
+        log.info("always-on: %s - reopening the microphone", reason)
+        if self.dictating:
+            self.finish()  # keep what was said so far
+        with self._lock:
+            old, self._stream = self._stream, None
+        if old is not None:
+            try:
+                old.stop()
+                old.close()
+            except Exception:
+                pass
+        # PortAudio only sees new devices and defaults after a restart, and
+        # that's only safe with no stream open anywhere.
+        if not self.engine.recorder.recording:
+            from .audio import refresh_devices
+
+            refresh_devices()
+        for attempt in range(5):
+            try:
+                self._open_stream()
+                self.running = True
+                self.engine.notice(f"Microphone: {self.mic_name}", "info", 5)
+                return
+            except Exception as exc:
+                self.running = True  # keep watching: the mic may come back
+                log.warning("always-on: no microphone yet (%s)", exc)
+                time.sleep(2.0)
+        self.engine.notice("No microphone - always-on can't hear", "error", 10)
 
     def stop(self) -> None:
         if not self.running:
@@ -247,7 +323,7 @@ class Listener:
     def _audio_loop(self) -> None:
         import soxr
 
-        resampler = None
+        resampler, resampler_rate = None, 0
         while True:
             block = self._blocks.get()
             if block is None:
@@ -255,8 +331,10 @@ class Listener:
             if self.paused:
                 continue
             if self._rate != RATE:
-                if resampler is None:
+                if resampler is None or resampler_rate != self._rate:
+                    # A new mic can have a different rate: a fresh resampler.
                     resampler = soxr.ResampleStream(self._rate, RATE, 1, dtype="float32")
+                    resampler_rate = self._rate
                 block = resampler.resample_chunk(block)
             self.ingest(block)
 

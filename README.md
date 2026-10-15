@@ -270,6 +270,13 @@ While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
 can't record the room indefinitely.
 
+**Microphone.** Tray ▸ **Microphone**: *System default (follows Windows)*,
+or pick a specific mic. Always-on follows the microphone. If the mic it's
+listening on stops, or Windows switches its default (a USB-C dock unplugged, a
+headset plugged in), it reopens on the right one within a few seconds and the
+pill says which. Use **Refresh the list** for a mic plugged in after LocalFlow
+started.
+
 **Paste where I started.** Tray ▸ **Paste where I started**. The text goes to
 the window you were in when the dictation began (start phrase or hotkey), not
 wherever you've clicked since. So you can start a message in a terminal or a
