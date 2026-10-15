@@ -96,7 +96,10 @@ def _keys(chord: str, label: str, times: int = 1, delay: float = 0.0
           ) -> Callable[[str, Ctx], str]:
     def run(arg: str, ctx: Ctx) -> str:
         if delay:
-            time.sleep(delay)
+            # Longer for a long paste the app is still taking in: ~0.4 s for
+            # 1000 characters, up to 0.8 s.
+            recent = ctx.last_any if time.time() - ctx.last_at < 15 else ""
+            time.sleep(min(0.8, delay + len(recent) / 4000))
         desktop.press(chord, times)
         return label
     return run
@@ -470,6 +473,7 @@ def _help(arg: str, ctx: Ctx) -> str:
 COMMANDS: list[Command] = [
     # Keys, aimed at the window just dictated into when said after a dictation.
     Command("submit", ["submit", "summit", "send it", "send", "press enter", "hit enter",
+                       "press into", "press inter", "press center", "hit into",
                        "enter"],
             # A moment for the app to take in a paste first: Ctrl+V is handled
             # asynchronously, and an Enter overtaking it sends nothing.
@@ -579,7 +583,7 @@ Command("place_top_left", ["(move|put|snap) [it|the window] [to|on] [the] top le
                             "(labels|numbers) off"], hide_labels, "take the numbered labels away"),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     # Buttons and text.
-    Command("click", ["click [on] [number] {name}", "press {name}", "tap {name}"], _click,
+    Command("click", ["click [on] [number] {name}", "tap {name}"], _click,
             "click a button, link, tab or menu item by its name, or a numbered label by its number"),
     Command("type", ["type {text}"], _type, "type some text", text_slot=True),
     Command("paste_again", ["paste [that|it] again", "repeat [that|the] [last] dictation",

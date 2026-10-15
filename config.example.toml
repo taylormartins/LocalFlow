@@ -75,6 +75,9 @@ paste_delay = 0.08
 # while you talk; "submit" presses Enter there too; you're brought back).
 # Tray: Paste where I started.
 paste_to = "focus"
+# Paste into terminals as one line. Windows Terminal stops a multi-line paste
+# with a warning, which swallowed long dictations and their "submit".
+terminal_single_line = true
 
 [hotkeys]
 # pynput syntax: "<f9>", "<ctrl>+<alt>+d", "<ctrl>+<shift>+<space>".

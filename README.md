@@ -607,6 +607,7 @@ Everything lives in `config.toml`. The interesting knobs:
 | Setting | Notes |
 |---|---|
 | `audio.device` | Substring of the input name, e.g. `"Scarlett Solo"`. `""` = the Windows default mic. `uv run localflow devices` lists them. |
+| `inject.terminal_single_line` | `true` (default): a dictation pasted into a terminal goes in as one line, since Windows Terminal stops multi-line pastes with a warning. |
 | `inject.paste_to` | `focus` (default) or `start`: paste into the window you began in (tray: **Paste where I started**). |
 | `audio.boost` | Mic boost: `none`, `low`, `medium`, `high` or `auto` (also in the tray). |
 | `audio.gain` | Extra fixed multiplier before the boost; rarely needed. |

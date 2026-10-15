@@ -440,6 +440,15 @@ phrase (while dictating) is among them.
     otherwise it is Ctrl+Z.
   - A slot command naming a window that doesn't exist goes to the LLM when
     there is one (`Listener._usable`), not straight to an error.
+- **Terminals** (`inject.in_terminal`, `terminal_single_line`): a dictation
+  with line breaks is joined into one line when the window in front is a
+  terminal. Windows Terminal's multi-line paste warning had held back every
+  paragraphed (LLM-cleaned) dictation, and the "submit" Enter only clicked
+  "Paste anyway". `tests/terminal_paste.py` pastes three paragraphs + submit
+  into a fresh Windows Terminal window; with the setting off it fails.
+  "submit" waits 0.15 s plus 0.1 s per 400 pasted characters (up to 0.8 s).
+  "press {name}" no longer means click: "press enter" misheard as "press
+  into" clicked a button called "into".
 - **History** (`history.py`): `Engine._emit` appends to `history.jsonl`
   (gitignored, trimmed to `max_items`). The window is its own process
   (`localflow history`). It records the foreground window at launch, and
@@ -479,7 +488,8 @@ uv run python tests/bench_models.py         # latency vs quality across models
 uv run python tests/hotkeys.py              # hold/toggle/cancel state machine
 uv run python tests/always_on.py            # always-on end to end with TTS (CPU)
 uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
-uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer)
+uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer); PC idle
+uv run python tests/terminal_paste.py       # paragraphs + submit into Windows Terminal
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
 uv run localflow transcribe clip.wav        # pipeline without a microphone

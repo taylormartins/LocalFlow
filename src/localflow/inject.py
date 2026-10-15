@@ -59,6 +59,23 @@ def set_clipboard_text(text: str) -> None:
     _clipboard_retry(_write)
 
 
+#: Programs whose windows are terminals (file names, lower case, no .exe).
+TERMINALS = {"windowsterminal", "wt", "cmd", "powershell", "pwsh", "conhost", "openconsole",
+             "alacritty", "wezterm-gui", "mintty", "tabby", "hyper", "warp"}
+
+
+def in_terminal() -> bool:
+    """Is the window in front a terminal?"""
+    try:
+        from pathlib import Path
+
+        from .desktop import _exe_path, foreground
+
+        return Path(_exe_path(foreground())).stem.lower() in TERMINALS
+    except Exception:
+        return False
+
+
 class Injector:
     def __init__(self, cfg: InjectConfig):
         self.cfg = cfg
@@ -75,6 +92,10 @@ class Injector:
     def send(self, text: str) -> None:
         if not text:
             return
+        if self.cfg.terminal_single_line and "\n" in text and in_terminal():
+            lines = text.count("\n") + 1
+            text = " ".join(part.strip() for part in text.splitlines() if part.strip())
+            log.info("joined %d lines into one for the terminal", lines)
         if self.cfg.method == "type":
             self._type(text)
             return

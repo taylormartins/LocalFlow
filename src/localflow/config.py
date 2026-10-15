@@ -90,6 +90,11 @@ class InjectConfig:
     #: you can click around while talking; a "submit" lands there too, and
     #: you're returned to where you'd got to. Toggle: tray > Paste where I started.
     paste_to: str = "focus"
+    #: Paste into a terminal as one line. Windows Terminal stops a multi-line
+    #: paste with a "you are about to paste multiple lines" warning, so a
+    #: long dictation (which the cleanup splits into paragraphs) never got
+    #: in on its own, and a "submit" only clicked through the warning.
+    terminal_single_line: bool = True
 
 
 @dataclass

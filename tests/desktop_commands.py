@@ -4,7 +4,9 @@ Opens a small Windows Forms window ("LocalFlow test Fennel", with an
 "Approve" button) in a separate process, then runs the parsed commands
 against it exactly as command mode would, and checks what happened. With
 Ollama running, also checks the LLM layer picks known commands only.
-Takes a few seconds and briefly shows the window.
+Takes a few seconds and briefly shows the window. Run it while not using
+the PC: it acts on the window in front, and stops rather than click in
+anything but its own.
 
     uv run python tests/desktop_commands.py
 """
@@ -37,6 +39,15 @@ $b.Add_Click({ Set-Content -Path "%OUT%" -Value "approved" })
 $f.Controls.Add($b)
 [Windows.Forms.Application]::Run($f)
 '''
+
+
+def written(path: Path, timeout: float = 5.0) -> bool:
+    """The test window's button handler runs in PowerShell, which can take a
+    couple of seconds to write its file the first time."""
+    deadline = time.monotonic() + timeout
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return path.exists()
 
 
 def monitors() -> list[tuple[int, int, int, int, int]]:
@@ -101,8 +112,11 @@ def main() -> int:
         print("switch / click")
         r = say("switch to fennel")
         expect("'switch to fennel' brings it forward", desktop.foreground() == hwnd, str(r))
+        if desktop.foreground() != hwnd:
+            print("  SKIP  the rest: the test window lost focus (PC in use?) - rerun when idle")
+            return 1
         r = say("click approve", wait=1.0)
-        expect("'click approve' presses the button", out.exists(), str(r))
+        expect("'click approve' presses the button", written(out), str(r))
         r = say("click the purple elephant")
         expect("a button that isn't there is refused", r is not None and not r[2], str(r))
 
@@ -153,8 +167,13 @@ def main() -> int:
             time.sleep(0.4)
             say("switch to fennel")
         out.unlink(missing_ok=True)
-        r = say("show me numbered click labels on screen", wait=0.6)
+        r = say("show me numbered click labels on screen in fennel", wait=0.6)
         names = [c.name for c in cmds._labelled]
+        if desktop.foreground() != hwnd:
+            # Someone is using the PC and took focus: never click in their window.
+            cmds.hide_labels()
+            print("  SKIP  label clicks: the test window lost focus (PC in use?)")
+            names = []
         expect("labels shown", r is not None and r[2] and "Approve" in names, f"{r} {names}")
         expect("label layer visible", bool(user32.IsWindowVisible(overlay.label_hwnd)))
         if "Approve" in names:
@@ -176,11 +195,12 @@ def main() -> int:
                 print(f"    (screenshot: {shot})")
             except Exception as exc:
                 print(f"    (no screenshot: {exc})")
-        n = names.index("Approve") + 1 if "Approve" in names else 99
-        r = say(f"click {n}", wait=1.0)
-        expect(f"'click {n}' presses Approve", out.exists(), str(r))
-        expect("labels gone after the click",
-               not cmds._labelled and not user32.IsWindowVisible(overlay.label_hwnd))
+        if "Approve" in names and desktop.foreground() == hwnd:
+            n = names.index("Approve") + 1
+            r = say(f"click {n}", wait=1.0)
+            expect(f"'click {n}' presses Approve", written(out), str(r))
+            expect("labels gone after the click",
+                   not cmds._labelled and not user32.IsWindowVisible(overlay.label_hwnd))
         r = say("click 5")
         expect("a number with no labels up is refused", r is not None and not r[2], str(r))
         p = grammar.parse(normalise("open a new tab in fennel"))
