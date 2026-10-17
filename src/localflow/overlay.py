@@ -188,7 +188,7 @@ class Overlay:
         self._labels: list = []
         self._labels_version = 0
         self._labels_drawn = 0
-        self._labels_big = False
+        self._labels_style = "label"
         self._list: list = []
         self._list_version = 0
         self._list_drawn = 0
@@ -197,11 +197,11 @@ class Overlay:
         desktop.label_sink = self.set_labels
         desktop.list_sink = self.set_list
 
-    def set_labels(self, labels: list, big: bool = False) -> None:
+    def set_labels(self, labels: list, style: str = "label") -> None:
         """[(number, (left, top, right, bottom)), ...] in screen pixels; [] clears.
-        big: one large number filling each box (monitor numbers)."""
+        style: label (a control), big (a screen), chip (a window), grid (cells)."""
         self._labels = list(labels)
-        self._labels_big = big
+        self._labels_style = style
         self._labels_version += 1
 
     def set_list(self, lines: list) -> None:
@@ -443,7 +443,25 @@ class Overlay:
         bh = int(17 * s)
         for n, (left, top, right, bottom) in labels:
             text = str(n)
-            if self._labels_big:
+            style = self._labels_style
+            if style == "chip":
+                # A window's number from the list, solid, in its corner.
+                c.create_rectangle(left - x0, top - y0, right - x0, bottom - y0,
+                                   fill=TEAL, outline=BG, width=max(1, int(2 * s)))
+                c.create_text((left + right) / 2 - x0, (top + bottom) / 2 - y0, text=text,
+                              fill=BG, font=("Segoe UI Semibold", -int((bottom - top) * 0.62)))
+                continue
+            if style == "grid":
+                # A cell: its outline, and its number in the middle.
+                c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
+                                   outline=LABEL_EDGE, width=max(1, int(2 * s)))
+                size = max(14, min(int((bottom - top) * 0.28), int(56 * s)))
+                cx, cy = (left + right) / 2 - x0, (top + bottom) / 2 - y0
+                c.create_rectangle(cx - size * 0.75, cy - size * 0.62, cx + size * 0.75, cy + size * 0.62,
+                                   fill=LABEL_BG, outline=LABEL_EDGE)
+                c.create_text(cx, cy, text=text, fill=LABEL_TEXT, font=("Segoe UI Semibold", -size))
+                continue
+            if style == "big":
                 # A screen's number, big, in the middle of it.
                 c.create_rectangle(left - x0, top - y0, right - x0, bottom - y0,
                                    fill=LABEL_BG, outline=LABEL_EDGE, width=max(2, int(3 * s)))

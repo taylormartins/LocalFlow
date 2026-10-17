@@ -26,17 +26,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from localflow import desktop  # noqa: E402
 from localflow.commands import Ctx, Grammar, Runner, plan_with_llm  # noqa: E402
 from localflow.config import Config  # noqa: E402
+from localflow.inject import Injector  # noqa: E402
 from localflow.wake import normalise  # noqa: E402
 
 FORM = r'''
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object Windows.Forms.Form
-$f.Text = "LocalFlow test Fennel"; $f.Width = 360; $f.Height = 140
+$f.Text = "LocalFlow test Fennel"; $f.Width = 360; $f.Height = 180
 $f.StartPosition = "Manual"; $f.Left = 200; $f.Top = 300
 $b = New-Object Windows.Forms.Button
 $b.Text = "Approve"; $b.Left = 20; $b.Top = 20; $b.Width = 120
 $b.Add_Click({ Set-Content -Path "%OUT%" -Value "approved" })
 $f.Controls.Add($b)
+$t = New-Object Windows.Forms.TextBox
+$t.Left = 20; $t.Top = 70; $t.Width = 300; $t.AccessibleName = "Notes"
+$t.Add_TextChanged({ Set-Content -Path "%OUT%.txt" -Value $t.Text })
+$f.Controls.Add($t)
 [Windows.Forms.Application]::Run($f)
 '''
 
@@ -92,7 +97,7 @@ def main() -> int:
         if p is None:
             return None
         n = len(done)
-        runner.submit(p, Ctx())
+        runner.submit(p, Ctx(paste=Injector(Config().inject).send))
         deadline = time.monotonic() + 8
         while len(done) == n and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -199,10 +204,57 @@ def main() -> int:
             n = names.index("Approve") + 1
             r = say(f"click {n}", wait=1.0)
             expect(f"'click {n}' presses Approve", written(out), str(r))
-            expect("labels gone after the click",
-                   not cmds._labelled and not user32.IsWindowVisible(overlay.label_hwnd))
+            expect("labels stay up after the click (fresh ones)",
+                   bool(cmds._labelled) and user32.IsWindowVisible(overlay.label_hwnd), str(r))
+
+            print("type into a labelled field")
+            names = [c.name for c in cmds._labelled]
+            box = Path(str(out) + ".txt")
+            if "Notes" in names and desktop.foreground() == hwnd:
+                n = names.index("Notes") + 1
+                r = say(f"type into {n} hello from fennel", wait=1.0)
+                got = box.read_text(encoding="utf-8").strip() if box.exists() else ""
+                expect(f"'type into {n} ...' types into the Notes box", got == "hello from fennel",
+                       f"{r} box={got!r}")
+            else:
+                print(f"  SKIP  no Notes label ({names}) or the window lost focus")
+            say("hide labels")
+            expect("'hide labels' takes them away", not cmds._labelled)
+
+        print("grid")
+        out.unlink(missing_ok=True)
+        if desktop.foreground() == hwnd:
+            r = say("show grid")
+            expect("'show grid' puts a grid over the window", cmds.grid_up(), str(r))
+            ctl = next((c for c in desktop.controls(hwnd) if c.name == "Approve"), None)
+            if ctl is not None:
+                bx, by = (ctl.rect[0] + ctl.rect[2]) // 2, (ctl.rect[1] + ctl.rect[3]) // 2
+                for _ in range(6):  # zoom in until a cell sits inside the button
+                    cells = cmds._cells(cmds._grid[0])
+                    n = next(i + 1 for i, c in enumerate(cells)
+                             if c[0] <= bx < c[2] and c[1] <= by < c[3])
+                    cell = cells[n - 1]
+                    inside = (cell[0] >= ctl.rect[0] and cell[2] <= ctl.rect[2]
+                              and cell[1] >= ctl.rect[1] and cell[3] <= ctl.rect[3])
+                    if inside:
+                        r = say(f"click {n}", wait=1.0)
+                        break
+                    cmds.grid_zoom(n)
+                expect("zooming in, then 'click N' on the grid presses Approve", written(out), str(r))
+                expect("the grid goes away after a click", not cmds.grid_up())
+        else:
+            print("  SKIP  grid: the window lost focus")
         r = say("click 5")
-        expect("a number with no labels up is refused", r is not None and not r[2], str(r))
+        expect("a number with nothing numbered up is refused", r is not None and not r[2], str(r))
+
+        print("window chips")
+        if desktop.foreground() == hwnd:
+            chips = desktop.window_chips(desktop.windows()[:20])
+            listed = desktop.windows()[:20]
+            fennel = next((i + 1 for i, w in enumerate(listed) if w.hwnd == hwnd), None)
+            expect("the window in front gets a chip with its list number",
+                   fennel is not None and any(n == fennel for n, _ in chips), f"{fennel} {chips[:5]}")
+        desktop.numbered.clear()
         p = grammar.parse(normalise("open a new tab in fennel"))
         expect("'open a new tab in fennel' -> new tab, aimed at fennel",
                p is not None and p.command.name == "new_tab" and p.where == "fennel", str(p))

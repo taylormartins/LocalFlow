@@ -316,12 +316,14 @@ too. Commands work without an LLM:
 | Say | Does |
 |---|---|
 | switch to / go to / show / select / pull up *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title). Spell a name that keeps being misheard: "select n o t i o n" |
-| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move 4 to the left" |
+| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen, and the same number on each window you can see. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move window 8 to screen 1", "move window 4 to the top right of monitor 2" |
 | move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
-| click *17* · hide labels | clicks numbered item 17 (the labels then go away) · clears them |
+| click *17* · double click *17* · right click *17* | clicks numbered item 17; the labels stay up, renumbered for whatever the click opened, until "hide labels" |
+| type into *12* hello there · fill in *12* with my name | types into numbered field 12 |
+| show grid | a numbered 3x3 grid over the window, for apps whose buttons have no names. A number zooms into that cell; **"click 5"** clicks the middle of cell 5 (double/right click too) |
 | open / launch *Notepad*, *Spotify*, *youtube dot com* | switches to it if it's open, starts it if not; opens websites |
 | minimize / maximize / restore / close *[name]* | the window in front, or the one named |
 | click / press *Send*, *Reply all*, *File* | clicks a button, link, tab or menu item by its name |
@@ -367,8 +369,15 @@ into the window you were in, **Ctrl+C** copies it, **Del** deletes it, and
 never logged. `history.enabled = false` stops the saving, and
 `history.max_items` (500) caps it.
 
+**Switching between commands and dictation.** In command mode, say
+**"dictation mode"** (or "switch mode") to dictate: finish with the stop
+phrase as usual, and you're back in command mode. After a dictation, say
+**"command mode"** (or "switch mode") to go the other way.
+
 **A second listen for names.** The small model that listens for your phrases
 sometimes cuts an unusual name short ("okay listen, marig" for "...Marigold").
+In command mode, short command words that it mishears ("peace" for "paste")
+get the same second listen.
 When a start phrase comes close but isn't accepted, the same audio is checked
 again by the dictation model, which hears names far better. The phrase still
 has to match in full, and nothing is primed, so it doesn't trigger more
@@ -376,7 +385,7 @@ easily on other speech. This only costs time on near misses.
 
 **It learns how you say things.** When a command isn't understood (or names
 a window that doesn't exist) and something you say right after it works, the
-pill offers: *"select heroes" = switch to kiros? Say "remember that"*. Say
+pill offers: *"select no shun" = switch to notion? Say "remember that"*. Say
 **"remember that"** within 15 seconds, and from then on the first phrasing
 means that command too. It never learns without your yes. Tray ▸ **Learned
 phrases** lists them; click one to forget it. They're kept in `learned.json`

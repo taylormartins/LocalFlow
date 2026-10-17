@@ -125,10 +125,16 @@ def scroll(notches: int) -> None:
     user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, ctypes.c_uint32(notches * 120).value, OWN_INPUT)
 
 
-def click_at(x: int, y: int) -> None:
+MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP = 0x8, 0x10
+
+
+def click_at(x: int, y: int, button: str = "left", double: bool = False) -> None:
     user32.SetCursorPos(x, y)
-    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, OWN_INPUT)
-    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, OWN_INPUT)
+    down, up = ((MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) if button == "right"
+                else (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP))
+    for _ in range(2 if double else 1):
+        user32.mouse_event(down, 0, 0, 0, OWN_INPUT)
+        user32.mouse_event(up, 0, 0, 0, OWN_INPUT)
 
 
 # -- windows ---------------------------------------------------------------
@@ -311,6 +317,8 @@ def show_window_list(wins: list[Win]) -> bool:
     numbered[:] = wins
     if list_sink is None:
         return False
+    # Chips first: once the list is up it covers some of the corners.
+    show_labels(window_chips(wins), "chip")
     mons = monitors()
     lines = []
     for i, w in enumerate(wins):
@@ -341,6 +349,30 @@ def list_line(w: Win) -> str:
         return prog
     title = title if len(title) <= 70 else title[:69] + "…"
     return f"{title}  ({prog})"
+
+
+user32.WindowFromPoint.argtypes = [wintypes.POINT]
+user32.WindowFromPoint.restype = wintypes.HWND
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
+
+
+def window_chips(wins: list[Win]) -> list[tuple[int, tuple[int, int, int, int]]]:
+    """(number, chip box) for each listed window whose top-left corner can be
+    seen. A window under another one gets no chip: the list has it anyway."""
+    chips = []
+    for i, w in enumerate(wins):
+        if user32.IsIconic(w.hwnd):
+            continue
+        left, top, right, bottom = window_rect(w.hwnd)
+        if right - left < 80 or bottom - top < 40:
+            continue
+        x, y = left + 24, top + 18  # inside the title bar
+        hit = user32.WindowFromPoint(wintypes.POINT(x, y))
+        if not hit or int(user32.GetAncestor(hit, 2)) != w.hwnd:  # GA_ROOT
+            continue
+        chips.append((i + 1, (left + 8, top + 6, left + 64, top + 46)))
+    return chips
 
 
 def hide_window_list() -> None:
@@ -723,10 +755,13 @@ def confirm_terminal_paste(timeout: float = 1.0) -> bool:
 label_sink = None
 
 
-def show_labels(labels: list[tuple[int, tuple[int, int, int, int]]], big: bool = False) -> bool:
+def show_labels(labels: list[tuple[int, tuple[int, int, int, int]]], style: str = "label") -> bool:
+    """Numbers over the screen. style: "label" (a control, outlined), "big"
+    (a screen's number), "chip" (a window's number in its corner), "grid"
+    (numbered cells)."""
     if label_sink is None:
         return False
-    label_sink(labels, big)
+    label_sink(labels, style)
     return True
 
 

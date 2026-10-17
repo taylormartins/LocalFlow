@@ -68,6 +68,8 @@ class Ctx:
     paste: Callable[[str], None] | None = None
     #: The last dictation even if scratched (for "paste that again").
     last_any: str = ""
+    #: A numbered label named by the command ("type into 12 ...").
+    label: str = ""
     in_target: Callable[[object, Callable[[], None]], None] | None = None
 
 
@@ -97,6 +99,13 @@ class Parsed:
     score: float
     #: A window to bring forward first ("new tab in Chrome"), or "".
     where: str = ""
+    #: A numbered label to act on ("type into 12 ..."), or "".
+    label: str = ""
+
+    @property
+    def size(self) -> int:
+        """Words in the slots: ties go to the reading that leaves fewer."""
+        return len(self.arg.split()) + len(self.where.split()) + len(self.label.split())
 
     def __str__(self) -> str:
         s = f"{self.command.name}({self.arg})" if self.arg else self.command.name
@@ -284,6 +293,8 @@ def _show_windows(arg: str, ctx: Ctx) -> str:
 def hide_windows(arg: str = "", ctx: Ctx | None = None) -> str:
     _list_at[0] = 0.0
     desktop.hide_window_list()
+    if not _labelled and not _grid:
+        desktop.show_labels([])  # the chips
     return "Window list hidden"
 
 
@@ -308,7 +319,7 @@ def _show_monitors(arg: str, ctx: Ctx) -> str:
         cx, cy = (whole.left + whole.right) // 2, (whole.top + whole.bottom) // 2
         half = max(90, (whole.right - whole.left) // 16)
         labels.append((i + 1, (cx - half, cy - half, cx + half, cy + half)))
-    desktop.show_labels(labels, big=True)
+    desktop.show_labels(labels, "big")
 
     def clear() -> None:
         time.sleep(4.0)
@@ -333,6 +344,76 @@ def _show_labels(arg: str, ctx: Ctx) -> str:
     return f"{len(unique)} labels - say click and a number"
 
 
+def _refresh_labels(after: float = 0.7) -> str:
+    """Labels stay up: after a click, number what's there now (a click often
+    opens a menu or a page)."""
+    time.sleep(after)
+    try:
+        return _show_labels("", Ctx())
+    except CommandError:
+        hide_labels()
+        return "nothing more to click"
+
+
+# -- the grid (for apps that don't name their buttons) ----------------------------
+
+#: The area the grid covers now; [] when it isn't up.
+_grid: list[tuple[int, int, int, int]] = []
+
+
+def _cells(rect: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    """3x3 cells, numbered left to right, top to bottom."""
+    left, top, right, bottom = rect
+    w, h = (right - left) / 3, (bottom - top) / 3
+    return [(int(left + c * w), int(top + r * h), int(left + (c + 1) * w), int(top + (r + 1) * h))
+            for r in range(3) for c in range(3)]
+
+
+def _draw_grid() -> None:
+    desktop.show_labels([(i + 1, cell) for i, cell in enumerate(_cells(_grid[0]))], "grid")
+
+
+def _show_grid(arg: str, ctx: Ctx) -> str:
+    hwnd = desktop.foreground()
+    if not hwnd:
+        raise CommandError("no window in front")
+    _labelled.clear()
+    _grid[:] = [desktop.window_rect(hwnd)]
+    _draw_grid()
+    return "Grid: say a number to zoom in, or click and a number"
+
+
+def grid_up() -> bool:
+    return bool(_grid)
+
+
+def grid_zoom(n: int) -> str:
+    """Zoom into cell n: the grid now covers just that cell."""
+    cells = _cells(_grid[0])
+    if not 1 <= n <= len(cells):
+        raise CommandError(f"no cell {n}")
+    cell = cells[n - 1]
+    if cell[2] - cell[0] < 12 or cell[3] - cell[1] < 12:
+        raise CommandError("as small as it goes - say click and a number")
+    _grid[0] = cell
+    _draw_grid()
+    return f"Zoomed into {n}"
+
+
+def hide_grid(arg: str = "", ctx: Ctx | None = None) -> str:
+    _grid.clear()
+    desktop.show_labels([])
+    return "Grid hidden"
+
+
+def _grid_click(n: int | None, button: str = "left", double: bool = False) -> str:
+    rect = _grid[0] if n is None else _cells(_grid[0])[n - 1]
+    hide_grid()
+    time.sleep(0.05)
+    desktop.click_at((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2, button, double)
+    return f"Clicked {n}" if n else "Clicked"
+
+
 def hide_labels(arg: str = "", ctx: Ctx | None = None) -> str:
     had = bool(_labelled)
     _labelled.clear()
@@ -340,18 +421,67 @@ def hide_labels(arg: str = "", ctx: Ctx | None = None) -> str:
     return "Labels hidden" if had else "No labels up"
 
 
-def _click(arg: str, ctx: Ctx) -> str:
-    n = number(arg)
-    if n is not None and _labelled:
-        if not 1 <= n <= len(_labelled):
-            raise CommandError(f"no label {n}")
-        c = _labelled[n - 1]
-        hide_labels()
-        time.sleep(0.05)
-        desktop.activate_control(c)
-        return f"Clicked {n}" + (f" ({c.name[:24]})" if c.name else "")
-    if n is not None:
+def _click_kind(button: str = "left", double: bool = False) -> Callable[[str, Ctx], str]:
+    def run(arg: str, ctx: Ctx) -> str:
+        n = number(arg) if arg else None
+        if _grid and (n is not None or not arg):
+            if n is not None and not 1 <= n <= 9:
+                raise CommandError(f"no cell {n}")
+            return _grid_click(n, button, double)
+        if n is not None and _labelled:
+            if not 1 <= n <= len(_labelled):
+                raise CommandError(f"no label {n}")
+            c = _labelled[n - 1]
+            l, t, r, b = c.rect
+            if button == "left" and not double:
+                desktop.activate_control(c)
+            else:
+                desktop.click_at((l + r) // 2, (t + b) // 2, button, double)
+            # Labels stay up: number whatever the click opened.
+            now = _refresh_labels()
+            return f"Clicked {n}" + (f" ({c.name[:20]})" if c.name else "") + f" - {now}"
+        if n is not None and desktop.numbered:
+            return _switch(str(n), ctx)  # a window from "show windows"
+        if n is not None:
+            raise CommandError("say 'show labels' or 'show grid' first")
+        if not arg:
+            raise CommandError("click what?")
+        return _click_named(arg, ctx)
+    return run
+
+
+def _type_into(arg: str, ctx: Ctx) -> str:
+    """Type text into a numbered label's field: "type into 12 hello there"."""
+    if ctx.paste is None:
+        raise CommandError("can't type here")
+    label, text = ctx.label, arg
+    n = number(label)
+    if n is None:  # "twelve hello" taken as the label: keep the number part
+        words = label.split()
+        for k in range(len(words) - 1, 0, -1):
+            if number(" ".join(words[:k])) is not None:
+                n, text = number(" ".join(words[:k])), " ".join(words[k:] + [text])
+                break
+    if n is None:
+        raise CommandError(f"which field is {label}?")
+    if not _labelled:
         raise CommandError("say 'show labels' first")
+    if not 1 <= n <= len(_labelled):
+        raise CommandError(f"no label {n}")
+    c = _labelled[n - 1]
+    try:
+        c.element.SetFocus()
+    except Exception:
+        l, t, r, b = c.rect
+        desktop.click_at((l + r) // 2, (t + b) // 2)
+    time.sleep(0.15)
+    ctx.paste(text)
+    now = _refresh_labels(0.4)
+    return f"Typed into {n} - {now}"
+
+
+def _click_named(arg: str, ctx: Ctx) -> str:
+    """Click a control by its name ("click Send")."""
     hwnd = desktop.foreground()
     if not hwnd:
         raise CommandError("no window in front")
@@ -436,7 +566,10 @@ def _focus_hwnd(hwnd: int) -> None:
 
 def _target(p: Parsed, before_fg: int) -> int:
     """The window a command acts on: named, aimed at with "in", or in front."""
-    for name in (p.arg if p.command.name in MOVES else "", p.where):
+    # For "to screen N" commands the argument is the screen, not a window.
+    arg_is_window = p.command.name in MOVES and not (
+        p.command.name == "to_monitor" or p.command.name.endswith("_of"))
+    for name in (p.where, p.arg if arg_is_window else ""):
         if name:
             w, score = desktop.find_window(name)
             if w is not None and score >= NAME_ACCEPT:
@@ -549,7 +682,7 @@ COMMANDS: list[Command] = [
     Command("submit", ["submit", "summit", "send it", "send", "press enter", "hit enter",
                        "press into", "press inter", "press center", "hit into",
                        # "press enter" with the second word lost or merged
-                       "pressing", "presenter", "press",
+                       "pressing", "presenter", "press", "presence", "presents",
                        "enter"],
             # A moment for the app to take in a paste first: Ctrl+V is handled
             # asynchronously, and an Enter overtaking it sends nothing.
@@ -577,7 +710,8 @@ COMMANDS: list[Command] = [
             keys=True),
     Command("copy", ["copy [that]"], _keys("ctrl+c", "Copied"), "copy", keys=True),
     Command("cut", ["cut [that]"], _keys("ctrl+x", "Cut"), "cut", keys=True),
-    Command("paste", ["paste [that]"], _paste_keys, "paste", keys=True),
+    Command("paste", ["paste [that|it]", "piece", "peace", "paced", "pace"], _paste_keys, "paste",
+            keys=True),
     Command("save", ["save [that|this|it|file]"], _keys("ctrl+s", "Saved"), "save (Ctrl+S)",
             keys=True),
     Command("find", ["find"], _keys("ctrl+f", "Find"), "open Find (Ctrl+F)"),
@@ -649,23 +783,33 @@ Command("place_top_left", ["(move|put|snap) [it|the window] [to|on] [the] top le
     Command("place_bottom", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]",
                        "(move|put|snap) {name} [to|on] [the] bottom half [corner] [of the screen|of my screen|of the monitor|of my monitor|of this monitor]"],
             _place("bottom"), "put a window in the bottom half of its own monitor"),
-Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top left [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] top left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("top left", on_monitor=True), "put the window in the top left of monitor N"),
-    Command("place_top_right_of", ["(move|put|snap) [it|the window] [to|on] [the] top right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_top_right_of", ["(move|put|snap) [it|the window] [to|on] [the] top right [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] top right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("top right", on_monitor=True), "put the window in the top right of monitor N"),
-    Command("place_bottom_left_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_bottom_left_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom left [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] bottom left [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("bottom left", on_monitor=True), "put the window in the bottom left of monitor N"),
-    Command("place_bottom_right_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_bottom_right_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom right [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] bottom right [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("bottom right", on_monitor=True), "put the window in the bottom right of monitor N"),
-    Command("place_left_of", ["(move|put|snap) [it|the window] [to|on] [the] left [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_left_of", ["(move|put|snap) [it|the window] [to|on] [the] left [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] left [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("left", on_monitor=True), "put the window in the left of monitor N"),
-    Command("place_right_of", ["(move|put|snap) [it|the window] [to|on] [the] right [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_right_of", ["(move|put|snap) [it|the window] [to|on] [the] right [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] right [half|side] [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("right", on_monitor=True), "put the window in the right of monitor N"),
-    Command("place_top_of", ["(move|put|snap) [it|the window] [to|on] [the] top half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_top_of", ["(move|put|snap) [it|the window] [to|on] [the] top half [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] top half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("top", on_monitor=True), "put the window in the top of monitor N"),
-    Command("place_bottom_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
+    Command("place_bottom_of", ["(move|put|snap) [it|the window] [to|on] [the] bottom half [corner] (of|on) [the] (monitor|screen|display) [number] {name}",
+                       "(move|put|snap) [window] {where} [to|on] [the] bottom half [corner] (of|on) [the] (monitor|screen|display) [number] {name}"],
             _place("bottom", on_monitor=True), "put the window in the bottom of monitor N"),
     Command("to_monitor", ["(move|put|send) [it|this|the window] to (monitor|screen|display) [number] {name}",
+                           "(move|put|send) [window] {where} (to|onto|on) [the] (monitor|screen|display) [number] {name}",
+                           "window {where} to (monitor|screen|display) [number] {name}",
                            "(monitor|screen|display) [number] {name}"],
             _to_monitor, "move the window in front to monitor N (numbered left to right)"),
     Command("show_monitors", ["show [me] [the] (monitors|screens|displays|monitor numbers|screen numbers)",
@@ -686,15 +830,28 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
                             "label [the] (buttons|everything)", "number [the] buttons", "show (clickables|click targets)"],
             _show_labels, "number everything clickable in the window in front; then say 'click <number>'"),
     Command("hide_labels", ["hide [the] [click] (labels|numbers)", "clear [the] (labels|numbers)",
-                            "(labels|numbers) off"], hide_labels, "take the numbered labels away"),
+                            "(labels|numbers) off", "stop [the] labels", "no more labels"],
+            hide_labels, "take the numbered labels away (they stay up after each click until then)"),
     Command("sleep", ["put [the|my|this] (computer|pc) to sleep", "(sleep|suspend) [the|my|this] (computer|pc)",
                       "go to sleep", "(computer|pc) (sleep|go to sleep)", "sleep mode"],
             _sleep, "put the computer to sleep (asks you to say goodnight first)",
             confirm=["goodnight", "good night", "good nite", "night night"]),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     # Buttons and text.
-    Command("click", ["click [on] [number] {name}", "tap {name}"], _click,
+    Command("click", ["click [on] [number] {name}", "tap {name}", "click"], _click_kind(),
             "click a button, link, tab or menu item by its name, or a numbered label by its number"),
+    Command("double_click", ["double click [on] [number] {name}", "double click"],
+            _click_kind(double=True), "double-click a label, a grid cell, or a button by name"),
+    Command("right_click", ["right click [on] [number] {name}", "right click"],
+            _click_kind(button="right"), "right-click a label, a grid cell, or a button by name"),
+    Command("type_into", ["type (in|into) [field|box|label|number] {label} {text}",
+                          "type {text} (in|into) [field|box|label|number] {label}",
+                          "(fill|fill in) [field|box|label|number] {label} with {text}"],
+            _type_into, "type text into a numbered field: 'type into 12 hello'", text_slot=True),
+    Command("show_grid", ["show [me] [the] [mouse] grid", "[mouse] grid", "grid mode"],
+            _show_grid, "a numbered 3x3 grid over the window: a number zooms in, 'click 5' clicks"),
+    Command("hide_grid", ["hide [the] grid", "close [the] grid", "grid off"], hide_grid,
+            "take the grid away"),
     Command("type", ["type {text}"], _type, "type some text", text_slot=True),
     Command("paste_again", ["paste [that|it] again", "repeat [that|the] [last] dictation",
                             "paste [the] last dictation"], _paste_again,
@@ -709,7 +866,11 @@ BY_NAME = {c.name: c for c in COMMANDS}
 EXIT = ["exit command mode", "exit commands", "stop commands", "leave command mode",
         "exit", "done", "that is all"]
 #: Said after the start phrase (or after a dictation) to enter command mode.
-ENTER = ["command mode", "commands", "take commands", "control mode"]
+ENTER = ["command mode", "commands", "take commands", "control mode", "switch mode",
+         "back to commands", "command mode please"]
+#: Said in command mode to dictate (and come back to command mode after).
+DICTATE = ["dictation mode", "dictate", "start dictating", "switch mode", "take dictation",
+           "text mode", "typing mode", "switch to dictation", "dictation"]
 #: Answers to "say yes to ..." for a risky plan.
 YES = ["yes", "yes please", "yeah", "do it", "confirm", "go ahead", "okay do it"]
 NO = ["no", "cancel", "do not", "stop", "never mind", "nope"]
@@ -720,20 +881,22 @@ class Pattern:
     """A spoken pattern compiled to groups, matched without expanding it.
 
     Each group is a list of alternatives (word lists); [] among them means
-    the group is optional. None is the slot. Writing every combination out
-    instead gave 42,000 forms, and checking one long burst of ordinary
-    speech against them took a minute - the listener fell that far behind
-    and missed stop phrases.
+    the group is optional. A str is a named slot of one or more words:
+    {name} or {text} (the command's argument), {where} (the window to do it
+    in: "move window 8 to screen 1"), {label} (a numbered label: "type into
+    12 ..."). Writing every combination out instead gave 42,000 forms, and
+    checking one long burst of speech against them took a minute - the
+    listener fell that far behind and missed stop phrases.
     """
     command: Command
-    groups: list[list[list[str]] | None]
+    groups: list[list[list[str]] | str]
 
     @staticmethod
     def compile(command: Command, text: str) -> Pattern:
-        groups: list[list[list[str]] | None] = []
+        groups: list[list[list[str]] | str] = []
         for part in re.findall(r"\{\w+\}|\[[^\]]*\]|\([^)]*\)|[^\s\[\]()]+", text):
             if part.startswith("{"):
-                groups.append(None)
+                groups.append(part[1:-1])
             elif part.startswith("["):
                 groups.append([[]] + [normalise(a) for a in part[1:-1].split("|")])
             elif part.startswith("("):
@@ -742,27 +905,27 @@ class Pattern:
                 groups.append([normalise(part)])
         return Pattern(command, groups)
 
-    def match(self, words: list[str]) -> tuple[float, list[str]] | None:
-        """(score, slot words) for the best reading of all of ``words``, or
-        None. Score = the worst word's similarity; ties go to the shortest
-        slot, so "move chrome to the left" names "chrome"."""
+    def match(self, words: list[str]) -> tuple[float, dict[str, list[str]]] | None:
+        """(score, {slot: words}) for the best reading of all of ``words``,
+        or None. Score = the worst word's similarity; ties go to the shortest
+        slots, so "move chrome to the left" names "chrome"."""
         n, groups = len(words), self.groups
-        best: dict[tuple[int, int], tuple[float, int, tuple[int, int]]] = {}
+        memo: dict[tuple[int, int], tuple | None] = {}
 
-        def go(i: int, g: int) -> tuple[float, int, tuple[int, int]] | None:
-            # -> (score, slot length, slot span) for words[i:] against groups[g:]
+        def go(i: int, g: int):
+            # -> (score, -slot words, ((slot, start, end), ...)) for words[i:] vs groups[g:]
             if g == len(groups):
-                return (1.0, 0, (0, 0)) if i == n else None
+                return (1.0, 0, ()) if i == n else None
             key = (i, g)
-            if key in best:
-                return best[key]
+            if key in memo:
+                return memo[key]
             result = None
             group = groups[g]
-            if group is None:  # the slot: one or more words
+            if isinstance(group, str):  # a slot: one or more words
                 for j in range(i + 1, n + 1):
                     rest = go(j, g + 1)
                     if rest is not None:
-                        cand = (rest[0], -(j - i), (i, j))
+                        cand = (rest[0], rest[1] - (j - i), ((group, i, j),) + rest[2])
                         if result is None or cand[:2] > result[:2]:
                             result = cand
             else:
@@ -771,8 +934,8 @@ class Pattern:
                     if i + k > n:
                         continue
                     score = 1.0
-                    for a, b in zip(words[i : i + k], alt):
-                        score = min(score, _word_sim(a, b))
+                    for x, y in zip(words[i : i + k], alt):
+                        score = min(score, _word_sim(x, y))
                         if score < ACCEPT:
                             break
                     if score < ACCEPT:
@@ -782,14 +945,13 @@ class Pattern:
                         cand = (min(score, rest[0]), rest[1], rest[2])
                         if result is None or cand[:2] > result[:2]:
                             result = cand
-            best[key] = result
+            memo[key] = result
             return result
 
         r = go(0, 0)
         if r is None:
             return None
-        a, b = r[2]
-        return r[0], words[a:b]
+        return r[0], {name: words[i:j] for name, i, j in r[2]}
 
 
 @functools.lru_cache(maxsize=65536)
@@ -821,7 +983,8 @@ def _clean_name(words: list[str]) -> list[str]:
         run = []
     if spelled:
         return [spelled[-1]]
-    while len(words) > 1 and words[0] in ("the", "my", "a", "that", "this", "me"):
+    while len(words) > 1 and words[0] in ("the", "my", "a", "that", "this", "me", "window",
+                                          "number"):
         words = words[1:]
     if len(words) > 1 and words[-1] in _NAME_TAIL:
         words = words[:-1]
@@ -836,8 +999,8 @@ LEARNED_MATCH = 0.9
 
 
 def load_learned(path: Path | None) -> dict[str, dict]:
-    """Phrases learned from misses: {"select heroes": {"command": "switch",
-    "arg": "kiros", "where": ""}}. Kept on this PC only (learned.json)."""
+    """Phrases learned from misses: {"select no shun": {"command": "switch",
+    "arg": "notion", "where": ""}}. Kept on this PC only (learned.json)."""
     if path is None:
         return {}
     try:
@@ -865,6 +1028,7 @@ class Grammar:
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
         self.yes = [normalise(s) for s in YES]
+        self.dictate = [normalise(s) for s in DICTATE]
         self.no = [normalise(s) for s in NO]
 
     def parse(self, words: list[str]) -> Parsed | None:
@@ -946,12 +1110,18 @@ class Grammar:
             m = pat.match(words)
             if m is None:
                 continue
-            score, slot = m
+            score, slots = m
             c = pat.command
-            arg = " ".join(slot if c.text_slot else _clean_name(slot))
+            words_ = slots.get("name") or slots.get("text") or []
+            arg = " ".join(words_ if c.text_slot else _clean_name(words_))
+            where = " ".join(_clean_name(slots.get("where", [])))
+            label = " ".join(slots.get("label", []))
+            size = len(arg.split()) + len(where.split()) + len(label.split())
             if score >= ACCEPT and (best is None or score > best.score
-                                    or (score == best.score and len(arg.split()) < len(best.arg.split()))):
-                best = Parsed(c, "", score, where=arg) if c.aim and arg else Parsed(c, arg, score)
+                                    or (score == best.score and size < best.size)):
+                if c.aim and arg and not where:
+                    arg, where = "", arg
+                best = Parsed(c, arg, score, where=where, label=label)
         return best
 
     def is_one(self, words: list[str], forms: list[list[str]]) -> bool:
@@ -1113,6 +1283,8 @@ class Runner:
                     if p.where:
                         _switch(p.where, ctx)
                         time.sleep(0.2)  # let it take focus before the keys
+                    if p.label:
+                        ctx.label = p.label
                     result.append(p.command.action(p.arg, ctx))
                     if name not in ("undo_command", "undo") or not result[-1].startswith("Undid"):
                         if name not in ("undo_command",):

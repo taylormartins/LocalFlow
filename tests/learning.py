@@ -1,4 +1,5 @@
-"""Learning from missed commands, through the real always-on listener.
+"""Command mode, through the real always-on listener: learning from missed
+commands, switching to dictation and back, and the grid's numbers.
 
 Words are fed in as if heard, so no speech model is loaded: runs in a
 second, on any PC. Uses a scratch learned-phrases file, never yours.
@@ -87,5 +88,34 @@ p = lis2.grammar.parse("roll the page downward".split())
 expect("learned phrase loads from the file", p is not None and p.command.name == "scroll_down", str(p))
 lis2.grammar.forget("roll the page downward")
 expect("forget removes it", lis2.grammar.parse("roll the page downward".split()) is None)
+
+print("switching modes")
+import time  # noqa: E402
+
+from localflow import commands as cmds  # noqa: E402
+from localflow.engine import State  # noqa: E402
+
+lis.commanding = True
+events.clear()
+say("dictation mode")
+expect("'dictation mode' leaves command mode and starts a dictation",
+       lis.dictating and not lis.commanding and ("start", "dictation mode") in events, str(events))
+# The dictation ends (stop phrase; nothing transcribed here) and the paste is done.
+lis.dictating = False
+engine.cancel_external()  # what a finished dictation leaves: idle
+lis._on_engine_state(State.IDLE, "")
+time.sleep(0.9)
+expect("...and command mode comes back after it", lis.commanding, str(events))
+lis._return_to_commands = False
+
+print("the grid's numbers")
+lis.commanding = True
+cmds._grid[:] = [(0, 0, 900, 900)]
+say("five")
+expect("a number on its own zooms into that cell", cmds._grid[:1] == [(300, 300, 600, 600)],
+       str(cmds._grid))
+say("nine")
+expect("...and again", cmds._grid[:1] == [(500, 500, 600, 600)], str(cmds._grid))
+cmds.hide_grid()
 
 print("\nall passed" if not failures else f"\n{failures} FAILED")

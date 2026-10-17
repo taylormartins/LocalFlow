@@ -33,7 +33,8 @@ from collections.abc import Callable
 import numpy as np
 
 from .audio import resolve_candidates
-from .commands import Ctx, Grammar, Parsed, Runner, describe, is_noise, plan_with_llm, resolvable, trim
+from .commands import Ctx, Grammar, Parsed, Runner, describe, grid_up, is_noise, plan_with_llm, resolvable, trim
+from .desktop import number as desktop_number
 from .config import Config
 from .engine import State
 from .wake import RATE, Detector, Hit, Phrases, find, normalise, strip_phrases
@@ -144,6 +145,7 @@ class Listener:
         #: "Learn this?" waiting for "remember that": (phrase, command, deadline).
         self._offer: tuple[str, Parsed, float] | None = None
         self._said: dict[int, str] = {}  # id(Parsed) -> the words it came from
+        self._return_to_commands = False  # a dictation begun from command mode
         self.runner = Runner(self._command_done)
         # Command mode.
         self.commanding = False
@@ -550,6 +552,21 @@ class Listener:
         else:
             self._near("stop", words, after)
 
+    def _relisten(self, clip, fresh: float) -> list[str]:
+        """The words of ``clip`` (after ``fresh`` s) by the dictation model,
+        or [] if it's busy or not loaded."""
+        tr = self.engine.transcriber
+        if tr._model is None or not self.engine._pipeline_lock.acquire(blocking=False):
+            return []
+        try:
+            words = self.detector.words(clip, model=tr._model)
+        except Exception:
+            log.debug("second listen failed", exc_info=True)
+            return []
+        finally:
+            self.engine._pipeline_lock.release()
+        return trim([w.text for w in words if w.start >= fresh - 0.05])
+
     def _second_opinion(self, which: str, clip, fresh: float, words):
         """The listening model is small, and names suffer: one start phrase in
         four lost the last syllable of the name (a name like "Marigold"
@@ -593,6 +610,22 @@ class Listener:
         self.last_near = (which, heard)
         self.on_event("near", f"{which}: {heard}")
         return True
+
+    def _dictate_now(self, begin: int) -> None:
+        """Start a dictation at ``begin`` (said "dictation mode" in command
+        mode). When it ends, command mode comes back."""
+        log.info("always-on: dictation from command mode")
+        self.on_event("start", "dictation mode")
+        with self._lock:
+            prefill = self.ring.get(begin, self.ring.end)
+            if not self.engine.start_external(prefill):
+                return
+            self._dict_start = begin
+            self._dict_heard = True  # it was asked for: don't take it for a command
+            self._consumed = max(self._consumed, begin)
+            self._last_speech = self.ring.end
+            self.dictating = True
+        self._return_to_commands = True
 
     def _begin(self, a: int, b: int, hit: Hit) -> None:
         log.info("always-on: start phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
@@ -767,10 +800,11 @@ class Listener:
         self.commanding_announced = False
         self._confirm = None
         self._held = []
-        from .commands import hide_labels, hide_windows
+        from .commands import hide_grid, hide_labels, hide_windows
 
         hide_labels()
         hide_windows()
+        hide_grid()
         log.info("always-on: command mode off (%s)", message)
         self.on_event("command-mode", "off")
         if self.engine.state == State.COMMAND:
@@ -787,6 +821,10 @@ class Listener:
         # A dictation or paste took over the pill; put command mode back after.
         if state == State.IDLE and self.commanding:
             threading.Timer(0.6, lambda: self._show(self._mode_msg)).start()
+        elif state in (State.IDLE, State.ERROR) and self._return_to_commands and not self.dictating:
+            # A dictation started from command mode is done: back to commands.
+            self._return_to_commands = False
+            threading.Timer(0.6, self._enter_commands).start()
 
     def _command_burst(self, a: int, b: int, words, clip, fresh: float) -> None:
         if self.engine.recording or self.engine.state not in (
@@ -813,6 +851,22 @@ class Listener:
                 texts, self.grammar.exit):
             self.leave_commands()
             return
+        if self.grammar.is_one(texts, self.grammar.dictate):
+            # Dictate from command mode; back to command mode after the stop phrase.
+            self.leave_commands("Dictating")
+            self._dictate_now(b)
+            return
+        if grid_up():
+            n = desktop_number(" ".join(texts))
+            if n is not None:
+                # With the grid up, a number on its own zooms into that cell.
+                from .commands import BY_NAME, CommandError, grid_zoom
+
+                try:
+                    self._show(grid_zoom(n))
+                except CommandError as exc:
+                    self._show(f"✗ {exc}")
+                return
         if self._confirm is not None:
             plan, answers, deadline = self._confirm
             self._confirm = None
@@ -854,6 +908,19 @@ class Listener:
             self._held = []
             self._take(p, " ".join(texts))
             return
+        if not self._held:
+            # Command words are short and said alone, which is where the small
+            # listening model slips ("paste" heard as "peace" four times in a
+            # row). The dictation model gets a second listen before giving up.
+            better = self._relisten(clip, fresh)
+            if better and better != texts:
+                q = self.grammar.parse(better)
+                if q is not None and self._usable(q):
+                    log.info("always-on: %r on a second listen (heard %r first)",
+                             " ".join(better), " ".join(texts))
+                    self._take(q, " ".join(better))
+                    return
+                texts = better
         # Not a command (yet): wait for the end of the sentence.
         self._held.append(" ".join(texts))
         self._held_at = b  # the burst's end: Whisper's word times run early

@@ -528,6 +528,18 @@ phrase (while dictating) is among them.
   and open again, retrying while there's no mic at all. The resampler is
   rebuilt when the rate changes. Tray ▸ Microphone lists
   `audio.microphones()` (WASAPI names, once each) and sets `audio.device`.
+- **Command mode, more**: patterns can have several named slots ({name},
+  {text}, {where}, {label}), so "move window 8 to screen 1" is to_monitor(1)
+  in window 8. An unparsed command-mode burst is re-heard by the dictation
+  model (`Listener._relisten`) before it's held for the LLM. Mode switch:
+  `DICTATE` words start a dictation (`_dictate_now`); `_return_to_commands`
+  re-enters command mode when the engine goes idle after it. Label styles
+  are label/big/chip/grid: chips (`desktop.window_chips`) only go on
+  windows whose title bar point hits them (`WindowFromPoint` + `GA_ROOT`).
+  The grid is 3x3 cells of `_grid[0]`; a bare number zooms in, "click N"
+  clicks a cell's centre. After a label click, the labels are re-scanned
+  (`_refresh_labels`). "type into N" focuses the control
+  (UIA `SetFocus`, else a click) and pastes.
 - **Learning from misses** (`Listener._missed`, `_offer_learning`,
   `_maybe_learn`; `Grammar.learned`). A miss is a short (6 words or fewer),
   non-noise utterance that wasn't understood, or a command that failed
@@ -587,7 +599,7 @@ uv run python tests/always_on.py            # always-on end to end with TTS (CPU
 uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
 uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer); PC idle
 uv run python tests/command_phrases.py     # how phrases from real logs parse (no windows)
-uv run python tests/learning.py            # learning from missed commands (no models)
+uv run python tests/learning.py            # command mode: learning, mode switch, grid (no models)
 uv run python tests/terminal_paste.py       # paragraphs + submit into Windows Terminal
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter
