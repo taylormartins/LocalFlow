@@ -528,6 +528,17 @@ phrase (while dictating) is among them.
   and open again, retrying while there's no mic at all. The resampler is
   rebuilt when the rate changes. Tray ▸ Microphone lists
   `audio.microphones()` (WASAPI names, once each) and sets `audio.device`.
+- **Learning from misses** (`Listener._missed`, `_offer_learning`,
+  `_maybe_learn`; `Grammar.learned`). A miss is a short (6 words or fewer),
+  non-noise utterance that wasn't understood, or a command that failed
+  ("no window called heroes"). If a command then works within 20 s, it is
+  offered. In command mode, "works" means the Runner reported success. After
+  a dictation, the command counts as taken. "Remember that" within 15 s
+  saves the miss to `learned.json` (gitignored). `Grammar.parse` checks
+  learned phrases first: exact, or a whole-phrase similarity of 0.9 or more.
+  It never learns unasked: a remark followed by an unrelated command must
+  not become a shortcut. `tests/learning.py` drives the real listener with
+  words, without loading any model.
 - **Quit always quits**: `Tray._quit` starts `_exit_if_stuck`. If the
   clean shutdown (logged step by step) hasn't ended the process in 8 s, it
   dumps every thread's stack to crash.log and calls `os._exit(0)`. A work-PC
@@ -576,6 +587,7 @@ uv run python tests/always_on.py            # always-on end to end with TTS (CPU
 uv run python tests/paste_target.py         # paste where I started (shows 2 windows)
 uv run python tests/desktop_commands.py     # voice commands on a test window (+ LLM layer); PC idle
 uv run python tests/command_phrases.py     # how phrases from real logs parse (no windows)
+uv run python tests/learning.py            # learning from missed commands (no models)
 uv run python tests/terminal_paste.py       # paragraphs + submit into Windows Terminal
 uv run localflow listen                     # always-on in the console, pastes nothing
 uv run localflow level                      # live mic meter

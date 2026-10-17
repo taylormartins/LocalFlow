@@ -374,6 +374,14 @@ again by the dictation model, which hears names far better. The phrase still
 has to match in full, and nothing is primed, so it doesn't trigger more
 easily on other speech. This only costs time on near misses.
 
+**It learns how you say things.** When a command isn't understood (or names
+a window that doesn't exist) and something you say right after it works, the
+pill offers: *"select heroes" = switch to kiros? Say "remember that"*. Say
+**"remember that"** within 15 seconds, and from then on the first phrasing
+means that command too. It never learns without your yes. Tray ▸ **Learned
+phrases** lists them; click one to forget it. They're kept in `learned.json`
+on this PC only.
+
 **When a phrase isn't caught.** A phrase that came close but wasn't accepted
 is logged (`start phrase? heard 'okay listen merry gold' (0.78)`), and the tray
 offers **Accept "okay listen merry gold" as the start phrase**, a one-click

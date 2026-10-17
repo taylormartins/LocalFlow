@@ -136,7 +136,14 @@ class Listener:
         self._delivered = False  # this dictation's text is in (paste done)
         self._pending: Parsed | None = None  # heard before the paste finished
         self._cmd_lock = threading.Lock()
-        self.grammar = Grammar(extra=cfg.always_on.commands)
+        from .commands import LEARNED
+
+        self.grammar = Grammar(extra=cfg.always_on.commands, learned_file=LEARNED)
+        #: The last thing said that wasn't understood: (words, monotonic time).
+        self._miss: tuple[str, float] | None = None
+        #: "Learn this?" waiting for "remember that": (phrase, command, deadline).
+        self._offer: tuple[str, Parsed, float] | None = None
+        self._said: dict[int, str] = {}  # id(Parsed) -> the words it came from
         self.runner = Runner(self._command_done)
         # Command mode.
         self.commanding = False
@@ -492,6 +499,11 @@ class Listener:
 
     def _handle(self, a: int, b: int, clip, words) -> None:
         fresh = max(0.0, (self._consumed - a) / RATE)  # skip words a phrase already used
+        if self._offer is not None and not self.dictating:
+            said = [w for w in words if w.start >= fresh - 0.05]
+            if said and self._maybe_learn([w.text for w in said]):
+                self._consumed = max(self._consumed, a + int(said[-1].end * RATE))
+                return
         if self.commanding:
             self._command_burst(a, b, words, clip, fresh)
             return
@@ -663,6 +675,7 @@ class Listener:
             if len(trim(texts)) <= 6:
                 log.info("always-on: no command in %r", " ".join(texts))
                 self.on_event("unknown", " ".join(texts))
+                self._missed(" ".join(texts))
             return False
         self._consumed = max(self._consumed, a + int(pool[-1].end * RATE))
         with self._cmd_lock:
@@ -676,6 +689,7 @@ class Listener:
             return True
         log.info("always-on: command %r (%r)", p.command.name, " ".join(texts))
         self.on_event("command", p.command.name)
+        self._offer_learning(p)
         if ready:
             self._do(p, after_dictation=True)
         return True
@@ -831,13 +845,14 @@ class Listener:
         if self._held:
             p = self.grammar.parse(self._held_words() + texts)
             if p is not None and self._usable(p):
+                said = " ".join(self._held_words() + texts)
                 self._held = []
-                self._take(p)
+                self._take(p, said)
                 return
         p = self.grammar.parse(texts)
         if p is not None and self._usable(p):
             self._held = []
-            self._take(p)
+            self._take(p, " ".join(texts))
             return
         # Not a command (yet): wait for the end of the sentence.
         self._held.append(" ".join(texts))
@@ -853,9 +868,11 @@ class Listener:
 
         return time.time() - list_shown_at() < 60
 
-    def _take(self, p: Parsed) -> None:
+    def _take(self, p: Parsed, said: str = "") -> None:
         log.info("always-on: command %r", p.command.name)
         self.on_event("command", p.command.name)
+        if said:
+            self._said[id(p)] = said  # for learning: a failure is a miss too
         self._do(p)
 
     def _finish_request(self, request: str) -> None:
@@ -865,7 +882,7 @@ class Listener:
             return
         p = self.grammar.parse(request.split())
         if p is not None and (self._usable(p) or not self._llm_on()):
-            self._take(p)
+            self._take(p, request)
         else:
             self._ask_llm(request)
 
@@ -912,9 +929,59 @@ class Listener:
 
         threading.Thread(target=go, daemon=True, name="localflow-command-llm").start()
 
+    # -- learning from misses -------------------------------------------------
+
+    #: A command that works this soon after a miss is offered as its meaning.
+    LEARN_AFTER = 20.0
+    #: How long the offer waits for "remember that".
+    LEARN_OFFER = 15.0
+
+    def _missed(self, said: str) -> None:
+        words = trim(said.split())
+        if 1 <= len(words) <= 6 and not is_noise(words):
+            self._miss = (" ".join(words), time.monotonic())
+
+    def _offer_learning(self, p: Parsed) -> None:
+        """A command just worked; if something was missed just before, offer
+        to remember that as another way to say it. Only offered, never learned
+        on its own: an unrelated remark followed by a command must not turn
+        into a shortcut."""
+        miss, self._miss = self._miss, None
+        if miss is None or time.monotonic() - miss[1] > self.LEARN_AFTER:
+            return
+        phrase = miss[0]
+        if p.command.name in ("undo_command", "help"):
+            return
+        same = self.grammar.parse(phrase.split())
+        if same is not None and (same.command.name, same.arg, same.where) == (
+                p.command.name, p.arg, p.where):
+            return  # it already means this
+        self._offer = (phrase, p, time.monotonic() + self.LEARN_OFFER)
+        log.info("always-on: offering to learn %r as %s", phrase, p)
+        self.on_event("learn-offer", f"{phrase} = {p}")
+        shown = phrase if len(phrase) <= 18 else phrase[:17] + "…"
+        self.engine.notice(f'"{shown}" = {describe(p)[:20]}? Say "remember that"', "info",
+                           self.LEARN_OFFER)
+
+    def _maybe_learn(self, texts: list[str]) -> bool:
+        """ "Remember that" while an offer stands: learn it. True if taken."""
+        offer = self._offer
+        if offer is None or not self.grammar.is_one(texts, self.grammar.remember):
+            return False
+        self._offer = None
+        phrase, p, deadline = offer
+        if time.monotonic() > deadline:
+            return False
+        key = self.grammar.learn(phrase, p)
+        log.info("always-on: learned %r as %s", key, p)
+        self.on_event("learned", f"{key} = {p}")
+        self.engine.notice(f'Learned: "{key[:20]}" = {describe(p)[:18]}', "ok", 6)
+        return True
+
     def _not_understood(self, request: str) -> None:
         log.info("always-on: not a command: %r", request[:80])
         self.on_event("unknown", request)
+        self._missed(request)
         self._show(f"Didn't catch: {request}")
 
     def _ctx(self) -> Ctx:
@@ -980,6 +1047,11 @@ class Listener:
 
     def _command_done(self, p: Parsed, message: str, ok: bool) -> None:
         self.on_event("done" if ok else "failed", message)
+        said = self._said.pop(id(p), "")
+        if ok:
+            self._offer_learning(p)  # it worked: was something missed just before?
+        elif said:
+            self._missed(said)  # "select heroes" -> "no window called heroes"
         if self.commanding:
             self._show(message if ok else f"✗ {message}")
         elif not ok and self.engine.state == State.IDLE:

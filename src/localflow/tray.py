@@ -181,6 +181,11 @@ class Tray:
                     visible=lambda _: bool(self.always_on and self.always_on.last_near),
                 ),
                 pystray.MenuItem(
+                    "Learned phrases",
+                    pystray.Menu(lambda: self._learned_items(pystray)),
+                    visible=lambda _: self.always_on is not None,
+                ),
+                pystray.MenuItem(
                     "Paste where I started",
                     self._toggle_paste_to,
                     checked=lambda _: self.engine.cfg.inject.paste_to == "start",
@@ -359,6 +364,31 @@ class Tray:
         log.info("always-on: added a %s phrase spelling", which)
         self.notify(f'"{heard}" now counts as your {which} phrase')
         self.icon.update_menu()
+
+    # -- learned phrases ----------------------------------------------------
+
+    def _learned_items(self, pystray) -> list:
+        """What's been learned from missed commands; click one to forget it."""
+        from .commands import BY_NAME, Parsed, describe
+
+        lis = self.always_on
+        learned = lis.grammar.learned if lis is not None else {}
+        if not learned:
+            return [pystray.MenuItem('None yet: say "remember that" when offered', None,
+                                     enabled=False)]
+
+        def forget(phrase: str):
+            def action(icon, item) -> None:
+                lis.grammar.forget(phrase)
+                self.notify(f'Forgot "{phrase}"')
+                icon.update_menu()
+            return action
+
+        items = [pystray.MenuItem("Click one to forget it", None, enabled=False)]
+        for phrase, d in sorted(learned.items()):
+            p = Parsed(BY_NAME[d["command"]], d.get("arg", ""), 1.0, where=d.get("where", ""))
+            items.append(pystray.MenuItem(f'"{phrase}" = {describe(p)}', forget(phrase)))
+        return items
 
     # -- microphone ---------------------------------------------------------
 

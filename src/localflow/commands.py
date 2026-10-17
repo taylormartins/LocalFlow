@@ -29,8 +29,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from pathlib import Path
+
 from . import desktop
+from .config import PROJECT_ROOT
 from .wake import _aligned, normalise
+
+#: Phrases learned from missed commands, on this PC only (gitignored).
+LEARNED = PROJECT_ROOT / "learned.json"
 
 log = logging.getLogger(__name__)
 
@@ -822,14 +828,40 @@ def _clean_name(words: list[str]) -> list[str]:
     return words
 
 
+#: Said to accept "learn this?" after a missed command.
+REMEMBER = ["remember that", "remember it", "remember this", "learn that", "learn it",
+            "save that", "yes remember that"]
+#: A learned phrase also matches what's heard this close to it, whole.
+LEARNED_MATCH = 0.9
+
+
+def load_learned(path: Path | None) -> dict[str, dict]:
+    """Phrases learned from misses: {"select heroes": {"command": "switch",
+    "arg": "kiros", "where": ""}}. Kept on this PC only (learned.json)."""
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {k: v for k, v in data.items() if isinstance(v, dict) and v.get("command") in BY_NAME}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        log.warning("could not read %s: %s", path, exc)
+        return {}
+
+
 @dataclass
 class Grammar:
-    """Spoken patterns -> commands. Extra spellings come from the config."""
+    """Spoken patterns -> commands. Extra spellings come from the config;
+    phrases learned from misses come from ``learned_file`` (None: none)."""
     extra: dict[str, list[str]] = field(default_factory=dict)
+    learned_file: Path | None = None
 
     def __post_init__(self) -> None:
         self.patterns = [Pattern.compile(c, p) for c in COMMANDS
                          for p in c.patterns + self.extra.get(c.name, [])]
+        self.learned = load_learned(self.learned_file)
+        self.remember = [normalise(s) for s in REMEMBER]
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
         self.yes = [normalise(s) for s in YES]
@@ -848,6 +880,9 @@ class Grammar:
         words = trim(words)
         if not words:
             return None
+        known = self._learned(words)
+        if known is not None:
+            return known
         best = self._parse(words)
         for i in range(len(words) - 2, 0, -1):
             if words[i] not in _WHERE:
@@ -866,6 +901,41 @@ class Grammar:
                 best = p
                 break
         return best
+
+    # -- learned from misses ------------------------------------------------
+
+    def _learned(self, words: list[str]) -> Parsed | None:
+        if not self.learned:
+            return None
+        said = " ".join(words)
+        best, best_score = None, LEARNED_MATCH
+        for phrase, d in self.learned.items():
+            score = 1.0 if phrase == said else _word_sim(phrase, said)
+            if score >= best_score:
+                best, best_score = d, score
+        if best is None:
+            return None
+        return Parsed(BY_NAME[best["command"]], best.get("arg", ""), best_score,
+                      where=best.get("where", ""))
+
+    def learn(self, phrase: str, p: Parsed) -> str:
+        """Remember ``phrase`` as another way to say ``p``. Returns the key."""
+        key = " ".join(trim(normalise(phrase)))
+        self.learned[key] = {"command": p.command.name, "arg": p.arg, "where": p.where}
+        self._save_learned()
+        return key
+
+    def forget(self, phrase: str) -> None:
+        self.learned.pop(phrase, None)
+        self._save_learned()
+
+    def _save_learned(self) -> None:
+        if self.learned_file is None:
+            return
+        try:
+            self.learned_file.write_text(json.dumps(self.learned, indent=2), encoding="utf-8")
+        except OSError as exc:
+            log.warning("could not save learned phrases: %s", exc)
 
     def _parse(self, words: list[str]) -> Parsed | None:
         # Commands are short; only "type ..." carries free text of any length.

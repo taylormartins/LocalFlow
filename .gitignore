@@ -25,6 +25,9 @@ crash.log
 # Sideloaded Whisper models (localflow import-model)
 models/
 
+# Phrases learned from missed voice commands (this PC only)
+learned.json
+
 # Your saved dictations (history window)
 history.jsonl
 history.tmp

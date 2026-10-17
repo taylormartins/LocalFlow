@@ -77,18 +77,33 @@ def main() -> int:
         print(f"  voice limit {getattr(phrases, which).dtw_limit:.3f}")
     phrases.save()
 
+    from localflow import commands as commands_mod
     from localflow.always_on import Listener
     from localflow.engine import Engine
+
+    commands_mod.LEARNED = TMP / "learned.json"  # never your own learned phrases
 
     engine = Engine(cfg)
     engine.transcriber.load()
     results, events = [], []
     engine.on_result(lambda r: results.append(r.text))
 
-    def run(audio: np.ndarray, clip_name: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
+    def run(audio: np.ndarray, clip_name: bool = False, succeed: bool = False
+            ) -> tuple[list[str], list[tuple[str, str]]]:
         results.clear()
         events.clear()
         lis = Listener(engine, cfg, inject=False, on_event=lambda k, t: events.append((k, t)))
+        if succeed:
+            # Nothing is really run here (inject=False); report every command
+            # as having worked, as the command thread would.
+            real_do = lis._do
+
+            def do(p, after_dictation=False, confirmed=False):
+                real_do(p, after_dictation=after_dictation, confirmed=confirmed)
+                if not p.command.confirm or confirmed:
+                    lis._command_done(p, "ok", True)
+
+            lis._do = do
         if clip_name:
             # The small listening model loses the end of the name ("okay
             # listen marig", the way it cut a name short in real use); the
@@ -229,6 +244,24 @@ def main() -> int:
 
     got, ev = run(build(1.0, say(START), 0.5, body, 0.6, say(STOP), 0.8, say("Scratch that."), 2.0))
     expect("'scratch that' after a dictation", ran(ev) == ["scratch"], f"events={ev}")
+
+    print("\nlearning from misses")
+
+    def kinds(ev, kind):
+        return [t for k, t in ev if k == kind]
+
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Roll the page downward."), 2.5,
+                        say("Scroll down."), 1.0, say("Remember that."), 2.0), succeed=True)
+    expect("a miss, then a command that works, then 'remember that': learned",
+           kinds(ev, "learned") == ["roll the page downward = scroll_down"], f"events={ev}")
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Roll the page downward."), 2.0),
+                  succeed=True)
+    expect("...and it works from then on", ran(ev) == ["scroll_down"], f"events={ev}")
+    got, ev = run(build(1.0, say(START + " Command mode."), 1.0, say("Make me a sandwich."), 2.5,
+                        say("Scroll up."), 1.0, say("Okay, thanks."), 2.0), succeed=True)
+    expect("offered but not accepted: nothing learned",
+           bool(kinds(ev, "learn-offer")) and not kinds(ev, "learned"), f"events={ev}")
+    (TMP / "learned.json").unlink(missing_ok=True)
 
     print("\nsecond listen on a near miss")
     got, ev = run(build(1.0, say(START), 0.6, say("Order more coffee for the office."), 0.8,
