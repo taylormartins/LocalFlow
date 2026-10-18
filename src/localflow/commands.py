@@ -871,6 +871,19 @@ ENTER = ["command mode", "commands", "take commands", "control mode", "switch mo
 #: Said in command mode to dictate (and come back to command mode after).
 DICTATE = ["dictation mode", "dictate", "start dictating", "switch mode", "take dictation",
            "text mode", "typing mode", "switch to dictation", "dictation"]
+#: After the stop phrase: throw the dictation away instead of pasting it
+#: (or, if it's already in, delete it).
+CANCEL = ["cancel", "cancel that", "never mind", "nevermind", "forget it", "forget that",
+          "do not paste", "do not paste that", "throw that away", "discard", "discard that",
+          "escape"]
+#: In command mode: asks which mode to start in.
+DEFAULT_MODE = ["change default mode", "change the default mode", "default mode",
+                "set default mode", "set the default mode", "switch default mode",
+                "change my default mode"]
+#: Answers to it (also said straight after: "default mode command mode").
+AS_COMMAND = ["command mode", "command", "commands", "command mode please", "control mode"]
+AS_DICTATION = ["dictation mode", "dictation", "dictate", "dictation mode please", "text mode",
+                "typing mode"]
 #: Answers to "say yes to ..." for a risky plan.
 YES = ["yes", "yes please", "yeah", "do it", "confirm", "go ahead", "okay do it"]
 NO = ["no", "cancel", "do not", "stop", "never mind", "nope"]
@@ -1030,6 +1043,10 @@ class Grammar:
         self.yes = [normalise(s) for s in YES]
         self.dictate = [normalise(s) for s in DICTATE]
         self.no = [normalise(s) for s in NO]
+        self.cancel = [normalise(s) for s in CANCEL]
+        self.default_mode = [normalise(s) for s in DEFAULT_MODE]
+        self.as_command = [normalise(s) for s in AS_COMMAND]
+        self.as_dictation = [normalise(s) for s in AS_DICTATION]
 
     def parse(self, words: list[str]) -> Parsed | None:
         """The command these words are, if they are one in full.

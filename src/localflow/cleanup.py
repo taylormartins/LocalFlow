@@ -221,6 +221,15 @@ class Cleaner:
         #: refused it) or "failed" (LLM unreachable or errored). The last two
         #: fall back to the rules. Only "failed" means the LLM was unavailable.
         self.last_outcome = ""
+        #: Set by health.OllamaHealth while Ollama is down or hung: go straight
+        #: to the rules instead of waiting out the timeout on every dictation.
+        self.llm_down = False
+        #: Called when an LLM call fails (the health watcher probes then).
+        self.on_failure = None
+
+    def failed(self) -> None:
+        if self.on_failure is not None:
+            self.on_failure()
 
     def close(self) -> None:
         self._client.close()
@@ -349,6 +358,10 @@ class Cleaner:
             log.debug("transcript already clean; skipping LLM")
             return text
 
+        if self.llm_down:
+            self.last_outcome = "failed"
+            return self._rules(text)
+
         messages = [{"role": "system", "content": self._system_prompt()}]
         for example_in, example_out in FEW_SHOT:
             messages.append({"role": "user", "content": example_in})
@@ -381,6 +394,7 @@ class Cleaner:
         except Exception as exc:
             log.warning("cleanup failed (%s); using algorithmic cleanup", exc)
             self.last_outcome = "failed"
+            self.failed()
             return self._rules(text)
 
         if not _plausible(text, cleaned):

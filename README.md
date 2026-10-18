@@ -304,6 +304,12 @@ follows.
   see a long dictation land before saying "submit" works.
 - A command only counts said on its own: "submit the form tomorrow" is just
   talk.
+- **"cancel"** (or "never mind", "forget it", "don't paste") throws the
+  dictation away: it's not pasted (it's still in Dictation history). Said
+  after the text is already in, it deletes it, like "scratch that". You can
+  say it in the same breath as the stop phrase. The window stays open, so
+  **"command mode"** can follow: that's the way out of a dictation you didn't
+  mean to make.
 
 **Command mode: control the computer by voice.** Say the start phrase
 followed by **"command mode"**, or by a command itself ("Okay listen,
@@ -311,7 +317,8 @@ Marigold. Switch to Chrome."). The pill turns teal and everything you say is
 taken as a command until you say **"exit"**, the stop phrase, or nothing for
 30 seconds (`always_on.command_mode_seconds`). The start phrase still starts a
 dictation from command mode. Tray ▸ **Command mode** switches it on and off
-too. Commands work without an LLM:
+too. To live in command mode instead, make it the default (see
+*Switching between commands and dictation*). Commands work without an LLM:
 
 | Say | Does |
 |---|---|
@@ -336,7 +343,8 @@ too. Commands work without an LLM:
 | switch window · show desktop | windows |
 | undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
 | undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
-| put the computer to sleep · go to sleep | three clicks, then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
+| put the computer to sleep · go to sleep | the response sound (three clicks), then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
+| change default mode | the response sound, then say **"command mode"** or **"dictation mode"**. Or in one go: "default mode command mode" |
 | paste that again · show history | re-pastes the last dictation · opens the history window |
 
 Any command can be aimed at a window by ending it with "in *name*": **"open
@@ -361,6 +369,15 @@ pick steps from the table above, never anything else. A plan that closes or
 sends something waits for you to say **"yes"** ("no" cancels).
 (`always_on.command_llm = false` turns this off.)
 
+**Ollama health.** While the cleanup uses an LLM, LocalFlow keeps an eye on
+Ollama. The tray shows **Ollama: answering / not running / not answering /
+model not found**. When it stops answering, the pill and a notification say
+so once, dictation carries on with algorithmic cleanup straight away (no
+waiting out a timeout on every dictation), and command mode skips the LLM.
+Tray ▸ **Restart Ollama** stops and restarts it and loads the model again.
+When it's back, you're told that too. "Model not found" usually means the
+drive the models live on isn't connected; a restart won't fix that.
+
 **Dictation history.** Tray ▸ **Dictation history...** (or "show history" in
 command mode) lists everything you've dictated, newest first. Type to search
 (every word must match). **Enter** or double-click pastes the selected one
@@ -373,6 +390,17 @@ never logged. `history.enabled = false` stops the saving, and
 **"dictation mode"** (or "switch mode") to dictate: finish with the stop
 phrase as usual, and you're back in command mode. After a dictation, say
 **"command mode"** (or "switch mode") to go the other way.
+
+**Default mode.** Out of the box LocalFlow waits for the start phrase, and
+command mode is a visit that ends after 30 quiet seconds. Say **"change
+default mode"** in command mode, then **"command mode"**, and command mode
+becomes home instead. It's on from the start, never times out, and every
+dictation (start phrase, stop phrase) comes back to it. "Exit" still leaves it
+until your next dictation. Say "change default mode", then "dictation mode",
+to go back. Tray ▸ **Default mode** does the same
+(`always_on.default_mode`). In command mode everything you say is checked as
+a command, so with the LLM on, a conversation nearby can send requests to
+it.
 
 **A second listen for names.** The small model that listens for your phrases
 sometimes cuts an unusual name short ("okay listen, marig" for "...Marigold").
@@ -387,7 +415,7 @@ easily on other speech. This only costs time on near misses.
 a window that doesn't exist) and something you say right after it works, the
 pill offers: *"select no shun" = switch to notion? Say "remember that"*. Say
 **"remember that"** within 15 seconds, and from then on the first phrasing
-means that command too. It never learns without your yes. Tray ▸ **Learned
+means that command too. The offer plays the response sound, so you notice it. It never learns without your yes. Tray ▸ **Learned
 phrases** lists them; click one to forget it. They're kept in `learned.json`
 on this PC only.
 
@@ -483,9 +511,13 @@ spill into system RAM, and cleanup slows from about a second to tens of seconds.
 
 **Sounds.** Three cues play: one when recording starts, one when it stops, and a
 barely-there "faint pop" once the text has actually been pasted. Esc cancels
-silently, and a failed paste plays no paste sound. Right-click the tray icon and
-use **Start sound ▸**, **Stop sound ▸** and **Paste sound ▸** to choose from tick,
-pop, faint pop, blip, click, chime up, chime down, soft or none. Picking one plays
+silently, and a failed paste plays no paste sound. A fourth, the **response
+sound** (three clicks), means a command is waiting for your answer: sleep's
+"goodnight", a "yes" to an LLM plan, "change default mode", or a "remember
+that" offer. Plain commands never play it. Right-click the tray icon and
+use **Start sound ▸**, **Stop sound ▸**, **Paste sound ▸** and **Response sound ▸**
+to choose from tick, pop, faint pop, blip, click, triple click, chime up, chime
+down, soft or none. Picking one plays
 it and saves it to `config.toml`. Under `[sounds]` you can also give a path to your
 own `.wav`. The start cue is silenced out of the recording, because Whisper can
 turn a lone "pop" into made-up text.

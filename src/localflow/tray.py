@@ -112,12 +112,14 @@ def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
 
 class Tray:
     def __init__(
-        self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None, always_on=None
+        self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None, always_on=None,
+        health=None,
     ):
         import pystray
 
         self.engine = engine
         self.always_on = always_on  # always_on.Listener, or None
+        self.health = health  # health.OllamaHealth, or None
         self._setup_open = False
         self._updating = False
         self._on_quit = on_quit
@@ -157,6 +159,18 @@ class Tray:
                     lambda _: f"Style model: {self.engine.cfg.style.model or 'same as cleanup'}",
                     pystray.Menu(lambda: self._style_model_items(pystray)),
                 ),
+                pystray.MenuItem(
+                    lambda _: self.health.label() if self.health else "",
+                    None,
+                    enabled=False,
+                    visible=lambda _: self._llm_in_use(),
+                ),
+                pystray.MenuItem(
+                    "Restart Ollama",
+                    lambda icon, item: self._restart_ollama(),
+                    visible=lambda _: self._llm_in_use(),
+                    enabled=lambda _: not (self.health and self.health.restarting),
+                ),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
                     "Always-on listening",
@@ -174,6 +188,24 @@ class Tray:
                     self._toggle_commands,
                     checked=lambda _: bool(self.always_on and self.always_on.commanding),
                     visible=lambda _: bool(self.always_on and self.always_on.running),
+                ),
+                pystray.MenuItem(
+                    lambda _: f"Default mode: {self.engine.cfg.always_on.default_mode}",
+                    pystray.Menu(
+                        pystray.MenuItem(
+                            "Dictation (wait for the start phrase)",
+                            lambda icon, item: self._set_default_mode("dictation"),
+                            checked=lambda _: self.engine.cfg.always_on.default_mode != "command",
+                            radio=True,
+                        ),
+                        pystray.MenuItem(
+                            "Command (always in command mode)",
+                            lambda icon, item: self._set_default_mode("command"),
+                            checked=lambda _: self.engine.cfg.always_on.default_mode == "command",
+                            radio=True,
+                        ),
+                    ),
+                    visible=lambda _: self.always_on is not None,
                 ),
                 pystray.MenuItem(
                     lambda _: self._near_label(),
@@ -207,6 +239,7 @@ class Tray:
                 pystray.MenuItem("Start sound", self._sound_menu(pystray, "start")),
                 pystray.MenuItem("Stop sound", self._sound_menu(pystray, "stop")),
                 pystray.MenuItem("Paste sound", self._sound_menu(pystray, "paste")),
+                pystray.MenuItem("Response sound", self._sound_menu(pystray, "response")),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(lambda _: self.updates.label(), None, enabled=False),
                 pystray.MenuItem(
@@ -884,11 +917,37 @@ class Tray:
         previous = self.engine.cfg.cleanup.model
         self.engine.cfg.cleanup.model = name  # menu and overlay see it immediately
         # Unload + load can take tens of seconds; never block the tray thread.
-        threading.Thread(
-            target=self.engine.cleaner.switch_model, args=(name, previous), daemon=True,
-            name="localflow-model-switch",
-        ).start()
+        def switch() -> None:
+            self.engine.cleaner.switch_model(name, previous)
+            if self.health is not None:
+                self.health.suspect()  # is the new one answering?
+
+        threading.Thread(target=switch, daemon=True, name="localflow-model-switch").start()
         icon.update_menu()
+
+    def _set_default_mode(self, mode: str) -> None:
+        if self.always_on is not None:
+            self.always_on.set_default_mode(mode)
+        self.icon.update_menu()
+
+    def _llm_in_use(self) -> bool:
+        return self.health is not None and self.engine.cfg.cleanup.method != "rules"
+
+    def _restart_ollama(self) -> None:
+        health = self.health
+        if health is None or health.restarting:
+            return
+        self.notify("Restarting Ollama...")
+
+        def go() -> None:
+            health.restart()
+            if health.ok:
+                self.notify(f"Ollama is back ({self.engine.cfg.cleanup.model} loaded)")
+            else:
+                self.notify(f"Ollama restarted but is still {health.label()[8:]} - see the log")
+            self.icon.update_menu()
+
+        threading.Thread(target=go, daemon=True, name="localflow-ollama-restart").start()
 
     def _preview(self, choice: str) -> None:
         if self.sounds is not None:

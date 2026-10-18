@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 
 from localflow import commands as commands_mod
+from localflow import sounds as sounds_mod
 from localflow.always_on import Listener
 from localflow.config import Config
 from localflow.engine import Engine
@@ -36,6 +37,8 @@ def do(p, after_dictation=False, confirmed=False, ok=True):
 
 
 lis._do = do
+played = []
+sounds_mod.play = lambda data: played.append(data)  # quiet, and countable
 failures = 0
 
 
@@ -117,5 +120,81 @@ expect("a number on its own zooms into that cell", cmds._grid[:1] == [(300, 300,
 say("nine")
 expect("...and again", cmds._grid[:1] == [(500, 500, 600, 600)], str(cmds._grid))
 cmds.hide_grid()
+
+print("default mode")
+from localflow import config as config_mod  # noqa: E402
+from localflow.engine import Result  # noqa: E402
+
+saved = []
+config_mod.save_setting = lambda *a, **k: saved.append(a)  # never your config.toml
+lis.commanding = True
+events.clear()
+say("change default mode")
+expect("'change default mode' asks, with the response sound",
+       kinds("confirm") == ["default_mode"] and played, f"{events} played={len(played)}")
+say("command mode")
+expect("...'command mode' makes it the default and saves it",
+       cfg.always_on.default_mode == "command" and saved[-1] == ("always_on", "default_mode", "command"),
+       f"{cfg.always_on.default_mode} {saved}")
+lis.ring.end = lis._mode_until + 16000
+lis.ingest(np.zeros(1600, np.float32))
+expect("command mode no longer times out", lis.commanding)
+say("default mode dictation mode")
+expect("said in one go: 'default mode dictation mode'", cfg.always_on.default_mode == "dictation",
+       cfg.always_on.default_mode)
+lis.ring.end = lis._mode_until + 16000
+lis.ingest(np.zeros(1600, np.float32))
+expect("...where command mode times out again", not lis.commanding)
+lis.commanding = True
+played.clear()
+say("change default mode")
+say("banana")
+expect("anything else leaves it unchanged", cfg.always_on.default_mode == "dictation" and not lis._choice)
+cfg.sounds.response = "none"
+played.clear()
+say("change default mode")
+expect("response sound 'none' is silent", all(d is None for d in played), str(played[:1]))
+say("never mind")
+cfg.sounds.response = "triple click"
+
+print("sleep waits for goodnight (inject is off: nothing really sleeps)")
+lis.commanding = True
+played.clear()
+events.clear()
+say("go to sleep")
+expect("'go to sleep' arms with the response sound", kinds("confirm") == ["sleep"] and played,
+       f"{events} played={len(played)}")
+say("goodnight")
+expect("...'goodnight' runs it", kinds("ran") == ["sleep"], str(events))
+events.clear()
+say("go to sleep")
+say("banana")
+expect("anything else cancels", not kinds("ran"), str(events))
+
+print("cancel after the stop phrase")
+lis.leave_commands()
+sent = []
+engine.injector.send = lambda text: sent.append(text)
+engine.process = lambda audio, **k: Result("hello there", "hello there", 1.0, 0.1, 0.0)
+a = 900 * 16000
+lis.ring.end = a + 16000
+lis._cmd_from, lis._cmd_until, lis._delivered = a, a + 5 * 16000, False
+engine.state = State.TRANSCRIBING
+events.clear()
+taken = lis._check_command(a, [Word("cancel", 0.1, 0.4)], 0.0)
+expect("'cancel' while it's transcribing is taken", taken and kinds("cancelled"), str(events))
+engine._process_and_inject(np.zeros(16000, np.float32), True, True, "always-on")
+expect("...and nothing is pasted", not sent and engine.state == State.IDLE, str(sent))
+engine._process_and_inject(np.zeros(16000, np.float32), True, True, "always-on")
+expect("the next dictation pastes as normal", sent == ["hello there"], str(sent))
+lis._cmd_until = a + 5 * 16000
+events.clear()
+lis._check_command(a, [Word("command", 2.0, 2.3), Word("mode", 2.3, 2.6)], 0.0)
+expect("the window stays open: 'command mode' can follow", lis.commanding, str(events))
+lis.leave_commands()
+lis._cmd_from, lis._cmd_until, lis._delivered = a, a + 5 * 16000, True
+events.clear()
+lis._check_command(a, [Word("never", 0.1, 0.3), Word("mind", 0.3, 0.5)], 0.0)
+expect("after the paste, 'never mind' deletes it (scratch)", ("ran", "scratch") in events, str(events))
 
 print("\nall passed" if not failures else f"\n{failures} FAILED")

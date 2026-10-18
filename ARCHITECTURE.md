@@ -540,6 +540,28 @@ phrase (while dictating) is among them.
   clicks a cell's centre. After a label click, the labels are re-scanned
   (`_refresh_labels`). "type into N" focuses the control
   (UIA `SetFocus`, else a click) and pastes.
+- **Default mode** (`always_on.default_mode`, `Listener.commands_default`):
+  "command" enters command mode in `start()`, skips the quiet timeout, and
+  `_begin` sets `_return_to_commands` so every start-phrase dictation comes
+  back to it. "Change default mode" sets `_choice` (an answer deadline);
+  the next burst is matched against `AS_COMMAND` / `AS_DICTATION`
+  (`_default_mode_request`, checked before the exit and dictate words).
+- **Response sound** (`sounds.response`, `Listener._response_cue`): played
+  only when a command waits for an answer: `_arm` (sleep), a risky LLM plan,
+  the default-mode question and a learning offer. It advances `_consumed`
+  past its own length so the mic's copy of it is never the answer.
+- **Cancel after the stop phrase** (`Listener._cancel_dictation`, `CANCEL`):
+  before the paste, `Engine.discard` sets `_discard`, and
+  `_process_and_inject` drops the result after `process()` (so it is still
+  in history). After the paste it runs `scratch`. `_cmd_until` is left open
+  so "command mode" can follow.
+- **Ollama health** (`health.OllamaHealth`): a thread probes every 120 s
+  (tags + model only) or 20 s while bad / right after a failure (also a
+  one-token generate, which is what catches a hung server). `Cleaner.llm_down`
+  makes `clean()` and command mode skip the LLM. `Cleaner.failed()` wakes
+  the probe. Restart: taskkill both Ollama processes, start
+  `ollama app.exe` through `explorer.exe` (not elevated), wait for
+  `/api/tags`, warm up.
 - **Learning from misses** (`Listener._missed`, `_offer_learning`,
   `_maybe_learn`; `Grammar.learned`). A miss is a short (6 words or fewer),
   non-noise utterance that wasn't understood, or a command that failed

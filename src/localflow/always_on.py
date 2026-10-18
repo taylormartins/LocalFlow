@@ -156,6 +156,8 @@ class Listener:
         #: samples). An LLM plan that closes or sends waits for "yes"; a
         #: command with its own word (sleep: "goodnight") waits for that.
         self._confirm: tuple[list[Parsed], list[list[str]], int] | None = None
+        #: "Change default mode" asked which: the answer's deadline (samples).
+        self._choice: int | None = None
         self._dict_heard = False  # anything said yet in this dictation
         self._scratched_at = 0.0  # the dictation "scratch that" already removed
         #: The last phrase that came close but wasn't accepted: (which, heard).
@@ -206,6 +208,8 @@ class Listener:
         self.engine.external_stop = self.finish
         if not getattr(self, "_hooked", False):
             self.engine.on_state(self._on_engine_state)
+        if self.commands_default:
+            self._enter_commands()
             self._hooked = True
         # On the GPU when the dictation model is: ~10x faster than the CPU,
         # and the phrase detection time is most of the wait for the cue.
@@ -360,7 +364,7 @@ class Listener:
                     # Cancelled (Esc) or finished elsewhere.
                     self.dictating = False
         self._segment(x)
-        if self.commanding and self.ring.end > self._mode_until:
+        if self.commanding and self.ring.end > self._mode_until and not self.commands_default:
             self.leave_commands("Command mode off")
         elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
               and self.ring.end - self._held_at > HOLD * RATE):
@@ -648,6 +652,8 @@ class Listener:
             self._consumed = max(self._consumed, a + int(hit.end * RATE))
             self._last_speech = self.ring.end
             self.dictating = True
+        if self.commands_default:
+            self._return_to_commands = True  # command mode is home
 
     def _end(self, a: int, hit: Hit) -> None:
         log.info("always-on: stop phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
@@ -693,6 +699,8 @@ class Listener:
         if not pool or pool[0].start > hi:
             return False
         texts = [w.text for w in pool]
+        if self._cancel_dictation(a, pool, texts):
+            return True
         enter = self.grammar.is_one(texts, self.grammar.enter)
         p = None if enter else self.grammar.parse(texts)
         if p is None and not enter and 1 < len(trim(texts)) <= 4 and trim(texts)[-1] in (
@@ -725,6 +733,29 @@ class Listener:
         self._offer_learning(p)
         if ready:
             self._do(p, after_dictation=True)
+        return True
+
+    def _cancel_dictation(self, a: int, pool, texts: list[str]) -> bool:
+        """ "Cancel" (or "scratch that") after the stop phrase: throw the
+        dictation away before it's pasted, or delete it if it's already in.
+        The window stays open, so "command mode" can follow."""
+        if not self.grammar.is_one(texts, self.grammar.cancel):
+            p = self.grammar.parse(texts)
+            if p is None or p.command.name != "scratch":
+                return False
+        self._consumed = max(self._consumed, a + int(pool[-1].end * RATE))
+        with self._cmd_lock:
+            ready, self._pending = self._delivered, None
+            self._cmd_from = a + int(pool[-1].end * RATE)
+        if not ready and self.engine.discard():
+            log.info("always-on: dictation cancelled (%r)", " ".join(texts))
+            self.on_event("cancelled", " ".join(texts))
+            return True
+        from .commands import BY_NAME
+
+        log.info("always-on: cancel after the paste: deleting it")
+        self.on_event("command", "scratch")
+        self._do(Parsed(BY_NAME["scratch"], "", 1.0), after_dictation=True)
         return True
 
     def _delivered_now(self, text: str) -> None:
@@ -780,9 +811,89 @@ class Listener:
         if self.running and not self.dictating:
             self._enter_commands()
 
+    @property
+    def commands_default(self) -> bool:
+        return self.cfg.always_on.default_mode == "command"
+
+    def set_default_mode(self, mode: str) -> None:
+        """ "command" or "dictation": the mode LocalFlow sits in. Saved."""
+        self.cfg.always_on.default_mode = mode
+        try:
+            from .config import save_setting
+
+            save_setting("always_on", "default_mode", mode)
+        except OSError as exc:
+            log.warning("could not save the default mode: %s", exc)
+        log.info("always-on: default mode %s", mode)
+        self.on_event("default-mode", mode)
+        if mode == "command":
+            msg = "Default: command mode - it stays on; the start phrase still dictates"
+            if self.running and not self.dictating and not self.commanding:
+                self._enter_commands()
+        else:
+            msg = "Default: dictation mode - command mode ends after a quiet spell"
+            self._extend_mode()
+        self.engine.notice(msg, "ok", 6)
+        self._show(msg)
+
+    def _response_cue(self) -> None:
+        """The response sound: a command is waiting for your answer. Its own
+        sound, picked up by the mic, isn't taken for the answer."""
+        data = None
+        sounds = self.cfg.sounds
+        if sounds.enabled:
+            try:
+                from .sounds import play, render
+
+                data = render(sounds.response, sounds.volume)
+                play(data)
+            except Exception:
+                log.debug("response sound failed", exc_info=True)
+        if data:
+            from .sounds import _duration
+
+            self._consumed = max(self._consumed, self.ring.end + int((_duration(data) + 0.3) * RATE))
+
+    def _mode_answer(self, texts: list[str]) -> str:
+        if self.grammar.is_one(texts, self.grammar.as_command):
+            return "command"
+        if self.grammar.is_one(texts, self.grammar.as_dictation):
+            return "dictation"
+        return ""
+
+    def _default_mode_request(self, a: int, texts: list[str]) -> bool:
+        """ "Change default mode" (asks which), or it said in one go:
+        "default mode command mode". True if taken."""
+        if self._choice is not None:
+            deadline, self._choice = self._choice, None
+            mode = self._mode_answer(texts) if a < deadline else ""
+            if mode:
+                self.set_default_mode(mode)
+                return True
+            self._show("Default mode unchanged")
+            if self.grammar.is_one(texts, self.grammar.no):
+                return True
+        if self.grammar.is_one(texts, self.grammar.default_mode):
+            self._choice = self.ring.end + 10 * RATE
+            self._response_cue()
+            now = "command" if self.commands_default else "dictation"
+            log.info("always-on: asked for the default mode (now %s)", now)
+            self.on_event("confirm", "default_mode")
+            self._show(f'Default is {now} mode. Say "command mode" or "dictation mode"')
+            return True
+        words = trim(texts)
+        for k in (2, 3, 4):
+            if len(words) > k and self.grammar.is_one(words[:k], self.grammar.default_mode):
+                mode = self._mode_answer(words[k:])
+                if mode:
+                    self.set_default_mode(mode)
+                    return True
+        return False
+
     def _enter_commands(self) -> None:
         self.commanding = True
         self._confirm = None
+        self._choice = None
         self._extend_mode()
         if not self.commanding_announced:
             log.info("always-on: command mode")
@@ -799,6 +910,7 @@ class Listener:
         self.commanding = False
         self.commanding_announced = False
         self._confirm = None
+        self._choice = None
         self._held = []
         from .commands import hide_grid, hide_labels, hide_windows
 
@@ -846,6 +958,8 @@ class Listener:
                 return
             self.leave_commands("Dictating")
             self._begin(a, b, hit)
+            return
+        if self._default_mode_request(a, texts):
             return
         if self.detector.check("stop", pool, clip) is not None or self.grammar.is_one(
                 texts, self.grammar.exit):
@@ -954,7 +1068,8 @@ class Listener:
             self._ask_llm(request)
 
     def _llm_on(self) -> bool:
-        return self.cfg.always_on.command_llm and self.engine.cleaner.uses_llm
+        cleaner = self.engine.cleaner
+        return self.cfg.always_on.command_llm and cleaner.uses_llm and not cleaner.llm_down
 
     def _usable(self, p: Parsed) -> bool:
         """A command naming a window or app that doesn't exist ("show me what's
@@ -978,6 +1093,7 @@ class Listener:
                                          keep_alive=self.cfg.cleanup.keep_alive)
                 except Exception as exc:
                     log.warning("always-on: LLM for commands unavailable: %s", exc)
+                    cleaner.failed()
                     plan = []
             if not self.commanding:
                 return
@@ -989,6 +1105,7 @@ class Listener:
             if any(p.command.risky for p in plan):
                 # Closing or sending something waits for a "yes".
                 self._confirm = (plan, self.grammar.yes, self.ring.end + 10 * RATE)
+                self._response_cue()
                 self._show("Say yes to: " + "; ".join(describe(p) for p in plan))
                 return
             for p in plan:
@@ -1026,6 +1143,7 @@ class Listener:
         self._offer = (phrase, p, time.monotonic() + self.LEARN_OFFER)
         log.info("always-on: offering to learn %r as %s", phrase, p)
         self.on_event("learn-offer", f"{phrase} = {p}")
+        self._response_cue()
         shown = phrase if len(phrase) <= 18 else phrase[:17] + "…"
         self.engine.notice(f'"{shown}" = {describe(p)[:20]}? Say "remember that"', "info",
                            self.LEARN_OFFER)
@@ -1091,23 +1209,13 @@ class Listener:
         self.runner.submit(p, self._ctx(), wrap)
 
     def _arm(self, p: Parsed) -> None:
-        """Triple click, then wait for the command's own word ("goodnight")."""
+        """The response sound, then wait for the command's own word ("goodnight")."""
         word = p.command.confirm[0]
         if not self.commanding:
             self._enter_commands()
-        data = None
-        try:
-            from .sounds import _duration, play, render
-
-            data = render("triple click", self.cfg.sounds.volume or 0.5)
-            play(data)
-        except Exception:
-            log.debug("triple click failed", exc_info=True)
-        # The clicks themselves (picked up by the mic) are not an answer.
-        cue = (_duration(data) if data else 0.3) + 0.3
-        self._consumed = max(self._consumed, self.ring.end + int(cue * RATE))
+        self._response_cue()
         self._confirm = ([p], [normalise(w) for w in p.command.confirm],
-                         self.ring.end + int((cue + 10) * RATE))
+                         self.ring.end + int(11 * RATE))
         log.info("always-on: %s armed - waiting for %r", p.command.name, word)
         self.on_event("confirm", p.command.name)
         self._show(f'Say "{word}" to {describe(p)}')

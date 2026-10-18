@@ -86,6 +86,7 @@ class Engine:
         #: The window the current/last dictation started in (paste_to = "start").
         self._target = None
         self.last_target = None
+        self._discard = False  # throw away the dictation now being transcribed
 
     # -- observers ---------------------------------------------------------
 
@@ -187,6 +188,7 @@ class Engine:
         """Stop capture and process in the background so the hotkey thread stays free."""
         if not self.recorder.recording:
             return
+        self._discard = False
         audio = self.recorder.stop()
         if audio.size == 0:
             self._set_state(State.ERROR, "no audio captured - check the mic")
@@ -253,6 +255,14 @@ class Engine:
     def feed(self, block: np.ndarray) -> None:
         self.recorder.feed(block)
 
+    def discard(self) -> bool:
+        """Throw away the dictation being transcribed: it won't be pasted
+        ("cancel" after the stop phrase). True if one was on its way."""
+        if self.state in (State.RECORDING, State.TRANSCRIBING, State.CLEANING, State.STYLING):
+            self._discard = True
+            return True
+        return False
+
     def cancel_external(self) -> None:
         """Drop a fed dictation unprocessed (it turned out to be a command)."""
         if self.recorder.external:
@@ -272,6 +282,7 @@ class Engine:
         voice commands, e.g. "submit" pressing Enter after the paste)."""
         if not self.recorder.external:
             return
+        self._discard = False
         audio = self.recorder.stop()
         if keep is not None:
             audio = audio[: max(0, keep)]
@@ -297,6 +308,15 @@ class Engine:
         except Exception as exc:
             log.exception("pipeline failed")
             self._set_state(State.ERROR, str(exc))
+            return
+
+        if getattr(self, "_discard", False):
+            self._discard = False
+            log.info("%s: dictation thrown away (%d chars) - still in history", source,
+                     len(result.text))
+            self._set_state(State.IDLE, "cancelled")
+            if result.text:
+                self.notice("Cancelled - not pasted (it's in Dictation history)", "info", 5)
             return
 
         if not result.text:

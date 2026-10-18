@@ -179,6 +179,9 @@ class SoundsConfig:
     stop: str = "pop"
     #: After the text is pasted into the window.
     paste: str = "faint pop"
+    #: A command is waiting for your answer (sleep's "goodnight", a "yes" to
+    #: a plan, "change default mode"). "none" for silence.
+    response: str = "triple click"
     #: 0.0-1.0, applied to the built-in sounds.
     volume: float = 0.5
 
@@ -206,6 +209,10 @@ class AlwaysOnConfig:
     command_window: float = 5.0
     #: Command mode ends after this many seconds without a command.
     command_mode_seconds: float = 30.0
+    #: "dictation": wait for the start phrase; command mode is a visit.
+    #: "command": always in command mode, back to it after every dictation.
+    #: Say "change default mode" in command mode, or pick it in the tray.
+    default_mode: str = "dictation"
     #: In command mode, ask the cleanup LLM (if it's in use and reachable) to
     #: work out requests the built-in commands don't cover.
     command_llm: bool = True

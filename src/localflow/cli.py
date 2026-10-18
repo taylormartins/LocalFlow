@@ -786,9 +786,20 @@ def cmd_run(args, cfg) -> int:
     from .always_on import Listener
 
     listener = Listener(engine, cfg)
+    from .health import OllamaHealth
+
+    health = OllamaHealth(engine.cleaner)
     tray = Tray(
-        engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind, always_on=listener
+        engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind, always_on=listener,
+        health=health,
     )
+
+    def ollama_changed(status: str, msg: str) -> None:
+        engine.notice(msg, "ok" if status == "ok" else "error", 10)
+        tray.notify(msg, "LocalFlow")
+        tray.icon.update_menu()
+
+    health.on_change = ollama_changed
 
     if cfg.overlay.enabled:
         from .overlay import Overlay
@@ -810,6 +821,9 @@ def cmd_run(args, cfg) -> int:
             engine.notice(msg, kind, 12)
             tray.notify(msg + (" - see update.log" if kind == "error" else ""), "LocalFlow")
         engine.warmup()
+        health.start()
+        if cfg.cleanup.method != "rules":
+            health.suspect()  # check now, not in two minutes
         hotkeys.start()
         # Caps Lock left on before LocalFlow started can't be turned off by
         # hand while Caps Lock is a dictation key (the key is swallowed).
