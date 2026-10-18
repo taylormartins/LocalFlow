@@ -571,6 +571,11 @@ class Overlay:
         y = (area.top + area.bottom - h) // 2
         user32.SetWindowPos(self.list_hwnd, HWND_TOPMOST, x, y, w, h,
                             SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        # The window chips go above the list: a window whose corner is under
+        # the list still shows its number.
+        if user32.IsWindowVisible(self.label_hwnd):
+            user32.SetWindowPos(self.label_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                SWP_NOACTIVATE | 0x0001 | 0x0002)  # NOSIZE | NOMOVE
 
     def _make_help_layer(self, tk) -> None:
         """The command sheet: see-through, click-through, never focused."""

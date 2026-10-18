@@ -357,7 +357,7 @@ too. To live in command mode instead, make it the default (see
 | Say | Does |
 |---|---|
 | switch to / go to / show / select / pull up *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title). Spell a name that keeps being misheard: "select n o t i o n" |
-| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen, and the same number on each window you can see. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move window 8 to screen 1", "move window 4 to the top right of monitor 2" |
+| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen, and the same number on every open window's top-left corner, drawn above everything (the list too), even for a window behind another one. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move window 8 to screen 1", "move window 4 to the top right of monitor 2" |
 | move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
@@ -410,9 +410,13 @@ The window list and the grid follow it too. **Label size** sets how big the
 numbers are (`overlay.label_size`, 14 px; never below 10 pt). Say **"click
 17"** and that one is clicked, then the labels go away. "Show labels" again
 brings fresh ones. This reads the same accessibility tree screen readers use,
-so it works in browsers, Explorer, Office and most Windows apps. Some apps
-expose little or nothing there (Spotify, many games), and they get few or no
-labels.
+so it works in browsers, Explorer, Office and most Windows apps. Besides
+buttons, links, tabs and fields, anything that says it can be clicked,
+selected or focused gets a number: clickable pictures and boxes on web pages,
+table rows, column headers, text areas. Chrome, Edge and Electron apps only
+build that tree once something asks, so the first time a window is labelled
+it's asked twice, half a second apart. Some apps expose little or nothing
+there (Spotify, many games), and they get few or no labels.
 
 With the cleanup LLM in use (`cleanup.method = "llm"` and Ollama running),
 command mode also understands requests the table doesn't cover: "get rid of

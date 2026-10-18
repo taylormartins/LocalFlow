@@ -318,7 +318,7 @@ def show_window_list(wins: list[Win]) -> bool:
     numbered[:] = wins
     if list_sink is None:
         return False
-    # Chips first: once the list is up it covers some of the corners.
+    # The chips are drawn above the list, so every window's number shows.
     show_labels(window_chips(wins), "chip")
     mons = monitors()
     lines = []
@@ -352,15 +352,19 @@ def list_line(w: Win) -> str:
     return f"{title}  ({prog})"
 
 
-user32.WindowFromPoint.argtypes = [wintypes.POINT]
-user32.WindowFromPoint.restype = wintypes.HWND
-user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
-user32.GetAncestor.restype = wintypes.HWND
+
+
+CHIP_W, CHIP_H = 56, 40
 
 
 def window_chips(wins: list[Win]) -> list[tuple[int, tuple[int, int, int, int]]]:
-    """(number, chip box) for each listed window whose top-left corner can be
-    seen. A window under another one gets no chip: the list has it anyway."""
+    """(number, chip box) for every listed window that isn't minimised, at its
+    top-left corner, drawn above everything (the list too). A window behind
+    another one gets its chip all the same: telling them apart is the point.
+    It used to be skipped. Chips that would land on each other (windows
+    stacked at the same spot) move along to the right; all stay on screen."""
+    mons = monitors()
+    placed: list[tuple[int, int, int, int]] = []
     chips = []
     for i, w in enumerate(wins):
         if user32.IsIconic(w.hwnd):
@@ -368,11 +372,18 @@ def window_chips(wins: list[Win]) -> list[tuple[int, tuple[int, int, int, int]]]
         left, top, right, bottom = window_rect(w.hwnd)
         if right - left < 80 or bottom - top < 40:
             continue
-        x, y = left + 24, top + 18  # inside the title bar
-        hit = user32.WindowFromPoint(wintypes.POINT(x, y))
-        if not hit or int(user32.GetAncestor(hit, 2)) != w.hwnd:  # GA_ROOT
-            continue
-        chips.append((i + 1, (left + 8, top + 6, left + 64, top + 46)))
+        n = monitor_of(w.hwnd, mons)
+        area = mons[n - 1][2] if 1 <= n <= len(mons) else None
+        x, y = left + 8, top + 6
+        if area is not None:  # a maximised window's corner is just off screen
+            x = max(area.left + 4, min(x, area.right - CHIP_W - 4))
+            y = max(area.top + 4, min(y, area.bottom - CHIP_H - 4))
+        box = (x, y, x + CHIP_W, y + CHIP_H)
+        while any(box[0] < p[2] and p[0] < box[2] and box[1] < p[3] and p[1] < box[3]
+                  for p in placed):
+            box = (box[0] + CHIP_W + 6, box[1], box[2] + CHIP_W + 6, box[3])
+        placed.append(box)
+        chips.append((i + 1, box))
     return chips
 
 
@@ -558,8 +569,20 @@ _uia_local = threading.local()
 #: tree items, check boxes, radio buttons, combo boxes, split buttons.
 _CLICKABLE = {50000, 50005, 50011, 50019, 50007, 50024, 50002, 50013, 50003, 50031,
               50004}  # (not Text: a link's text is reported apart from the link)
+#: Clickable only when they say so (an Invoke or selection pattern, or
+#: keyboard focus): text, images, custom, groups, data items, documents,
+#: header items, sliders, spinners. Web pages and Electron apps make their
+#: own buttons from these; a census of a browser tab found 35 clickable
+#: images and 29 clickable groups that got no number. Panes, toolbars and
+#: menu bars stay out: they're containers, and often focusable.
+_CLICKABLE_IF_ACTIVE = {50020, 50006, 50025, 50026, 50029, 50030, 50035, 50015, 50016}
 UIA_NAME, UIA_TYPE, UIA_RECT = 30005, 30003, 30001
 UIA_ENABLED, UIA_OFFSCREEN = 30010, 30022
+UIA_FOCUSABLE, UIA_HAS_INVOKE, UIA_HAS_SELECT = 30009, 30031, 30036
+#: Windows already asked once: Chromium browsers and Electron apps build
+#: their page's accessibility tree only when something asks, so the first
+#: look at a window found the toolbar (22) but not the page (71).
+_woken: set[int] = set()
 UIA_INVOKE, UIA_SELECTION_ITEM, UIA_TOGGLE, UIA_EXPAND = 10000, 10010, 10015, 10005
 
 
@@ -596,13 +619,18 @@ def controls(hwnd: int, named: bool = True) -> list[Control]:
     comtypes.CoInitialize()  # per thread; harmless if already done
     root = uia.ElementFromHandle(hwnd)
     cache = uia.CreateCacheRequest()
-    for prop in (UIA_NAME, UIA_TYPE, UIA_RECT, UIA_ENABLED, UIA_OFFSCREEN):
+    for prop in (UIA_NAME, UIA_TYPE, UIA_RECT, UIA_ENABLED, UIA_OFFSCREEN, UIA_FOCUSABLE,
+                 UIA_HAS_INVOKE, UIA_HAS_SELECT):
         cache.AddProperty(prop)
     cond = uia.CreateAndCondition(
         uia.CreatePropertyCondition(UIA_ENABLED, True),
         uia.CreatePropertyCondition(UIA_OFFSCREEN, False))
     per_monitor_dpi()
     started = time.perf_counter()
+    if hwnd not in _woken:
+        _woken.add(hwnd)
+        root.FindAllBuildCache(4, cond, cache)  # wakes a lazy tree; then look again
+        time.sleep(0.5)
     found = root.FindAllBuildCache(4, cond, cache)  # TreeScope_Descendants
     out = []
     for i in range(found.Length):
@@ -611,7 +639,17 @@ def controls(hwnd: int, named: bool = True) -> list[Control]:
             kind, name = el.CachedControlType, (el.CachedName or "").strip()
         except Exception:
             continue
-        if kind not in _CLICKABLE or (named and not name):
+        if kind not in _CLICKABLE:
+            if kind not in _CLICKABLE_IF_ACTIVE:
+                continue
+            try:
+                active = any(el.GetCachedPropertyValue(p) for p in
+                             (UIA_HAS_INVOKE, UIA_HAS_SELECT, UIA_FOCUSABLE))
+            except Exception:
+                active = False
+            if not active:
+                continue
+        if named and not name:
             continue
         r = el.CachedBoundingRectangle
         if r.right - r.left < 4 or r.bottom - r.top < 4:

@@ -518,6 +518,18 @@ phrase (while dictating) is among them.
   phrase on a second listen". tests/always_on.py fakes the small model
   losing the name. A sentence that only starts like the phrase still
   doesn't trigger.
+- **Clickable for labels** (`desktop.controls`): the `_CLICKABLE` types, plus
+  `_CLICKABLE_IF_ACTIVE` types (text, image, custom, group, data item,
+  document, header item, slider, spinner) that have Invoke or SelectionItem
+  or are keyboard-focusable. A census of a Chrome tab: 71 labelled, 35
+  clickable images and 7 clickable groups missed; Edge: 29 invoke groups
+  (mostly merged with their links by `label_targets`). First look at a
+  window (`_woken`) queries twice 0.5 s apart: Chromium builds the page's
+  tree only when asked (22 elements on the first query, 71 on the next).
+- **Window chips**: every non-minimised listed window, at its corner
+  (clamped to its screen), moved right when two would overlap; covered
+  windows are no longer skipped. `_draw_list` re-raises the label layer so
+  the chips sit above the list.
 - **Window list and monitors**: "show windows" fills `desktop.numbered`
   (Alt+Tab order, at most 20) and the overlay draws a solid list of each
   window's title, program and screen. `find_window` takes a number as an

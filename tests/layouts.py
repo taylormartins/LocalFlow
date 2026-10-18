@@ -38,6 +38,30 @@ for n, shape in ((1, [1]), (2, [2]), (3, [3]), (4, [2, 2]), (5, [3, 2]), (6, [3,
 tall = desktop.grid(2, (0, 0, 1080, 1920))
 expect("a portrait screen stacks them", tall[0][1] != tall[1][1], str(tall))
 
+print("window chips (show windows)")
+from ctypes import wintypes  # noqa: E402
+
+real = {k: getattr(desktop, k) for k in ("window_rect", "monitors", "monitor_of")}
+rects = {1: (100, 100, 900, 700), 2: (100, 100, 900, 700),  # stacked at one spot
+         3: (-8, -8, 1928, 1048),  # maximised: its corner is just off screen
+         4: (1000, 200, 1600, 800)}  # behind window 3: chipped all the same
+desktop.window_rect = lambda h: rects[h]
+desktop.monitors = lambda: [(1, wintypes.RECT(0, 0, 1920, 1080), wintypes.RECT(0, 0, 1920, 1040))]
+desktop.monitor_of = lambda h, mons=None: 1
+real_iconic = desktop.user32.IsIconic
+desktop.user32.IsIconic = lambda h: False
+chips = dict(desktop.window_chips([desktop.Win(h, "t", "x", "") for h in rects]))
+desktop.user32.IsIconic = real_iconic
+for k, v in real.items():
+    setattr(desktop, k, v)
+expect("every window gets a chip, covered or not", sorted(chips) == [1, 2, 3, 4], str(chips))
+boxes = list(chips.values())
+expect("...no two chips on top of each other",
+       not any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+               for i, a in enumerate(boxes) for b in boxes[i + 1:]), str(chips))
+expect("...all on screen", all(b[0] >= 0 and b[1] >= 0 and b[2] <= 1920 and b[3] <= 1040
+                               for b in boxes), str(chips))
+
 print("phrases")
 g = Grammar()  # no learned phrases
 cases = {
