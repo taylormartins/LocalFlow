@@ -283,7 +283,18 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     look_var, _ = _choice(row, list(looks.values()),
                           looks.get(cfg.overlay.label_theme.lower(), looks["match"]),
                           lambda name: _save("overlay", "label_theme", by_name[name]))
-    sample = tk.Canvas(card, width=300, height=58, bg=PANEL, highlightthickness=0)
+    LABEL_MIN = themes.LABEL_MIN
+    row = _row(card, "Label size")
+    size_var = tk.IntVar(value=max(LABEL_MIN, min(int(cfg.overlay.label_size), 28)))
+    size_scale = ttk.Scale(row, from_=LABEL_MIN, to=28, length=240,
+                           command=lambda v: size_var.set(round(float(v))))
+    size_scale.set(size_var.get())
+    size_scale.pack(side="left")
+    size_shown = ttk.Label(row, textvariable=size_var, style="Card.TLabel")
+    size_shown.pack(side="left", padx=8)
+    size_scale.bind("<ButtonRelease-1>",
+                    lambda _e: _save("overlay", "label_size", int(size_var.get())))
+    sample = tk.Canvas(card, width=320, height=76, bg=PANEL, highlightthickness=0)
     sample.pack(anchor="w", pady=(6, 2))
 
     def draw_sample():
@@ -293,13 +304,18 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
                                        themes.resolve(current.get()))
             sample.delete("all")
             mark = themes.marker(theme)
-            bold = themes.font(theme, 1.0, bold=True, size=12)
-            for i, (x, n) in enumerate(((8, "3"), (110, "12"))):
-                sample.create_rectangle(x, 12, x + 88, 44, fill="#f4f4f4" if i else "#2b2d33",
+            import tkinter.font as tkfont
+
+            bold = themes.font(theme, 1.0, bold=True, size=int(size_var.get()))
+            m = tkfont.Font(root=sample, font=bold)
+            bh = m.metrics("linespace") + 3
+            for i, (x, n) in enumerate(((8, "3"), (115, "12"))):
+                sample.create_rectangle(x, 8, x + 96, 68, fill="#f4f4f4" if i else "#2b2d33",
                                         outline=mark)
-                themes.label_box(sample, theme, x + 2, 14, x + 2 + 10 + 7 * len(n), 31, 1.0, n, bold)
-            themes.label_box(sample, theme, 214, 8, 252, 46, 1.0, "7",
-                             themes.font(theme, 1.0, bold=True, size=21))
+                bw = max(bh, m.measure(n) + 9)
+                themes.label_box(sample, theme, x + 2, 10, x + 2 + bw, 10 + bh, 1.0, n, bold)
+            themes.label_box(sample, theme, 228, 8, 280, 68, 1.0, "7",
+                             themes.font(theme, 1.0, bold=True, size=32))
         except Exception:
             log.debug("label sample failed", exc_info=True)
         sample.after(400, draw_sample)
@@ -754,17 +770,11 @@ def main(cfg: Config) -> int:
     import tkinter as tk
     from tkinter import ttk
 
+    from .icon import set_app_identity, window_setup
+
+    set_app_identity()
     root = tk.Tk()
-    root.title("LocalFlow - Settings")
-    try:
-        from PIL import ImageTk
-
-        from .icon import golden_wind
-
-        root._icon = ImageTk.PhotoImage(golden_wind(size=64))  # kept: Tk doesn't hold it
-        root.iconphoto(True, root._icon)
-    except Exception:
-        pass
+    window_setup(root, "Settings")
     root.configure(bg=BLACK)
     root.geometry("760x640")
     root.minsize(620, 420)

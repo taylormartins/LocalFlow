@@ -406,7 +406,8 @@ outline showing exactly what it clicks (`overlay.label_opacity`, 0.7). They wear
 the pill's theme (Royal's gold with diamonds, Fire's flames, Ice's icicles),
 or pick another in Settings > Appearance > Label look: any theme, or the
 original yellow (`overlay.label_theme`: "match", "yellow" or a theme's name).
-The window list and the grid follow it too. Say **"click
+The window list and the grid follow it too. **Label size** sets how big the
+numbers are (`overlay.label_size`, 14 px; never below 10 pt). Say **"click
 17"** and that one is clicked, then the labels go away. "Show labels" again
 brings fresh ones. This reads the same accessibility tree screen readers use,
 so it works in browsers, Explorer, Office and most Windows apps. Some apps

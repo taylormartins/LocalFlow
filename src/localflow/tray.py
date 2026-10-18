@@ -48,7 +48,7 @@ LIVE_SETTINGS = {
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
                   "cancel_words", "exit_words", "quick", "quick_stop", "quick_send",
                   "code_words"),
-    "overlay": ("theme", "opacity", "label_opacity", "label_theme"),
+    "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size"),
     "history": ("enabled",),
 }
 
@@ -110,33 +110,6 @@ def open_history() -> None:
                      name="localflow-history").start()
 
 
-def set_app_identity() -> None:
-    """Make notifications say APP_NAME with our icon instead of "Python".
-    Windows names a tray balloon after the process's app ID; registering one
-    (per user, no admin) with a display name and an icon does it. Must run
-    before the tray icon is made."""
-    import ctypes
-    import winreg
-
-    from . import APP_ID, APP_NAME
-    from .config import PROJECT_ROOT
-
-    try:
-        ico = PROJECT_ROOT / "data" / "app.ico"
-        if not ico.exists():
-            ico.parent.mkdir(parents=True, exist_ok=True)
-            from .icon import golden_wind
-
-            golden_wind(size=256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
-                              rf"Software\Classes\AppUserModelId\{APP_ID}") as key:
-            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_NAME)
-            winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(ico))
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
-    except Exception:
-        log.warning("could not set the app's name for notifications", exc_info=True)
-
-
 def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
     """The golden wind, with a dot for the state (none when idle)."""
     from .icon import golden_wind
@@ -167,6 +140,8 @@ class Tray:
         from .updates import Checker
 
         self.updates = Checker(on_new=self._new_version)
+
+        from .icon import set_app_identity
 
         set_app_identity()
         self.icon = pystray.Icon(

@@ -439,7 +439,9 @@ class Overlay:
         theme = themes.label_theme(self.cfg.label_theme, self._themes.get(self.cfg.theme))
 
         def font(px: float) -> tuple:
-            return themes.font(theme, 1.0, bold=True, size=max(8, int(px)))
+            # Sizes come in as Tk's negative pixels; the sign was once kept
+            # here, so max(8, ...) drew every label at a tiny 8.
+            return themes.font(theme, 1.0, bold=True, size=max(8, int(abs(px))))
         return theme, font
 
     def _draw_labels(self) -> None:
@@ -463,7 +465,12 @@ class Overlay:
         w, h = x1 - x0, y1 - y0
         c.config(width=w, height=h)
         s = self.s
-        bh = int(17 * s)
+        size = max(themes.LABEL_MIN, min(int(self.cfg.label_size), 28))
+        import tkinter.font as tkfont
+
+        number_font = font(-size * s)
+        metrics = tkfont.Font(root=self.root, font=number_font)
+        bh = metrics.metrics("linespace") + int(3 * s)
         for n, (left, top, right, bottom) in labels:
             text = str(n)
             style = self._labels_style
@@ -486,7 +493,9 @@ class Overlay:
                 themes.label_box(c, theme, left - x0, top - y0, right - x0, bottom - y0, s, text,
                                  font(-(bottom - top) * 0.6))
                 continue
-            bw = int((10 + 7 * len(text)) * s)
+            # Ornate borders put a diamond at each end: room for them.
+            pad = (15 if theme.border == "ornate" else 9) * s
+            bw = max(bh, metrics.measure(text) + int(pad))
             # Top-left corner of the control, nudged inside it, so the label
             # sits on what it names without hiding all of it.
             x = left - x0 + int(2 * s)
@@ -494,7 +503,7 @@ class Overlay:
             # The control's own outline, so it's clear what the number clicks.
             c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
                                outline=mark, width=1)
-            themes.label_box(c, theme, x, y, x + bw, y + bh, s, text, font(-12 * s))
+            themes.label_box(c, theme, x, y, x + bw, y + bh, s, text, number_font)
         if not user32.SetWindowPos(
             self.label_hwnd, HWND_TOPMOST, x0, y0, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW
         ):
@@ -604,11 +613,16 @@ class Overlay:
         bg = theme.bg.lstrip("#")
         light = len(bg) == 6 and sum(int(bg[i:i + 2], 16) for i in (0, 2, 4)) > 3 * 150
         self.help_win.attributes("-alpha", 0.94 if light else 0.86)
-        head_font =tkfont.Font(root=self.root, family="Segoe UI Semibold", size=-int(13 * s))
-        say_font = tkfont.Font(root=self.root, family="Segoe UI Semibold", size=-int(11 * s))
-        does_font = tkfont.Font(root=self.root, family="Segoe UI", size=-int(10 * s))
+        head_font = tkfont.Font(root=self.root, family="Segoe UI Semibold",
+                                size=-int((themes.LABEL_MIN + 2) * s))
+        say_font = tkfont.Font(root=self.root, family="Segoe UI Semibold",
+                               size=-int(themes.LABEL_MIN * s))
+        does_font = tkfont.Font(root=self.root, family="Segoe UI", size=-int(themes.LABEL_MIN * s))
         pad, gap = int(14 * s), int(20 * s)
-        head_h, say_h, does_h, after = int(22 * s), int(16 * s), int(14 * s), int(8 * s)
+        head_h = head_font.metrics("linespace") + int(5 * s)
+        say_h = say_font.metrics("linespace")
+        does_h = does_font.metrics("linespace")
+        after = int(8 * s)
         area = _work_area()
         max_h = int((area.bottom - area.top) * 0.86)
         title_h = int(30 * s)

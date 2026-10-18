@@ -131,6 +131,9 @@ BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "silver": SILVER, "smooth": SM
             "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER}
 
 
+#: Smallest text on the labels and the command sheet: 13 px = 10 pt at 100%
+#: (12 px in a script font like Royal's was too small to read).
+LABEL_MIN = 13
 #: The click labels' original look: yellow on near-black, readable over anything.
 CLASSIC_LABELS = Theme(name="Classic yellow", bg="#1d1e22", text="#ffd60a", edge="#ffd60a",
                        round=0.0, wave="#ffd60a", accent="#ffd60a", font="Segoe UI")

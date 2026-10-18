@@ -69,8 +69,11 @@ class Enroll:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
+        from .icon import set_app_identity, window_setup
+
+        set_app_identity()
         self.root = root = tk.Tk()
-        root.title("LocalFlow - always-on phrases")
+        window_setup(root, "always-on phrases")
         root.configure(bg=BG)
         root.resizable(False, False)
         font = ("Segoe UI", 10)

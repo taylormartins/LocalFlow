@@ -116,17 +116,11 @@ def main(cfg: Config) -> int:
     entries = load()
     shown: list[Entry] = []
 
+    from .icon import set_app_identity, window_setup
+
+    set_app_identity()
     root = tk.Tk()
-    root.title("LocalFlow - dictation history")
-    try:
-        from PIL import ImageTk
-
-        from .icon import golden_wind
-
-        root._icon = ImageTk.PhotoImage(golden_wind(size=64))  # kept: Tk doesn't hold it
-        root.iconphoto(True, root._icon)
-    except Exception:
-        pass
+    window_setup(root, "dictation history")
     root.geometry("760x520")
     root.minsize(480, 320)
     try:

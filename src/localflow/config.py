@@ -145,6 +145,9 @@ class OverlayConfig:
     opacity: float = 1.0
     #: Numbered click labels (command mode "show labels"): 0.3 faint - 1.0 solid.
     label_opacity: float = 0.7
+    #: Their numbers' size in pixels at 100% scaling (14 = about 10.5 pt).
+    #: Never below LABEL_MIN (10 pt): smaller was unreadable in script fonts.
+    label_size: int = 14
     #: Their look (and the window list's): "match" the pill's theme, "yellow"
     #: (the original yellow on black), or any theme's name.
     label_theme: str = "match"

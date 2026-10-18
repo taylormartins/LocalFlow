@@ -7,7 +7,11 @@ ring round it means it's recording.
 
 from __future__ import annotations
 
+import logging
+
 from PIL import Image, ImageDraw
+
+log = logging.getLogger(__name__)
 
 GOLD = (232, 191, 72, 255)
 GOLD_LIGHT = (250, 222, 130, 255)
@@ -53,3 +57,43 @@ def golden_wind(dot: tuple[int, int, int] | None = None, ring: bool = False,
                       width=12)
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=dot + (255,), outline=SHADOW, width=7)
     return img.resize((size, size), Image.LANCZOS)
+
+
+def set_app_identity() -> None:
+    """Make notifications and taskbar buttons say APP_NAME with our icon
+    instead of "Python" (every LocalFlow process is pythonw.exe).
+    Windows names a tray balloon after the process's app ID; registering one
+    (per user, no admin) with a display name and an icon does it. Must run
+    before the first window or tray icon is made."""
+    import ctypes
+    import winreg
+
+    from . import APP_ID, APP_NAME
+    from .config import PROJECT_ROOT
+
+    try:
+        ico = PROJECT_ROOT / "data" / "app.ico"
+        if not ico.exists():
+            ico.parent.mkdir(parents=True, exist_ok=True)
+            golden_wind(size=256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+                              rf"Software\Classes\AppUserModelId\{APP_ID}") as key:
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_NAME)
+            winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(ico))
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except Exception:
+        log.warning("could not set the app's name for notifications", exc_info=True)
+
+
+def window_setup(root, what: str) -> None:
+    """A LocalFlow window: "<APP_NAME> - <what>" and the golden wind icon."""
+    from . import APP_NAME
+
+    root.title(f"{APP_NAME} - {what}")
+    try:
+        from PIL import ImageTk
+
+        root._icon = ImageTk.PhotoImage(golden_wind(size=64))  # kept: Tk doesn't hold it
+        root.iconphoto(True, root._icon)
+    except Exception:
+        log.debug("window icon failed", exc_info=True)

@@ -153,6 +153,15 @@ expect("click labels: 'match' follows the pill, 'yellow' is the original, or any
        and themes.label_theme("classic", themes.ICE) is themes.CLASSIC
        and not set(themes.LABEL_CHOICES) & set(themes.BUILT_IN)
        and themes.label_theme("fire", themes.ICE) is themes.FIRE)
+from localflow import overlay  # noqa: E402
+
+fake = overlay.Overlay.__new__(overlay.Overlay)
+fake.cfg, fake._themes = cfg.overlay, themes.Current()
+_, label_font = fake._label_look()
+expect("label numbers come out the size asked for (Tk's negative pixels once made them all 8)",
+       abs(label_font(-20)[1]) == 20 and abs(label_font(-60)[1]) == 60,
+       f"{label_font(-20)} {label_font(-60)}")
+expect("label size has a 10 pt floor", themes.LABEL_MIN >= 13)
 expect("Royal is the default",
        themes.resolve("") is themes.ROYAL and themes.resolve("default") is themes.ROYAL)
 expect("the gem keeps the dot's three meanings apart",
