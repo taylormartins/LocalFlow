@@ -380,6 +380,22 @@ def hide_window_list() -> None:
         list_sink([])
 
 
+#: Set by the overlay: draws the command sheet [(section, [(say, does)])], [] hides it.
+help_sink = None
+
+
+def show_help(sections: list) -> bool:
+    if help_sink is None:
+        return False
+    help_sink(sections)
+    return True
+
+
+def hide_help() -> None:
+    if help_sink is not None:
+        help_sink([])
+
+
 # -- monitors, numbered left to right ---------------------------------------------------
 
 MONITORENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,

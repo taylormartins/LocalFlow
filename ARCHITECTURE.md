@@ -601,6 +601,17 @@ phrase (while dictating) is among them.
   needs a restart) and acts on some: a model switch or unload, preloading the
   style model, rebinding keys, `set_default_mode`, extending the command
   timeout. The tray menu keeps only everyday items.
+- **Command sheet** (`commands.HELP_SHEET`, `help_sections`, the `help` and
+  `hide_help` commands; `desktop.help_sink`; `Overlay._draw_help`): curated
+  rows tagged with the command names they cover (a test fails if a command
+  is missing). Laid out in as many columns as the screen's height needs,
+  in theme colours, alpha 0.86 (0.94 on light themes), click-through.
+- **Escape words** (`always_on.cancel_words` / `exit_words`,
+  `Grammar.set_escape_words`): built-in `CANCEL` / `EXIT` plus your own,
+  applied live and shown on the sheet (`commands.ESCAPES`).
+- **Scratch after a dictation**: `Listener._do` builds the `Ctx` before
+  marking the dictation scratched (`_scratched_at`); the other order handed
+  scratch an empty `last_text` ("nothing recent to scratch").
 - **Timeouts**: `command_mode_seconds` and `idle_stop_seconds`, 0 = never;
   the command timeout applies in either default mode. `Listener.set_timeout`
   (tray, or `commands.parse_timeout`: "command timeout two minutes") saves it.

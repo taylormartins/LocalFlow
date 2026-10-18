@@ -206,6 +206,10 @@ class Overlay:
 
         desktop.label_sink = self.set_labels
         desktop.list_sink = self.set_list
+        desktop.help_sink = self.set_help
+        self._help: list = []
+        self._help_version = 0
+        self._help_drawn = 0
 
     def set_labels(self, labels: list, style: str = "label") -> None:
         """[(number, (left, top, right, bottom)), ...] in screen pixels; [] clears.
@@ -218,6 +222,11 @@ class Overlay:
         """The window list: [(number, "text"), ...]; [] hides it."""
         self._list = list(lines)
         self._list_version += 1
+
+    def set_help(self, sections: list) -> None:
+        """The command sheet: [(section, [(say, does), ...]), ...]; [] hides it."""
+        self._help = list(sections)
+        self._help_version += 1
 
     # -- engine side -------------------------------------------------------
 
@@ -347,6 +356,7 @@ class Overlay:
         self.root = root
         self._make_label_layer(tk)
         self._make_list_layer(tk)
+        self._make_help_layer(tk)
         log.info("overlay ready")
 
         root.after(FRAME_MS, self._tick)
@@ -553,6 +563,106 @@ class Overlay:
         user32.SetWindowPos(self.list_hwnd, HWND_TOPMOST, x, y, w, h,
                             SWP_NOACTIVATE | SWP_SHOWWINDOW)
 
+    def _make_help_layer(self, tk) -> None:
+        """The command sheet: see-through, click-through, never focused."""
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=KEY)
+        win.attributes("-transparentcolor", KEY)
+        win.attributes("-alpha", 0.86)  # see through it, still read it
+        win.attributes("-topmost", True)
+        win.geometry("10x10+-32000+-32000")
+        self.help_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
+        self.help_canvas.pack(fill="both", expand=True)
+        win.update()
+        self.help_hwnd = user32.GetParent(win.winfo_id())
+        ex = user32.GetWindowLongW(self.help_hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(
+            self.help_hwnd, GWL_EXSTYLE,
+            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        )
+        user32.ShowWindow(self.help_hwnd, SW_HIDE)
+        self.help_win = win
+
+    def _draw_help(self) -> None:
+        """Sections in columns, as many as fit the screen's height, against
+        the right edge of the screen you're working on, in the theme's colours."""
+        import tkinter.font as tkfont
+
+        from . import themes
+
+        self._help_drawn = self._help_version
+        sections = self._help
+        c = self.help_canvas
+        c.delete("all")
+        if not sections:
+            user32.ShowWindow(self.help_hwnd, SW_HIDE)
+            return
+        s = self.s
+        theme = self._themes.get(self.cfg.theme)
+        # Dark text behind a light sheet muddies it sooner than light behind dark.
+        bg = theme.bg.lstrip("#")
+        light = len(bg) == 6 and sum(int(bg[i:i + 2], 16) for i in (0, 2, 4)) > 3 * 150
+        self.help_win.attributes("-alpha", 0.94 if light else 0.86)
+        head_font =tkfont.Font(root=self.root, family="Segoe UI Semibold", size=-int(13 * s))
+        say_font = tkfont.Font(root=self.root, family="Segoe UI Semibold", size=-int(11 * s))
+        does_font = tkfont.Font(root=self.root, family="Segoe UI", size=-int(10 * s))
+        pad, gap = int(14 * s), int(20 * s)
+        head_h, say_h, does_h, after = int(22 * s), int(16 * s), int(14 * s), int(8 * s)
+        area = _work_area()
+        max_h = int((area.bottom - area.top) * 0.86)
+        title_h = int(30 * s)
+
+        def height(rows) -> int:
+            return head_h + sum(say_h + (does_h if does else 0) for _say, does in rows) + after
+
+        columns, col, used = [], [], title_h + pad
+        for title, rows in sections:
+            h = height(rows)
+            if col and used + h > max_h:
+                columns.append(col)
+                col, used = [], title_h + pad
+            col.append((title, rows))
+            used += h
+        columns.append(col)
+        widths = []
+        for col in columns:
+            w = 0
+            for title, rows in col:
+                w = max(w, head_font.measure(title))
+                for say, does in rows:
+                    w = max(w, say_font.measure(say), does_font.measure(does) if does else 0)
+            widths.append(w)
+        W = pad * 2 + sum(widths) + gap * (len(columns) - 1)
+        H = pad + title_h + max(sum(height(r) for _t, r in col) for col in columns) + pad // 2
+        c.config(width=W, height=H)
+        panel = themes.with_changes(theme, border="plain" if theme.border == "ornate" else theme.border)
+        themes.pill(c, panel, 0, 0, W - 1, H - 1, 16 * s, s, time.monotonic())
+        accent = theme.accent or theme.text
+        dim = themes.blend(theme.text, theme.bg, 0.4)
+        c.create_text(pad, pad, anchor="nw", fill=accent, font=head_font,
+                      text='Say a command  ·  "hide commands" to close')
+        x = pad
+        for col, w in zip(columns, widths):
+            y = pad + title_h
+            for title, rows in col:
+                c.create_text(x, y, anchor="nw", fill=accent, font=head_font, text=title)
+                c.create_line(x, y + head_h - int(5 * s), x + w, y + head_h - int(5 * s),
+                              fill=themes.blend(accent, theme.bg, 0.6))
+                y += head_h
+                for say, does in rows:
+                    c.create_text(x, y, anchor="nw", fill=theme.text, font=say_font, text=say)
+                    y += say_h
+                    if does:
+                        c.create_text(x, y, anchor="nw", fill=dim, font=does_font, text=does)
+                        y += does_h
+                y += after
+            x += w + gap
+        left = max(area.left + int(16 * s), area.right - W - int(20 * s))
+        top = area.top + max(int(16 * s), (area.bottom - area.top - H) // 2)
+        user32.SetWindowPos(self.help_hwnd, HWND_TOPMOST, left, top, W, H,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+
     def _theme_fonts(self, theme) -> None:
         """Tk fonts for the theme's family and size (remade when it changes)."""
         if self._fonts_for == (theme.font, theme.font_size):
@@ -592,6 +702,11 @@ class Overlay:
         return label.rstrip() + "…"
 
     def _tick(self) -> None:
+        if self._help_version != self._help_drawn:
+            try:
+                self._draw_help()
+            except Exception:
+                log.warning("drawing the command list failed", exc_info=True)
         if self._list_version != self._list_drawn:
             try:
                 self._draw_list()

@@ -5,7 +5,9 @@ Built-in themes:
   ornaments, a straight-line waveform, stardust for the recording mark.
 - Gemstone: light through crystal: a brilliant-cut gem (ruby, sapphire,
   diamond), rainbow fire, an iridescent border, a prism waveform.
-- Smooth: light grey and white, soft capsule waveform, Apple-like.
+- Smooth: white and near-black, soft capsule waveform.
+- Silver: a MacBook or iPhone: light grey with a white border, grey
+  lettering, a waveform of fine grey hairlines.
 - Classic: the original pill.
 - Matrix: black and green, code lettering, columns of glyphs.
 - Doodle: pencil on paper, a sketched border and a scribbled line.
@@ -33,9 +35,9 @@ log = logging.getLogger(__name__)
 
 STORE = PROJECT_ROOT / "themes.json"
 
-WAVE_STYLES = ("bars", "capsules", "line", "zigzag", "prism", "dots", "dotgrid", "glyphs",
-               "scribble", "halftone")
-BORDERS = ("plain", "ornate", "prism", "sketch", "rule")
+WAVE_STYLES = ("bars", "capsules", "hairlines", "line", "zigzag", "prism", "dots", "dotgrid",
+               "glyphs", "scribble", "halftone")
+BORDERS = ("plain", "bevel", "ornate", "prism", "sketch", "rule")
 DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square")
 
 
@@ -100,9 +102,15 @@ MODERN = Theme(
     dim="#24313c", wave_style="dotgrid", dot="circle", font="Segoe UI Variable Display",
     font_size=13, accent="#7dd3fc",
 )
+SILVER = Theme(
+    name="Silver", bg="#e6e6eb", text="#3a3a3c", edge="#ffffff", border="bevel", round=1.0,
+    wave="#636366", dim="#c2c2c7", wave_style="hairlines", dot="circle",
+    font="Segoe UI Variable Text", font_size=13, accent="#8e8e93",
+)
 #: The theme LocalFlow starts with (overlay.theme = "royal").
 DEFAULT = ROYAL
-BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "smooth": SMOOTH, "modern": MODERN,
+BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "silver": SILVER, "smooth": SMOOTH,
+            "modern": MODERN,
             "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER}
 
 
@@ -327,6 +335,14 @@ def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, 
             c.create_line(ax, ay, bx, by, fill=hue(i / n + t * 0.08, 0.45, 1.0), width=e2,
                           capstyle="round")
         return
+    if theme.border == "bevel":
+        # Aluminium: a soft grey hairline outside, a white band, the grey body.
+        hair, band = max(1.0, 0.9 * s), max(1.5, 2.4 * s)
+        rounded(c, x0, y0, x1, y1, r, blend(theme.bg, "#000000", 0.18))
+        rounded(c, x0 + hair, y0 + hair, x1 - hair, y1 - hair, max(0.0, r - hair), edge)
+        k = hair + band
+        rounded(c, x0 + k, y0 + k, x1 - k, y1 - k, max(0.0, r - k), theme.bg)
+        return
     rounded(c, x0, y0, x1, y1, r, edge)
     rounded(c, x0 + e, y0 + e, x1 - e, y1 - e, max(0.0, r - e), theme.bg)
     if theme.border == "ornate":
@@ -491,6 +507,12 @@ def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float
             bw = max(2.0, step * 0.5)
             c.create_line(cx, mid - hh / 2 + bw / 2, cx, mid + hh / 2 - bw / 2, fill=colour,
                           width=bw, capstyle="round")
+        elif style == "hairlines":
+            # Fine lines, eased between neighbours, mirrored round the middle.
+            prev = level_height(levels[i - 1]) if i else level_height(level)
+            hh = max(1.5 * s, (0.4 * prev + 0.6 * level_height(level)) * max_h * 0.95)
+            c.create_line(cx, mid - hh / 2, cx, mid + hh / 2, fill=colour,
+                          width=max(1.0, 1.1 * s), capstyle="round")
         elif style == "prism":
             # Light split into its colours, drifting along as you talk.
             col = hue(i / n * 0.85 + t * 0.12, 0.5, 1.0) if level >= speech else theme.dim

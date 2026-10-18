@@ -45,7 +45,8 @@ LIVE_SETTINGS = {
     "hotkeys": ("dictate", "dictate_raw"),
     "audio": ("boost",),
     "sounds": ("enabled", "start", "stop", "paste", "response", "volume"),
-    "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm"),
+    "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
+                  "cancel_words", "exit_words"),
     "overlay": ("theme", "opacity", "label_opacity"),
     "history": ("enabled",),
 }
@@ -555,6 +556,8 @@ class Tray:
                 lis.set_default_mode(cur.always_on.default_mode)
             if {"always_on.command_mode_seconds", "always_on.idle_stop_seconds"} & changed.keys():
                 lis._extend_mode()
+            if {"always_on.cancel_words", "always_on.exit_words"} & changed.keys():
+                lis.grammar.set_escape_words(cur.always_on.cancel_words, cur.always_on.exit_words)
         if "overlay.theme" in changed:
             from .themes import resolve
 

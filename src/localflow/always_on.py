@@ -144,7 +144,9 @@ class Listener:
         self._cmd_lock = threading.Lock()
         from .commands import LEARNED
 
-        self.grammar = Grammar(extra=cfg.always_on.commands, learned_file=LEARNED)
+        self.grammar = Grammar(extra=cfg.always_on.commands, learned_file=LEARNED,
+                               cancel_extra=cfg.always_on.cancel_words,
+                               exit_extra=cfg.always_on.exit_words)
         #: The last thing said that wasn't understood: (words, monotonic time).
         self._miss: tuple[str, float] | None = None
         #: "Learn this?" waiting for "remember that": (phrase, command, deadline).
@@ -1003,11 +1005,12 @@ class Listener:
         self._choice = None
         self.editing = False
         self._held = []
-        from .commands import hide_grid, hide_labels, hide_windows
+        from .commands import hide_grid, hide_help, hide_labels, hide_windows
 
         hide_labels()
         hide_windows()
         hide_grid()
+        hide_help()
         log.info("always-on: command mode off (%s)", message)
         self.on_event("command-mode", "off")
         if self.engine.state == State.COMMAND:
@@ -1392,6 +1395,10 @@ class Listener:
         self.on_event("ran", str(p))
         if p.command.name in EDITS and self.commanding:
             self._show("Editing…")
+        # What it acts on, before this command changes it: marking the
+        # dictation scratched first left "scratch that" (and "cancel" after
+        # the paste) with nothing to delete.
+        ctx = self._ctx()
         if p.command.name == "scratch" and self.engine.history:
             self._scratched_at = self.engine.history[-1].at
         if not self.inject:
@@ -1411,7 +1418,7 @@ class Listener:
                 else:
                     go()
 
-        self.runner.submit(p, self._ctx(), wrap)
+        self.runner.submit(p, ctx, wrap)
 
     def _arm(self, p: Parsed) -> None:
         """The response sound, then wait for the command's own word ("goodnight")."""

@@ -724,8 +724,108 @@ def _shown(w: desktop.Win, spoken: str = "") -> str:
     return w.label
 
 
+#: The command sheet ("show commands"): (section, [(say, does, command names)]).
+#: tests/settings_apply.py checks that every command is on it.
+HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
+    ("Windows", [
+        ("switch to Chrome  ·  switch to 3", "bring a window to the front", ("switch",)),
+        ("show windows  ·  hide the window list", "numbered list of open windows",
+         ("show_windows", "hide_windows")),
+        ("open Notepad  ·  open youtube dot com", "start an app or a website", ("open",)),
+        ("minimize  ·  maximize  ·  restore", "the window in front, or one named",
+         ("minimize", "maximize", "restore")),
+        ("close window  ·  close 2", "close a window", ("close_window",)),
+        ("move it to the left  ·  to the top right", "half or quarter of its screen",
+         ("place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
+          "place_left", "place_right", "place_top", "place_bottom")),
+        ("move it to the top right of monitor 2", "a corner of another screen",
+         ("place_top_left_of", "place_top_right_of", "place_bottom_left_of",
+          "place_bottom_right_of", "place_left_of", "place_right_of", "place_top_of",
+          "place_bottom_of")),
+        ("move it to monitor 2  ·  next monitor", "another screen",
+         ("to_monitor", "next_monitor", "previous_monitor")),
+        ("show monitors", "each screen's number", ("show_monitors",)),
+        ("center it  ·  switch window  ·  show desktop", "",
+         ("center", "switch_window", "desktop")),
+    ]),
+    ("Clicking", [
+        ("show labels  ·  hide labels", "number everything clickable",
+         ("show_labels", "hide_labels")),
+        ("click Send  ·  click 5", "click by name or number", ("click",)),
+        ("double click 5  ·  right click 5", "", ("double_click", "right_click")),
+        ("show grid  ·  hide grid", "a 3x3 grid; a number zooms in", ("show_grid", "hide_grid")),
+        ("type into 12 hello", "type into a numbered field", ("type_into",)),
+    ]),
+    ("Keys and text", [
+        ("submit  ·  press enter", "press Enter", ("submit",)),
+        ("new line  ·  tab  ·  shift tab  ·  escape", "",
+         ("new_line", "tab", "shift_tab", "escape")),
+        ("backspace  ·  delete word", "", ("backspace", "delete_word")),
+        ("type running late", "type the words", ("type",)),
+        ("select all  ·  copy  ·  cut  ·  paste", "", ("select_all", "copy", "cut", "paste")),
+        ("save  ·  find  ·  undo  ·  redo", "", ("save", "find", "undo", "redo")),
+        ("paste that again", "the last dictation again", ("paste_again",)),
+    ]),
+    ("Pages and tabs", [
+        ("scroll down  ·  scroll up  ·  page down", "",
+         ("scroll_down", "scroll_up", "page_down", "page_up")),
+        ("go to the top  ·  go to the bottom", "", ("top", "bottom")),
+        ("new tab  ·  close tab  ·  next tab", "",
+         ("new_tab", "close_tab", "next_tab", "previous_tab")),
+        ("reopen tab  ·  go back  ·  refresh", "", ("reopen_tab", "back", "forward", "refresh")),
+    ]),
+    ("Editing", [
+        ("make this shorter  ·  make it formal", "rewrite the selection or last dictation",
+         ("edit",)),
+        ("fix the punctuation  ·  fix that", "tidy it up", ("fix_text",)),
+        ("edit mode", 'then just say the change; "exit" leaves', ("edit_said",)),
+    ]),
+    ("Undo", [
+        ("undo last command", "take back the last voice command", ("undo_command",)),
+        ("scratch that", "delete the text just pasted", ("scratch",)),
+        ("show history", "every dictation, searchable", ("history",)),
+    ]),
+    ("Command mode", [
+        ("exit  ·  done  ·  your stop phrase", "leave command mode", ()),
+        ("dictation mode  ·  switch mode", "dictate, then come back here", ()),
+        ("change default mode", "command or dictation mode to start in", ()),
+        ("command timeout two minutes  ·  never", "also: dictation timeout ...", ()),
+        ("remember that  ·  forget that", "learn (or drop) your own phrasing", ()),
+        ("go to sleep", 'then say "goodnight"', ("sleep",)),
+        ("show commands  ·  hide commands", "this list", ("help", "hide_help")),
+    ]),
+    ("After the stop phrase", [
+        ("submit  ·  press enter", "send what was just pasted", ()),
+        ("cancel  ·  never mind  ·  forget it", "throw it away, or delete it if pasted", ()),
+        ("command mode", "go to command mode", ()),
+    ]),
+]
+#: Your own escape words, for the sheet (set by Grammar.set_escape_words).
+ESCAPES: dict[str, list[str]] = {"cancel": [], "exit": []}
+
+
+def help_sections() -> list[tuple[str, list[tuple[str, str]]]]:
+    """The command sheet, with your own escape words added where they belong."""
+    out = []
+    for title, rows in HELP_SHEET:
+        lines = [(say, does) for say, does, _names in rows]
+        if title == "After the stop phrase" and ESCAPES["cancel"]:
+            lines.append(("  ·  ".join(ESCAPES["cancel"][:3]), "your own escape words"))
+        if title == "Command mode" and ESCAPES["exit"]:
+            lines.insert(1, ("  ·  ".join(ESCAPES["exit"][:3]), "your own words to leave"))
+        out.append((title, lines))
+    return out
+
+
 def _help(arg: str, ctx: Ctx) -> str:
-    return "Say: switch to..., open..., click..., scroll down, new tab, minimize..."
+    if not desktop.show_help(help_sections()):
+        return "Say: switch to..., open..., click..., scroll down, new tab, minimize..."
+    return 'Commands on screen - "hide commands" to close'
+
+
+def hide_help(arg: str = "", ctx: Ctx | None = None) -> str:
+    desktop.hide_help()
+    return "Command list hidden"
 
 
 # Patterns: [optional] words, (a|b) choices, and {slot} at the end.
@@ -925,7 +1025,11 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
     Command("edit_said", [], _edit_with(verbatim=True),
             "rewrite the selected text as the arg says (\"translate it to French\")",
             keys=True, text_slot=True),
-    Command("help", ["what can i say", "help", "show commands"], _help, "list commands"),
+    Command("help", ["what can i say", "help", "show [me] [the] commands", "list [the] commands",
+                     "show [me] what i can say"], _help,
+            "show the list of commands on screen"),
+    Command("hide_help", ["hide [the] commands", "hide [the] help", "close [the] (help|commands)"],
+            hide_help, "hide the list of commands"),
 ]
 #: Commands that rewrite text.
 EDITS = {"edit", "fix_text", "edit_said"}
@@ -1127,6 +1231,10 @@ class Grammar:
     phrases learned from misses come from ``learned_file`` (None: none)."""
     extra: dict[str, list[str]] = field(default_factory=dict)
     learned_file: Path | None = None
+    #: Your own escape words (Settings > Listening): throw a dictation away,
+    #: leave command mode.
+    cancel_extra: list[str] = field(default_factory=list)
+    exit_extra: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.patterns = [Pattern.compile(c, p) for c in COMMANDS
@@ -1138,13 +1246,20 @@ class Grammar:
         self.remember = [normalise(s) for s in REMEMBER]
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
+        self.set_escape_words(self.cancel_extra, self.exit_extra)
         self.yes = [normalise(s) for s in YES]
         self.dictate = [normalise(s) for s in DICTATE]
         self.no = [normalise(s) for s in NO]
-        self.cancel = [normalise(s) for s in CANCEL]
         self.default_mode = [normalise(s) for s in DEFAULT_MODE]
         self.as_command = [normalise(s) for s in AS_COMMAND]
         self.as_dictation = [normalise(s) for s in AS_DICTATION]
+
+    def set_escape_words(self, cancel: list[str], exit_: list[str]) -> None:
+        """The built-in escape words plus your own."""
+        self.cancel_extra, self.exit_extra = list(cancel or []), list(exit_ or [])
+        self.cancel = [w for w in (normalise(s) for s in CANCEL + self.cancel_extra) if w]
+        self.exit = [w for w in (normalise(s) for s in EXIT + self.exit_extra) if w]
+        ESCAPES["cancel"], ESCAPES["exit"] = self.cancel_extra, self.exit_extra
 
     def parse(self, words: list[str]) -> Parsed | None:
         """The command these words are, if they are one in full.

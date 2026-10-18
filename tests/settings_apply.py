@@ -93,6 +93,37 @@ expect("an unknown name falls back to the default", themes.resolve("nope") is th
 expect("blend", themes.blend("#000000", "#ffffff", 0.5) == "#808080",
        themes.blend("#000000", "#ffffff", 0.5))
 
+print("escape words and the command sheet")
+from localflow.commands import COMMANDS, HELP_SHEET, Grammar, help_sections  # noqa: E402
+
+on_sheet = {n for _t, rows in HELP_SHEET for _s, _d, names in rows for n in names}
+missing = [c.name for c in COMMANDS if c.name not in on_sheet]
+expect("every command is on the command sheet", not missing, str(missing))
+g = Grammar()
+expect("a built-in escape word", g.is_one(["never", "mind"], g.cancel))
+expect("...not yet one of your own", not g.is_one(["abort", "mission"], g.cancel))
+new = copy.deepcopy(cfg)
+new.always_on.cancel_words = ["abort mission"]
+new.always_on.exit_words = ["over and out"]
+
+
+class FakeListener:
+    grammar = g
+
+    def _extend_mode(self):
+        pass
+
+
+tray.always_on = FakeListener()
+tray.apply_settings(new)
+expect("your own escape words apply live", g.is_one(["abort", "mission"], g.cancel)
+       and g.is_one(["over", "and", "out"], g.exit) and g.is_one(["never", "mind"], g.cancel))
+sheet = dict(help_sections())
+expect("...and show on the command sheet",
+       any("abort mission" in say for say, _ in sheet["After the stop phrase"])
+       and any("over and out" in say for say, _ in sheet["Command mode"]))
+tray.always_on = None
+
 print("every theme draws")
 import tkinter as tk  # noqa: E402
 

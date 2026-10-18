@@ -137,7 +137,7 @@ class OverlayConfig:
     #: Live transcript under the waveform while you speak. Display only - the
     #: pasted text still comes from the full transcription after you stop.
     live_text: bool = True
-    #: The pill's look: "royal" (black and gold), "gemstone", "smooth",
+    #: The pill's look: "royal" (black and gold), "gemstone", "silver", "smooth",
     #: "modern", "classic" (the original), "matrix", "doodle", "newspaper",
     #: or one you built in Settings > Theme builder (kept in themes.json).
     theme: str = "royal"
@@ -214,6 +214,11 @@ class AlwaysOnConfig:
     #: Seconds in which a command said after a dictation counts: from the stop
     #: phrase, and again from the moment the text is pasted.
     command_window: float = 5.0
+    #: Your own escape words, besides the built-in ones: throw a dictation
+    #: away after the stop phrase ("cancel", "never mind"...), and leave
+    #: command mode ("exit", "done"...). Settings > Listening.
+    cancel_words: list[str] = field(default_factory=list)
+    exit_words: list[str] = field(default_factory=list)
     #: Command mode ends after this many seconds without a command; 0 = never.
     #: Applies whichever mode is the default. "command timeout two minutes".
     command_mode_seconds: float = 30.0

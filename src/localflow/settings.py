@@ -576,6 +576,32 @@ def _listening(nb, cfg: Config) -> None:
                 lambda v, key=key, options=options: _save("always_on", key, float(options[v])),
                 width=22)
 
+    from .commands import CANCEL, EXIT
+
+    card = _card(tab, "Escape words", "Say one of these to get out. Add your own, separated by "
+                 'commas. In command mode, "show commands" lists everything you can say.')
+    for key, label, built_in in (
+            ("cancel_words", "Throw a dictation away (say it after the stop phrase; if the "
+             "text is already in, it's deleted)", CANCEL),
+            ("exit_words", "Leave command mode (your stop phrase works too)", EXIT)):
+        ttk.Label(card, text=label, style="Card.TLabel", wraplength=560,
+                  justify="left").pack(anchor="w", pady=(6, 0))
+        ttk.Label(card, text="Built in:  " + ",  ".join(built_in), style="Muted.TLabel",
+                  wraplength=560, justify="left").pack(anchor="w")
+        row = _row(card, "Your own", 12)
+        var = tk.StringVar(value=", ".join(getattr(cfg.always_on, key)))
+        entry = ttk.Entry(row, textvariable=var, width=46)
+        entry.pack(side="left")
+
+        def save_words(_e=None, key=key, var=var):
+            words = [w.strip() for w in var.get().split(",") if w.strip()]
+            _save("always_on", key, words)
+
+        entry.bind("<FocusOut>", save_words)
+        entry.bind("<Return>", save_words)
+        ttk.Button(row, text="Save", style="Small.TButton",
+                   command=save_words).pack(side="left", padx=8)
+
     card = _card(tab, "Command mode")
     _check(card, "Let the LLM work out requests the built-in commands don't cover",
            cfg.always_on.command_llm, lambda v: _save("always_on", "command_llm", v))

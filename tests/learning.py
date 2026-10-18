@@ -262,4 +262,30 @@ events.clear()
 lis._check_command(a, [Word("never", 0.1, 0.3), Word("mind", 0.3, 0.5)], 0.0)
 expect("after the paste, 'never mind' deletes it (scratch)", ("ran", "scratch") in events, str(events))
 
+print("show commands")
+lis.leave_commands()
+lis.commanding = True
+events.clear()
+say.n = 200  # after the bursts the cancel tests consumed
+say("show commands")
+expect("'show commands' in command mode shows the list", ("ran", "help") in events, str(events))
+say("hide commands")
+expect("'hide commands' hides it", ("ran", "hide_help") in events, str(events))
+lis.leave_commands()
+
+print("scratch gets the text it deletes")
+from localflow.history import Entry  # noqa: E402
+
+engine.history.append(Entry(time.time(), "hello there"))
+handed = []
+lis.inject = True  # as in real use, but the command thread is replaced: nothing is pressed
+lis.runner.submit = lambda p, ctx, wrap=None: handed.append((p.command.name, ctx.last_text))
+lis._do = real_do
+real_do(Parsed(BY_NAME["scratch"], "", 1.0))
+expect("the dictation to delete reaches the command", handed == [("scratch", "hello there")],
+       str(handed))
+real_do(Parsed(BY_NAME["scratch"], "", 1.0))
+expect("...and only once", handed[-1] == ("scratch", ""), str(handed))
+lis.inject = False
+
 print("\nall passed" if not failures else f"\n{failures} FAILED")

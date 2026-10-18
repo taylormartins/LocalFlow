@@ -365,6 +365,12 @@ too. To live in command mode instead, make it the default (see
 | forget that | drops the phrase just learned |
 | paste that again · show history | re-pastes the last dictation · opens the history window |
 
+**"Show commands"** (or "what can I say") puts every command on screen: a
+see-through, click-through sheet in your theme's colours against the right
+edge of the screen you're working on, grouped (windows, clicking, keys,
+pages, editing, undo, command mode, after the stop phrase), with your own
+escape words included. **"Hide commands"** or leaving command mode closes it.
+
 Any command can be aimed at a window by ending it with "in *name*": **"open
 a new tab in Chrome"**, "scroll down in Spotify". LocalFlow switches there
 first. If you pause in the middle of a request it doesn't recognise, it waits
@@ -580,8 +586,10 @@ tabs:
     (ruby: LLM cleanup, sapphire: algorithmic, diamond: raw) with flashes of
     rainbow fire, a border that slowly runs through the rainbow, and a prism
     waveform.
-  - **Smooth**: light grey and white with soft capsules for the waveform, in
-    the spirit of Apple's design.
+  - **Silver**: a MacBook or iPhone: light grey with a white border, grey
+    lettering, a waveform of fine grey hairlines.
+  - **Smooth**: white and near-black, soft capsules for the waveform, a blue
+    accent.
   - **Classic**: the original grey pill.
   - **Matrix**: black and green, code lettering, columns of glyphs for the
     waveform, a blinking cursor.
@@ -591,17 +599,18 @@ tabs:
   - **Modern**: dark, with a dot-matrix meter.
 - **Theme builder**: make your own. Start from any theme and pick the
   background, text, outline, waveform and accent colours, the font (any font
-  on your PC) and its size, the waveform (bars, capsules, line, zigzag, prism,
-  dots, dot grid, glyphs, scribble, halftone), the border (plain, ornate,
-  prism, sketch, rule), the recording mark (circle, stardust, gem, cursor,
+  on your PC) and its size, the waveform (bars, capsules, hairlines, line,
+  zigzag, prism, dots, dot grid, glyphs, scribble, halftone), the border
+  (plain, bevel, ornate, prism, sketch, rule), the recording mark (circle, stardust, gem, cursor,
   sketch, square) and how round the corners are.
   The preview is drawn by the same code as the real pill. **Save and use**
   keeps it in `themes.json` (this PC only) and switches to it.
 - **Dictation**: cleanup and its model, Ollama's status and **Restart
   Ollama**, character, tone, style model, paste where I started, dictation
   keys, mic boost.
-- **Listening**: default mode, the timeouts, the LLM for commands, history,
-  learned phrases.
+- **Listening**: default mode, the timeouts, **escape words** (the built-in
+  ones, plus your own, for throwing a dictation away and for leaving command
+  mode), the LLM for commands, history, learned phrases.
 - **Sounds**: the four cues and the volume.
 
 Every change applies at once, without a restart: Settings saves to
