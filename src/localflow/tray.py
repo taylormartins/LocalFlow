@@ -208,6 +208,16 @@ class Tray:
                     visible=lambda _: self.always_on is not None,
                 ),
                 pystray.MenuItem(
+                    lambda _: "Command mode timeout: " + self._secs("command_mode_seconds"),
+                    self._timeout_menu(pystray, "command", [15, 30, 60, 120, 300, 600, 0]),
+                    visible=lambda _: self.always_on is not None,
+                ),
+                pystray.MenuItem(
+                    lambda _: "Dictation timeout: " + self._secs("idle_stop_seconds"),
+                    self._timeout_menu(pystray, "dictation", [30, 45, 60, 120, 300, 0]),
+                    visible=lambda _: self.always_on is not None,
+                ),
+                pystray.MenuItem(
                     lambda _: self._near_label(),
                     lambda icon, item: self._accept_near(),
                     visible=lambda _: bool(self.always_on and self.always_on.last_near),
@@ -924,6 +934,32 @@ class Tray:
 
         threading.Thread(target=switch, daemon=True, name="localflow-model-switch").start()
         icon.update_menu()
+
+    def _secs(self, key: str) -> str:
+        from .commands import say_seconds
+
+        return say_seconds(getattr(self.engine.cfg.always_on, key))
+
+    def _timeout_menu(self, pystray, which: str, choices: list[int]):
+        """Command mode's quiet timeout, or how long a dictation waits in
+        silence before it finishes. "Never" = 0."""
+        from .commands import say_seconds
+
+        key = "command_mode_seconds" if which == "command" else "idle_stop_seconds"
+        cfg = self.engine.cfg.always_on
+
+        def pick(seconds: int):
+            def action(icon, item) -> None:
+                if self.always_on is not None:
+                    self.always_on.set_timeout(which, seconds)
+                icon.update_menu()
+            return action
+
+        return pystray.Menu(*[
+            pystray.MenuItem(say_seconds(c).capitalize(), pick(c),
+                             checked=lambda item, c=c: getattr(cfg, key) == c, radio=True)
+            for c in choices
+        ])
 
     def _set_default_mode(self, mode: str) -> None:
         if self.always_on is not None:

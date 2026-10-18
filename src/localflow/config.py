@@ -196,6 +196,7 @@ class AlwaysOnConfig:
     model: str = "base.en"
     #: Stop on our own if nothing has been said for this long while dictating,
     #: so a forgotten stop phrase can't record the room for ten minutes.
+    #: 0 = never (the stop phrase, a hotkey or Esc only).
     idle_stop_seconds: float = 45.0
     #: How close every word of a heard phrase must be to a known spelling, 0-1.
     #: Lower catches more mishearings and more lookalikes ("Mary told" for
@@ -207,7 +208,8 @@ class AlwaysOnConfig:
     #: Seconds in which a command said after a dictation counts: from the stop
     #: phrase, and again from the moment the text is pasted.
     command_window: float = 5.0
-    #: Command mode ends after this many seconds without a command.
+    #: Command mode ends after this many seconds without a command; 0 = never.
+    #: Applies whichever mode is the default. "command timeout two minutes".
     command_mode_seconds: float = 30.0
     #: "dictation": wait for the start phrase; command mode is a visit.
     #: "command": always in command mode, back to it after every dictation.

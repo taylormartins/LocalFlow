@@ -216,6 +216,22 @@ def main() -> int:
                 got = box.read_text(encoding="utf-8").strip() if box.exists() else ""
                 expect(f"'type into {n} ...' types into the Notes box", got == "hello from fennel",
                        f"{r} box={got!r}")
+
+                print("edit the selected text")
+                if desktop.foreground() == hwnd:
+                    # (WinForms text boxes ignore Ctrl+A, so "select all" can't be used here.)
+                    desktop.press("shift+home")
+                    time.sleep(0.3)
+                    r = say("make it uppercase", wait=1.0)
+                    got = box.read_text(encoding="utf-8").strip() if box.exists() else ""
+                    expect("with text selected, 'make it uppercase' rewrites it", got == "HELLO FROM FENNEL",
+                           f"{r} box={got!r}")
+                    r = say("undo last command", wait=1.0)
+                    got = box.read_text(encoding="utf-8").strip() if box.exists() else ""
+                    expect("'undo last command' puts it back", got == "hello from fennel",
+                           f"{r} box={got!r}")
+                else:
+                    print("  SKIP  edit: the window lost focus")
             else:
                 print(f"  SKIP  no Notes label ({names}) or the window lost focus")
             say("hide labels")

@@ -562,6 +562,27 @@ phrase (while dictating) is among them.
   the probe. Restart: taskkill both Ollama processes, start
   `ollama app.exe` through `explorer.exe` (not elevated), wait for
   `/api/tags`, warm up.
+- **Timeouts**: `command_mode_seconds` and `idle_stop_seconds`, 0 = never;
+  the command timeout applies in either default mode. `Listener.set_timeout`
+  (tray, or `commands.parse_timeout`: "command timeout two minutes") saves it.
+- **Edit by voice** (`edit.py`; commands `edit`, `fix_text`, `edit_said`):
+  `copy_selection` presses Ctrl+C (Ctrl+Shift+C in terminals) and waits for
+  the clipboard sequence number to change, then restores the clipboard.
+  Nothing (or one line ending in a newline, a code editor's line copy) means
+  "no selection": the last dictation (< 120 s) is backspaced away instead.
+  `edit.apply`: a rule (`RULES`) unless the LLM is up and the instruction
+  wants more (`_wants_more`); else `llm_edit` via `Ctx.llm_edit`. The result
+  is pasted. `Ctx.edited` feeds the undo step (backspace the new, paste the
+  old). Edit mode (`Listener.editing`): an unparsed request becomes
+  `edit_said` with the words as said.
+- **Remembering LLM answers**: `_ask_llm` sets `_llm_run`; `_command_done`
+  -> `_plan_step_done` counts the steps; when all worked, `_offer_to_remember`
+  (shared with misses). `Grammar.learn` stores one step as before, several as
+  `{"steps": [...]}`; `learned_plan` replays them (`_run_plan`, which asks
+  "yes" for risky steps). `_match_learned` needs equal numbers
+  (`_numbers`) unless the words are identical. `FORGET` drops
+  `Grammar.last_learned`. Commands with a confirm word (sleep) are never
+  offered.
 - **Learning from misses** (`Listener._missed`, `_offer_learning`,
   `_maybe_learn`; `Grammar.learned`). A miss is a short (6 words or fewer),
   non-noise utterance that wasn't understood, or a command that failed

@@ -268,7 +268,9 @@ phrases...**:
 
 While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
-can't record the room indefinitely.
+can't record the room indefinitely. Tray ▸ **Dictation timeout** changes that
+(30 s to 5 min, or **Never**), or say "dictation timeout two minutes" /
+"dictation timeout never" in command mode.
 
 **Microphone.** Tray ▸ **Microphone**: *System default (follows Windows)*,
 or pick a specific mic. Always-on follows the microphone. If the mic it's
@@ -315,7 +317,9 @@ follows.
 followed by **"command mode"**, or by a command itself ("Okay listen,
 Marigold. Switch to Chrome."). The pill turns teal and everything you say is
 taken as a command until you say **"exit"**, the stop phrase, or nothing for
-30 seconds (`always_on.command_mode_seconds`). The start phrase still starts a
+30 seconds (`always_on.command_mode_seconds`). Tray ▸ **Command mode timeout**
+sets it (15 s to 10 min, or **Never**), or say **"command timeout two
+minutes"** / **"command timeout never"**. The start phrase still starts a
 dictation from command mode. Tray ▸ **Command mode** switches it on and off
 too. To live in command mode instead, make it the default (see
 *Switching between commands and dictation*). Commands work without an LLM:
@@ -345,6 +349,10 @@ too. To live in command mode instead, make it the default (see
 | undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
 | put the computer to sleep · go to sleep | the response sound (three clicks), then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
 | change default mode | the response sound, then say **"command mode"** or **"dictation mode"**. Or in one go: "default mode command mode" |
+| command timeout *two minutes* · dictation timeout *never* | how long command mode waits in silence, and how long a dictation does, before ending; "never" turns it off |
+| make this shorter · make it more formal · turn this into bullet points · fix the punctuation | rewrites the selected text, or (nothing selected) your last dictation. See *Editing by voice* |
+| edit mode | everything you say is an edit to the selected text ("shorter", "translate it to French") until "exit" |
+| forget that | drops the phrase just learned |
 | paste that again · show history | re-pastes the last dictation · opens the history window |
 
 Any command can be aimed at a window by ending it with "in *name*": **"open
@@ -378,6 +386,23 @@ Tray ▸ **Restart Ollama** stops and restarts it and loads the model again.
 When it's back, you're told that too. "Model not found" usually means the
 drive the models live on isn't connected; a restart won't fix that.
 
+**Editing by voice.** Select some text anywhere and say what to change:
+**"make this shorter"**, "make it more formal", "make it friendlier",
+"rewrite this in Spanish", "turn this into bullet points", **"fix the
+punctuation"**, "fix that". With nothing selected, it edits the dictation you
+just made (in the last two minutes), so straight after the stop phrase you can
+say "make that more formal". The edited text replaces the original, and
+**"undo"** or "undo last command" puts the original back.
+
+Some edits are plain rules and work without the LLM: fix the punctuation (and
+filler words), uppercase, lowercase, title case, sentence case, bullet points,
+a numbered list, one line. Everything else ("shorter", "more formal",
+translations) needs the cleanup LLM, which is told to return only the edited
+text, never to answer it. **"Edit mode"** makes everything you say an edit,
+without the "make this" ("shorter", "more casual", "translate it to French"),
+while other commands keep working. "Exit" goes back to plain command mode. In
+terminals the copy is Ctrl+Shift+C, so nothing is ever interrupted.
+
 **Dictation history.** Tray ▸ **Dictation history...** (or "show history" in
 command mode) lists everything you've dictated, newest first. Type to search
 (every word must match). **Enter** or double-click pastes the selected one
@@ -394,9 +419,10 @@ phrase as usual, and you're back in command mode. After a dictation, say
 **Default mode.** Out of the box LocalFlow waits for the start phrase, and
 command mode is a visit that ends after 30 quiet seconds. Say **"change
 default mode"** in command mode, then **"command mode"**, and command mode
-becomes home instead. It's on from the start, never times out, and every
-dictation (start phrase, stop phrase) comes back to it. "Exit" still leaves it
-until your next dictation. Say "change default mode", then "dictation mode",
+becomes home instead. It's on from the start, and every dictation (start
+phrase, stop phrase) comes back to it. Its timeout still applies: set
+**"command timeout never"** to keep it on all the time. After a timeout or
+"exit", it's back after your next dictation. Say "change default mode", then "dictation mode",
 to go back. Tray ▸ **Default mode** does the same
 (`always_on.default_mode`). In command mode everything you say is checked as
 a command, so with the LLM on, a conversation nearby can send requests to
@@ -415,7 +441,14 @@ easily on other speech. This only costs time on near misses.
 a window that doesn't exist) and something you say right after it works, the
 pill offers: *"select no shun" = switch to notion? Say "remember that"*. Say
 **"remember that"** within 15 seconds, and from then on the first phrasing
-means that command too. The offer plays the response sound, so you notice it. It never learns without your yes. Tray ▸ **Learned
+means that command too. The offer plays the response sound, so you notice it.
+The same goes for the LLM's answers. When command mode needed the LLM to work
+out a request ("open me a fresh page" = new tab, scroll down) and every step
+worked, it offers to remember it. Say "remember that" and next time it runs
+straight away, without the LLM (so it works on a PC without one too). Numbers
+have to match exactly, so "move 8 to monitor 2" never replays "...monitor 1".
+**"Forget that"** drops the phrase just learned. A remembered answer that
+closes or sends something still asks for "yes" first. It never learns without your yes. Tray ▸ **Learned
 phrases** lists them; click one to forget it. They're kept in `learned.json`
 on this PC only.
 

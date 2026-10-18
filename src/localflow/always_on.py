@@ -33,7 +33,8 @@ from collections.abc import Callable
 import numpy as np
 
 from .audio import resolve_candidates
-from .commands import Ctx, Grammar, Parsed, Runner, describe, grid_up, is_noise, plan_with_llm, resolvable, trim
+from .commands import (EDITS, Ctx, Grammar, Parsed, Runner, describe, grid_up, is_noise,
+                       parse_timeout, plan_with_llm, resolvable, say_seconds, trim)
 from .desktop import number as desktop_number
 from .config import Config
 from .engine import State
@@ -158,6 +159,11 @@ class Listener:
         self._confirm: tuple[list[Parsed], list[list[str]], int] | None = None
         #: "Change default mode" asked which: the answer's deadline (samples).
         self._choice: int | None = None
+        #: Edit mode (inside command mode): what's said edits the selection.
+        self.editing = False
+        #: An LLM answer being carried out: offered to remember once every
+        #: step has worked. {"request", "plan", "left": {id(step)}, "ok"}.
+        self._llm_run: dict | None = None
         self._dict_heard = False  # anything said yet in this dictation
         self._scratched_at = 0.0  # the dictation "scratch that" already removed
         #: The last phrase that came close but wasn't accepted: (which, heard).
@@ -364,7 +370,8 @@ class Listener:
                     # Cancelled (Esc) or finished elsewhere.
                     self.dictating = False
         self._segment(x)
-        if self.commanding and self.ring.end > self._mode_until and not self.commands_default:
+        if (self.commanding and self.cfg.always_on.command_mode_seconds > 0
+                and self.ring.end > self._mode_until):
             self.leave_commands("Command mode off")
         elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
               and self.ring.end - self._held_at > HOLD * RATE):
@@ -376,7 +383,8 @@ class Listener:
                                  name="localflow-command-request").start()
         if self.dictating:
             idle = (self.ring.end - self._last_speech) / RATE
-            if idle > self.cfg.always_on.idle_stop_seconds or self.engine.recorder.overflowed:
+            limit = self.cfg.always_on.idle_stop_seconds
+            if (limit > 0 and idle > limit) or self.engine.recorder.overflowed:
                 log.info("always-on: %.0fs without speech - finishing", idle)
                 self.finish()
 
@@ -827,13 +835,40 @@ class Listener:
         log.info("always-on: default mode %s", mode)
         self.on_event("default-mode", mode)
         if mode == "command":
-            msg = "Default: command mode - it stays on; the start phrase still dictates"
+            secs = self.cfg.always_on.command_mode_seconds
+            msg = ("Default: command mode - it stays on; the start phrase still dictates"
+                   if secs <= 0 else
+                   f"Default: command mode. It still times out after {say_seconds(secs)} quiet"
+                   ' - say "command timeout never" to keep it on')
             if self.running and not self.dictating and not self.commanding:
                 self._enter_commands()
         else:
             msg = "Default: dictation mode - command mode ends after a quiet spell"
             self._extend_mode()
         self.engine.notice(msg, "ok", 6)
+        self._show(msg)
+
+    def set_timeout(self, which: str, seconds: float) -> None:
+        """ "command" (command mode's quiet timeout) or "dictation" (stop a
+        dictation after this much silence); 0 = never. Saved."""
+        key = "command_mode_seconds" if which == "command" else "idle_stop_seconds"
+        seconds = max(0.0, min(float(seconds), 3600.0))
+        if 0 < seconds < 5:
+            seconds = 5.0
+        setattr(self.cfg.always_on, key, seconds)
+        try:
+            from .config import save_setting
+
+            save_setting("always_on", key, seconds)
+        except OSError as exc:
+            log.warning("could not save the %s timeout: %s", which, exc)
+        log.info("always-on: %s timeout %s", which, say_seconds(seconds))
+        self.on_event("timeout", f"{which} {seconds:.0f}")
+        self._extend_mode()
+        what = "Command mode" if which == "command" else "Dictation"
+        msg = (f"{what} never times out" if seconds <= 0
+               else f"{what} times out after {say_seconds(seconds)} quiet")
+        self.engine.notice(msg, "ok", 5)
         self._show(msg)
 
     def _response_cue(self) -> None:
@@ -911,6 +946,7 @@ class Listener:
         self.commanding_announced = False
         self._confirm = None
         self._choice = None
+        self.editing = False
         self._held = []
         from .commands import hide_grid, hide_labels, hide_windows
 
@@ -961,6 +997,19 @@ class Listener:
             return
         if self._default_mode_request(a, texts):
             return
+        timeout = parse_timeout(texts)
+        if timeout is not None:
+            self.set_timeout(*timeout)
+            return
+        if self.grammar.is_one(texts, self.grammar.edit_mode):
+            self._enter_edit()
+            return
+        if self.grammar.is_one(texts, self.grammar.forget_words):
+            self._forget_last()
+            return
+        if self.editing and self.grammar.is_one(texts, self.grammar.exit):
+            self._leave_edit()  # out of edit mode, still in command mode
+            return
         if self.detector.check("stop", pool, clip) is not None or self.grammar.is_one(
                 texts, self.grammar.exit):
             self.leave_commands()
@@ -1009,6 +1058,13 @@ class Listener:
 
             self._take(Parsed(BY_NAME["switch"], str(n), 1.0))
             return
+        # A learned LLM answer of several steps.
+        for words_ in ((self._held_words() + texts) if self._held else None, texts):
+            plan = self.grammar.learned_plan(words_) if words_ else None
+            if plan:
+                self._held = []
+                self._run_plan(plan, " ".join(words_), learned=True)
+                return
         # The rest of a request begun in the last burst, or a command alone.
         if self._held:
             p = self.grammar.parse(self._held_words() + texts)
@@ -1058,8 +1114,21 @@ class Listener:
 
     def _finish_request(self, request: str) -> None:
         """A pause ended an unrecognised request: one more try with the rules
-        on the whole of it, then the LLM."""
+        on the whole of it, then the LLM. In edit mode it's an edit."""
         if not self.commanding:
+            return
+        plan = self.grammar.learned_plan(request.split())
+        if plan:
+            self._run_plan(plan, request, learned=True)
+            return
+        if self.editing:
+            from .commands import BY_NAME
+
+            p = self.grammar.parse(request.split())
+            if p is None or p.command.name in ("switch", "open", "type", "click", "edit_said") or (
+                    p.arg and not resolvable(p)):
+                p = Parsed(BY_NAME["edit_said"], request, 1.0)
+            self._take(p, request)
             return
         p = self.grammar.parse(request.split())
         if p is not None and (self._usable(p) or not self._llm_on()):
@@ -1102,16 +1171,66 @@ class Listener:
                 return
             log.info("always-on: LLM plan for %r: %s", request[:80], ", ".join(map(str, plan)))
             self.on_event("plan", ", ".join(map(str, plan)))
-            if any(p.command.risky for p in plan):
-                # Closing or sending something waits for a "yes".
-                self._confirm = (plan, self.grammar.yes, self.ring.end + 10 * RATE)
-                self._response_cue()
-                self._show("Say yes to: " + "; ".join(describe(p) for p in plan))
-                return
-            for p in plan:
-                self._do(p)
+            self._llm_run = {"request": request, "plan": plan, "left": {id(p) for p in plan},
+                             "ok": True}
+            self._run_plan(plan, request)
 
         threading.Thread(target=go, daemon=True, name="localflow-command-llm").start()
+
+    def _run_plan(self, plan: list[Parsed], said: str, learned: bool = False) -> None:
+        """Steps from the LLM, or a learned answer. Closing or sending
+        something waits for a "yes"."""
+        if learned:
+            log.info("always-on: learned plan for %r: %s", said[:80], ", ".join(map(str, plan)))
+            self.on_event("plan", ", ".join(map(str, plan)))
+        if any(p.command.risky for p in plan):
+            self._confirm = (plan, self.grammar.yes, self.ring.end + 10 * RATE)
+            self._response_cue()
+            self._show("Say yes to: " + "; ".join(describe(p) for p in plan))
+            return
+        for p in plan:
+            self._do(p)
+
+    def _plan_step_done(self, p: Parsed, ok: bool) -> None:
+        """Once every step of the LLM's answer has worked, offer to remember it."""
+        run = self._llm_run
+        if run is None or id(p) not in run["left"]:
+            return
+        run["left"].discard(id(p))
+        run["ok"] = run["ok"] and ok
+        if run["left"]:
+            return
+        self._llm_run = None
+        plan = run["plan"]
+        if not run["ok"] or any(x.command.name in ("help", "undo_command", "undo") for x in plan):
+            return
+        self._offer_to_remember(run["request"], plan)
+
+    def _enter_edit(self) -> None:
+        self.editing = True
+        log.info("always-on: edit mode")
+        self.on_event("edit-mode", "on")
+        how = "" if self._llm_on() or self.engine.cleaner.uses_llm else " (rules only)"
+        self._show(f"Edit mode{how} - select text, then say the change")
+
+    def _leave_edit(self) -> None:
+        if not self.editing:
+            return
+        self.editing = False
+        log.info("always-on: edit mode off")
+        self.on_event("edit-mode", "off")
+        self._show("Command mode - say a command")
+
+    def _forget_last(self) -> None:
+        key = self.grammar.last_learned
+        if not key:
+            self._show("Nothing learned to forget")
+            return
+        self.grammar.forget(key)
+        log.info("always-on: forgot %r", key)
+        self.on_event("forgot", key)
+        self.engine.notice(f'Forgot "{key[:24]}"', "ok", 5)
+        self._show(f'Forgot "{key[:24]}"')
 
     # -- learning from misses -------------------------------------------------
 
@@ -1134,18 +1253,25 @@ class Listener:
         if miss is None or time.monotonic() - miss[1] > self.LEARN_AFTER:
             return
         phrase = miss[0]
-        if p.command.name in ("undo_command", "help"):
-            return
+        if p.command.name in ("undo_command", "help") or p.command.confirm:
+            return  # nothing to learn; and never a shortcut to sleep
         same = self.grammar.parse(phrase.split())
         if same is not None and (same.command.name, same.arg, same.where) == (
                 p.command.name, p.arg, p.where):
             return  # it already means this
+        self._offer_to_remember(phrase, p)
+
+    def _offer_to_remember(self, phrase: str, p: Parsed | list[Parsed]) -> None:
+        """'"<phrase>" = <what it did>? Say "remember that"', with the
+        response sound. Never learned without the yes."""
+        steps = p if isinstance(p, list) else [p]
+        what = "; ".join(describe(x) for x in steps)
         self._offer = (phrase, p, time.monotonic() + self.LEARN_OFFER)
-        log.info("always-on: offering to learn %r as %s", phrase, p)
-        self.on_event("learn-offer", f"{phrase} = {p}")
+        log.info("always-on: offering to learn %r as %s", phrase, ", ".join(map(str, steps)))
+        self.on_event("learn-offer", f"{phrase} = {', '.join(map(str, steps))}")
         self._response_cue()
         shown = phrase if len(phrase) <= 18 else phrase[:17] + "…"
-        self.engine.notice(f'"{shown}" = {describe(p)[:20]}? Say "remember that"', "info",
+        self.engine.notice(f'"{shown}" = {what[:24]}? Say "remember that"', "info",
                            self.LEARN_OFFER)
 
     def _maybe_learn(self, texts: list[str]) -> bool:
@@ -1158,9 +1284,11 @@ class Listener:
         if time.monotonic() > deadline:
             return False
         key = self.grammar.learn(phrase, p)
-        log.info("always-on: learned %r as %s", key, p)
-        self.on_event("learned", f"{key} = {p}")
-        self.engine.notice(f'Learned: "{key[:20]}" = {describe(p)[:18]}', "ok", 6)
+        steps = p if isinstance(p, list) else [p]
+        log.info("always-on: learned %r as %s", key, ", ".join(map(str, steps)))
+        self.on_event("learned", f"{key} = {', '.join(map(str, steps))}")
+        what = "; ".join(describe(x) for x in steps)
+        self.engine.notice(f'Learned: "{key[:20]}" = {what[:18]}. "Forget that" undoes it', "ok", 6)
         return True
 
     def _not_understood(self, request: str) -> None:
@@ -1176,8 +1304,28 @@ class Listener:
             last_text=h.text if fresh else "", last_at=h.at if h else 0.0,
             last_target=self.engine.last_target if self.engine.targeted else None,
             paste=self.engine.injector.send, in_target=self.engine.in_target,
-            last_any=h.text if h else "",
+            last_any=h.text if h else "", llm_edit=self._llm_edit(),
         )
+
+    def _llm_edit(self):
+        """llm(text, instruction) for edits, or None without a working LLM."""
+        cleaner = self.engine.cleaner
+        if not cleaner.uses_llm or cleaner.llm_down:
+            return None
+        cfg = self.cfg.cleanup
+
+        def llm(text: str, instruction: str) -> str:
+            import httpx
+
+            from .edit import llm_edit
+
+            try:
+                return llm_edit(cleaner._client, cfg.model, text, instruction,
+                                keep_alive=cfg.keep_alive)
+            except httpx.HTTPError:
+                cleaner.failed()
+                raise
+        return llm
 
     def _do(self, p: Parsed, after_dictation: bool = False, confirmed: bool = False) -> None:
         """Run a command on the command thread. After a dictation, it waits
@@ -1187,6 +1335,8 @@ class Listener:
             self._arm(p)
             return
         self.on_event("ran", str(p))
+        if p.command.name in EDITS and self.commanding:
+            self._show("Editing…")
         if p.command.name == "scratch" and self.engine.history:
             self._scratched_at = self.engine.history[-1].at
         if not self.inject:
@@ -1222,6 +1372,7 @@ class Listener:
 
     def _command_done(self, p: Parsed, message: str, ok: bool) -> None:
         self.on_event("done" if ok else "failed", message)
+        self._plan_step_done(p, ok)
         said = self._said.pop(id(p), "")
         if ok:
             self._offer_learning(p)  # it worked: was something missed just before?

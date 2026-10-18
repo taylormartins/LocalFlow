@@ -71,6 +71,10 @@ class Ctx:
     #: A numbered label named by the command ("type into 12 ...").
     label: str = ""
     in_target: Callable[[object, Callable[[], None]], None] | None = None
+    #: llm_edit(text, instruction) -> edited text, or None without an LLM.
+    llm_edit: Callable[[str, str], str] | None = None
+    #: The last edit's (before, after), for "undo last command".
+    edited: tuple[str, str] | None = None
 
 
 @dataclass
@@ -149,6 +153,45 @@ def _scratch(arg: str, ctx: Ctx) -> str:
     else:
         wipe()
     return f"Deleted {len(text.split())} words"
+
+
+def _edit_with(instruction: str = "", verbatim: bool = False) -> Callable[[str, Ctx], str]:
+    """Rewrite the selected text, or (nothing selected) the last dictation
+    if it was in the last two minutes. ``verbatim``: the argument is the
+    whole instruction (edit mode: "translate it to French")."""
+    def run(arg: str, ctx: Ctx) -> str:
+        from . import edit
+        from .inject import in_terminal
+
+        how_said = instruction or (arg if verbatim else f"make it {arg}" if arg.strip() else "")
+        if not how_said.strip():
+            raise CommandError("say how to change it: make this shorter, fix the punctuation")
+        if ctx.paste is None:
+            raise CommandError("can't edit here")
+        text = edit.copy_selection(in_terminal())
+        # Code editors copy the whole line when nothing is selected: one line
+        # ending in a newline is taken for "nothing selected".
+        selected = bool(text.strip()) and not (text.endswith("\n") and text.count("\n") == 1)
+        if not selected:
+            if not ctx.last_text or time.time() - ctx.last_at > 120:
+                raise CommandError("select some text first")
+            text = ctx.last_text
+        try:
+            new, how = edit.apply(text, how_said, ctx.llm_edit)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from None
+        except Exception as exc:
+            log.warning("commands: edit failed: %s", exc)
+            raise CommandError("the LLM couldn't do that edit") from None
+        if new.strip() == text.strip():
+            return "No change needed"
+        if not selected:
+            desktop.press("backspace", len(text.replace("\r\n", "\n")))
+        ctx.paste(new)
+        ctx.edited = (text, new)
+        log.info("commands: edited %d -> %d chars (%s)", len(text), len(new), how)
+        return f"Edited ({how}): {how_said[:28]}"
+    return run
 
 
 def _switch(arg: str, ctx: Ctx) -> str:
@@ -542,7 +585,7 @@ INVERSE_KEYS = {
 #: in the app (which would undo some typing instead of the window move).
 SMART_UNDO = MOVES | {"switch", "open", "new_tab", "close_tab", "reopen_tab", "next_tab",
                       "previous_tab", "scroll_down", "scroll_up", "show_labels", "desktop",
-                      "switch_window"}
+                      "switch_window", "edit", "fix_text", "edit_said"}
 SMART_UNDO_SECONDS = 30.0
 
 
@@ -620,6 +663,15 @@ def undo_step(p: Parsed, ctx: Ctx, before_fg: int, after_fg: int, target: int, s
             else:
                 ctx.paste(text)
         return UndoStep(name, label, unScratch)
+    if name in EDITS and ctx.edited is not None:
+        before, after = ctx.edited
+
+        def unEdit() -> None:
+            _focus_hwnd(after_fg)
+            time.sleep(0.1)
+            desktop.press("backspace", len(after.replace("\r\n", "\n")))
+            ctx.paste(before)
+        return UndoStep(name, label, unEdit)
     if name == "show_labels":
         return UndoStep(name, label, lambda: hide_labels())
     return None
@@ -858,8 +910,25 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
             "paste the last dictation again where the cursor is"),
     Command("history", ["(show|open) [my|the] [dictation] history", "dictation history"],
             _history, "open the dictation history window"),
+    Command("edit", ["make (this|that|it|the selection|the text) {text}",
+                     "(edit|change|rewrite|rephrase|turn|put) (this|that|it|the selection|the text) "
+                     "[to|into|as|so|in] {text}"],
+            _edit_with(), "rewrite the selected text (or the last dictation): make this shorter, "
+            "make it more formal, turn this into bullet points", keys=True, text_slot=True),
+    Command("fix_text", ["fix [the] (punctuation|grammar|spelling) [in] [this|that|it]",
+                         "fix (this|that|it) up", "(clean|tidy) (this|that|it) up",
+                         "tidy (this|that|it)", "fix (this|that|it)"],
+            _edit_with("fix the grammar, spelling and punctuation"),
+            "fix the grammar and punctuation of the selected text (or the last dictation)",
+            keys=True),
+    # Edit mode's own: what was said is the instruction, word for word.
+    Command("edit_said", [], _edit_with(verbatim=True),
+            "rewrite the selected text as the arg says (\"translate it to French\")",
+            keys=True, text_slot=True),
     Command("help", ["what can i say", "help", "show commands"], _help, "list commands"),
 ]
+#: Commands that rewrite text.
+EDITS = {"edit", "fix_text", "edit_said"}
 BY_NAME = {c.name: c for c in COMMANDS}
 
 #: Said in command mode to leave it (the stop phrase works too).
@@ -884,6 +953,11 @@ DEFAULT_MODE = ["change default mode", "change the default mode", "default mode"
 AS_COMMAND = ["command mode", "command", "commands", "command mode please", "control mode"]
 AS_DICTATION = ["dictation mode", "dictation", "dictate", "dictation mode please", "text mode",
                 "typing mode"]
+#: In command mode: drop the phrase just learned.
+FORGET = ["forget that", "unlearn that", "forget that phrase", "forget the last one",
+          "do not remember that"]
+#: In command mode: everything said is an edit to the selected text.
+EDIT_MODE = ["edit mode", "editing mode", "edit text", "start editing"]
 #: Answers to "say yes to ..." for a risky plan.
 YES = ["yes", "yes please", "yeah", "do it", "confirm", "go ahead", "okay do it"]
 NO = ["no", "cancel", "do not", "stop", "never mind", "nope"]
@@ -1011,14 +1085,35 @@ REMEMBER = ["remember that", "remember it", "remember this", "learn that", "lear
 LEARNED_MATCH = 0.9
 
 
+def _usable_entry(v) -> bool:
+    if not isinstance(v, dict):
+        return False
+    if "steps" in v:
+        steps = v["steps"]
+        return (isinstance(steps, list) and bool(steps)
+                and all(isinstance(x, dict) and x.get("command") in BY_NAME for x in steps))
+    return v.get("command") in BY_NAME
+
+
+def _numbers(words: list[str]) -> list[int]:
+    out = []
+    for w in words:
+        n = number(w)
+        if n is not None and w not in ("to", "too", "for", "won", "ate"):
+            out.append(n)
+    return out
+
+
 def load_learned(path: Path | None) -> dict[str, dict]:
-    """Phrases learned from misses: {"select no shun": {"command": "switch",
-    "arg": "notion", "where": ""}}. Kept on this PC only (learned.json)."""
+    """Phrases learned from misses and from the LLM's answers:
+    {"select no shun": {"command": "switch", "arg": "notion", "where": ""},
+     "tidy my screens": {"steps": [{"command": ..., "arg": ..., "where": ...}, ...]}}.
+    Kept on this PC only (learned.json)."""
     if path is None:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return {k: v for k, v in data.items() if isinstance(v, dict) and v.get("command") in BY_NAME}
+        return {k: v for k, v in data.items() if _usable_entry(v)}
     except FileNotFoundError:
         return {}
     except Exception as exc:
@@ -1037,6 +1132,9 @@ class Grammar:
         self.patterns = [Pattern.compile(c, p) for c in COMMANDS
                          for p in c.patterns + self.extra.get(c.name, [])]
         self.learned = load_learned(self.learned_file)
+        self.last_learned = ""  # for "forget that"
+        self.forget_words = [normalise(s) for s in FORGET]
+        self.edit_mode = [normalise(s) for s in EDIT_MODE]
         self.remember = [normalise(s) for s in REMEMBER]
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
@@ -1085,29 +1183,49 @@ class Grammar:
 
     # -- learned from misses ------------------------------------------------
 
-    def _learned(self, words: list[str]) -> Parsed | None:
+    def _match_learned(self, words: list[str]) -> tuple[list[Parsed], float] | None:
+        """The learned steps for these words. Close is enough ("select no
+        shun" for "select no shunn"), but the numbers must be the same:
+        "move 8 to monitor 2" is not "move 8 to monitor 1"."""
         if not self.learned:
             return None
         said = " ".join(words)
+        nums = _numbers(words)
         best, best_score = None, LEARNED_MATCH
         for phrase, d in self.learned.items():
             score = 1.0 if phrase == said else _word_sim(phrase, said)
-            if score >= best_score:
+            if score >= best_score and (score == 1.0 or _numbers(phrase.split()) == nums):
                 best, best_score = d, score
         if best is None:
             return None
-        return Parsed(BY_NAME[best["command"]], best.get("arg", ""), best_score,
-                      where=best.get("where", ""))
+        steps = best["steps"] if "steps" in best else [best]
+        return [Parsed(BY_NAME[x["command"]], x.get("arg", ""), best_score, where=x.get("where", ""))
+                for x in steps], best_score
 
-    def learn(self, phrase: str, p: Parsed) -> str:
-        """Remember ``phrase`` as another way to say ``p``. Returns the key."""
+    def _learned(self, words: list[str]) -> Parsed | None:
+        m = self._match_learned(words)
+        return m[0][0] if m is not None and len(m[0]) == 1 else None
+
+    def learned_plan(self, words: list[str]) -> list[Parsed] | None:
+        """A learned phrase of several steps (an LLM answer), or None."""
+        m = self._match_learned(trim(words))
+        return m[0] if m is not None and len(m[0]) > 1 else None
+
+    def learn(self, phrase: str, p: Parsed | list[Parsed]) -> str:
+        """Remember ``phrase`` as another way to say ``p`` (one command, or
+        the steps of an LLM answer). Returns the key."""
         key = " ".join(trim(normalise(phrase)))
-        self.learned[key] = {"command": p.command.name, "arg": p.arg, "where": p.where}
+        steps = p if isinstance(p, list) else [p]
+        entries = [{"command": x.command.name, "arg": x.arg, "where": x.where} for x in steps]
+        self.learned[key] = entries[0] if len(entries) == 1 else {"steps": entries}
+        self.last_learned = key
         self._save_learned()
         return key
 
     def forget(self, phrase: str) -> None:
         self.learned.pop(phrase, None)
+        if getattr(self, "last_learned", "") == phrase:
+            self.last_learned = ""
         self._save_learned()
 
     def _save_learned(self) -> None:
@@ -1145,6 +1263,57 @@ class Grammar:
         words = trim(words)
         return bool(words) and any(
             abs(len(words) - len(f)) <= 1 and _aligned(words, f) >= ACCEPT for f in forms)
+
+
+_NEVER = {"never", "off", "none", "no", "nothing", "disabled", "infinite", "forever",
+          "zero", "0"}
+_UNITS = {"second": 1, "seconds": 1, "sec": 1, "secs": 1, "minute": 60, "minutes": 60,
+          "min": 60, "mins": 60, "hour": 3600, "hours": 3600}
+
+
+def parse_duration(words: list[str]) -> float | None:
+    """ "two minutes", "90 seconds", "half a minute", "never" -> seconds
+    (0 = never), or None."""
+    words = [w for w in words if w not in ("to", "at", "of", "for", "be", "is")]
+    if not words:
+        return None
+    said = " ".join(words)
+    if words[0] in _NEVER or said in ("no timeout", "no time out", "turn it off"):
+        return 0.0
+    if said in ("half a minute", "half minute"):
+        return 30.0
+    if words[-1] not in _UNITS:
+        return None
+    unit = _UNITS[words[-1]]
+    amount = words[:-1]
+    if amount in (["a"], ["an"], ["one"]):
+        return float(unit)
+    n = number(" ".join(amount)) if amount else None
+    return float(n * unit) if n else None
+
+
+_TIMEOUT = re.compile(r"^(?:set |change |make )?(?:the |my )?(command|commands|dictation)"
+                      r"(?: mode)? (?:time out|timeout)(?: to| at| of)? (.+)$")
+
+
+def parse_timeout(words: list[str]) -> tuple[str, float] | None:
+    """ "command timeout two minutes", "set the dictation timeout to never"
+    -> ("command" | "dictation", seconds; 0 = never)."""
+    m = _TIMEOUT.match(" ".join(trim(words)))
+    if m is None:
+        return None
+    seconds = parse_duration(m.group(2).split())
+    if seconds is None:
+        return None
+    return ("dictation" if m.group(1) == "dictation" else "command"), seconds
+
+
+def say_seconds(seconds: float) -> str:
+    if seconds <= 0:
+        return "never"
+    if seconds < 60 or seconds % 60:
+        return f"{seconds:.0f} s"
+    return f"{seconds / 60:.0f} min"
 
 
 def trim(words: list[str]) -> list[str]:

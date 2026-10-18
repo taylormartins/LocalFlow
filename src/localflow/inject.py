@@ -77,13 +77,20 @@ def _program() -> str:
 
 
 def in_terminal() -> bool:
-    """Is the window in front a terminal?"""
+    """Is the window in front a terminal? A window a PowerShell script
+    opened (WinForms, WPF) belongs to powershell.exe but isn't one."""
     try:
+        import ctypes
         from pathlib import Path
 
         from .desktop import _exe_path, foreground
 
-        return Path(_exe_path(foreground())).stem.lower() in TERMINALS
+        hwnd = foreground()
+        if Path(_exe_path(hwnd)).stem.lower() not in TERMINALS:
+            return False
+        buf = ctypes.create_unicode_buffer(128)
+        ctypes.windll.user32.GetClassNameW(hwnd, buf, 128)
+        return not buf.value.startswith(("WindowsForms", "HwndWrapper"))
     except Exception:
         return False
 

@@ -136,9 +136,18 @@ say("command mode")
 expect("...'command mode' makes it the default and saves it",
        cfg.always_on.default_mode == "command" and saved[-1] == ("always_on", "default_mode", "command"),
        f"{cfg.always_on.default_mode} {saved}")
+say("command timeout never")
+expect("'command timeout never' turns the timeout off", cfg.always_on.command_mode_seconds == 0,
+       str(cfg.always_on.command_mode_seconds))
 lis.ring.end = lis._mode_until + 16000
 lis.ingest(np.zeros(1600, np.float32))
-expect("command mode no longer times out", lis.commanding)
+expect("...and command mode stays on", lis.commanding)
+say("set the command timeout to thirty seconds")
+expect("'set the command timeout to thirty seconds'", cfg.always_on.command_mode_seconds == 30,
+       str(cfg.always_on.command_mode_seconds))
+say("dictation timeout two minutes")
+expect("'dictation timeout two minutes'", cfg.always_on.idle_stop_seconds == 120,
+       str(cfg.always_on.idle_stop_seconds))
 say("default mode dictation mode")
 expect("said in one go: 'default mode dictation mode'", cfg.always_on.default_mode == "dictation",
        cfg.always_on.default_mode)
@@ -170,6 +179,62 @@ events.clear()
 say("go to sleep")
 say("banana")
 expect("anything else cancels", not kinds("ran"), str(events))
+
+print("remembering the LLM's answers")
+import threading as _threading  # noqa: E402
+
+from localflow import always_on as always_on_mod  # noqa: E402
+from localflow.commands import BY_NAME, Parsed  # noqa: E402
+
+asked = []
+
+
+def fake_planner(client, model, request, **k):
+    asked.append(request)
+    return [Parsed(BY_NAME["new_tab"], "", 1.0), Parsed(BY_NAME["scroll_down"], "", 1.0)]
+
+
+always_on_mod.plan_with_llm = fake_planner
+engine.cleaner.cfg.method = "llm"
+lis.commanding = True
+events.clear()
+lis._finish_request("open me a fresh page please")
+for t in list(_threading.enumerate()):
+    if t.name == "localflow-command-llm":
+        t.join(5)
+expect("the LLM's two steps run", kinds("ran") == ["new_tab", "scroll_down"], str(events))
+expect("...and it offers to remember them", bool(kinds("learn-offer")), str(events))
+say("remember that")
+expect("'remember that' learns the plan",
+       kinds("learned") == ["open me a fresh page = new_tab, scroll_down"], str(events))
+events.clear()
+asked.clear()
+say("open me a fresh page please")
+expect("said again: both steps, without the LLM", kinds("ran") == ["new_tab", "scroll_down"]
+       and not asked, f"{events} asked={asked}")
+say("forget that")
+expect("'forget that' drops it", "open me a fresh page" not in lis.grammar.learned)
+engine.cleaner.cfg.method = "rules"
+
+print("learned phrases keep their numbers")
+lis.grammar.learn("shove 8 to monitor one", Parsed(BY_NAME["to_monitor"], "1", 1.0, where="8"))
+q = lis.grammar.parse("shove 8 to monitor one".split())
+expect("the same words match", q is not None and q.command.name == "to_monitor", str(q))
+q = lis.grammar.parse("shove 8 to monitor two".split())
+expect("a different number doesn't", q is None or q.command.name != "to_monitor", str(q))
+lis.grammar.forget("shove 8 to monitor one")
+
+print("edit mode")
+lis.commanding = True
+events.clear()
+say("edit mode")
+expect("'edit mode' turns it on", lis.editing, str(events))
+say("shorter")
+expect("...a bare instruction is an edit", ("ran", "edit_said(shorter)") in events, str(events))
+say("scroll down")
+expect("...other commands still work", ("ran", "scroll_down") in events, str(events))
+say("exit")
+expect("'exit' leaves edit mode, not command mode", not lis.editing and lis.commanding)
 
 print("cancel after the stop phrase")
 lis.leave_commands()
