@@ -699,6 +699,41 @@ class Listener:
             self._delivered, self._pending = False, None
         self.finish(keep=stop_at - self._dict_start)
 
+    def watch_live(self, live) -> None:
+        """Check the live preview for the stop phrase too (see on_live)."""
+        live.hooks.append(self.on_live)
+
+    def on_live(self, text: str, frames: int) -> None:
+        """The live preview ends with the stop phrase: finish there.
+
+        The preview is the dictation model on the last stretch of speech; it
+        hears a short phrase far better than the small listening model,
+        which missed "stop... over" now and then without even a near miss.
+        The phrase has to be the newest words, so a stop phrase is still only
+        a stop phrase at the end of what you've said."""
+        if not self.dictating or not self.engine.recorder.external or frames <= 0:
+            return
+        words = normalise(text)
+        variants = self.detector.variants("stop")
+        if not words or not variants:
+            return
+        tail = words[-(max(len(v) for v in variants) + 1):]
+        m = find(tail, variants)
+        if m is None or m.score < self.detector.accept or m.last != len(tail) - 1:
+            return
+        heard = " ".join(tail[m.first:])
+        log.info("always-on: stop phrase in the live transcript (%r, %.2f)", heard, m.score)
+        self.on_event("stop", heard)
+        now = self.ring.end
+        self._consumed = max(self._consumed, now)
+        with self._cmd_lock:
+            self._cmd_from = now
+            self._cmd_until = now + int(self.cfg.always_on.command_window * RATE)
+            self._delivered, self._pending = False, None
+        # The phrase is at the end of what's kept; strip_phrases takes it off
+        # the text.
+        self.finish(keep=frames)
+
     def finish(self, keep: int | None = None) -> None:
         """End the current dictation (stop phrase, hotkey, idle or overflow)."""
         with self._lock:

@@ -1,10 +1,18 @@
-"""Pill themes: colours, font and waveform style for the overlay.
+"""Pill themes: colours, font, border, waveform and recording-dot style.
 
-Built-in: "default" (the original pill) and "royal" (black and gold, a
-flowing line for the waveform, script lettering). Your own are made in
-Settings > Theme builder and kept in themes.json next to config.toml (this PC
-only). The pill and the Settings preview draw through the same functions
-here, so the preview is exactly what the pill will look like.
+Built-in themes:
+- Royal (the default): black and gold, a framed border with diamond
+  ornaments, a straight-line waveform, a gem for the recording dot.
+- Royal V1: the first royal (a flowing line, script lettering).
+- Classic: the original pill.
+- Matrix: black and green, code lettering, columns of glyphs.
+- Doodle: pencil on paper, a sketched border and a scribbled line.
+- Newspaper: black and white newsprint, printed rules, halftone dots.
+- Modern: a dot-matrix meter.
+
+Your own are made in Settings > Theme builder and kept in themes.json next
+to config.toml (this PC only). The pill and the Settings preview draw through
+the same functions here, so the preview is exactly what the pill looks like.
 """
 
 from __future__ import annotations
@@ -12,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import random
 import time
 from dataclasses import asdict, dataclass, fields, replace
 
@@ -21,34 +30,70 @@ log = logging.getLogger(__name__)
 
 STORE = PROJECT_ROOT / "themes.json"
 
-WAVE_STYLES = ("bars", "line", "dots")
+WAVE_STYLES = ("bars", "line", "zigzag", "dots", "dotgrid", "glyphs", "scribble", "halftone")
+BORDERS = ("plain", "ornate", "sketch", "rule")
+DOT_STYLES = ("circle", "gem", "cursor", "sketch", "square")
 
 
 @dataclass
 class Theme:
-    name: str = "Default"
+    name: str = "Classic"
     #: Pill background, text, and an outline round the pill ("" = none).
     bg: str = "#1d1e22"
     text: str = "#ececee"
     edge: str = ""
-    #: The waveform: loud parts, quiet parts.
+    #: plain | ornate (a double frame with diamonds) | sketch | rule (print rules)
+    border: str = "plain"
+    #: Corner rounding: 1 = a full pill, 0 = square corners.
+    round: float = 1.0
+    #: The waveform: loud parts, quiet parts, and its style (WAVE_STYLES).
     wave: str = "#ececee"
     dim: str = "#4b4d55"
-    #: bars | line | dots
     wave_style: str = "bars"
+    #: The recording dot (DOT_STYLES). Its colour still tells LLM / rules / raw.
+    dot: str = "circle"
     font: str = "Segoe UI"
     font_size: int = 13
     #: Replaces the state colours (working, done, command mode) when set.
-    #: Errors stay red either way: that colour carries meaning.
     accent: str = ""
+    #: Black and white only: errors take the accent too (they keep their "!").
+    mono: bool = False
 
 
-DEFAULT = Theme()
 ROYAL = Theme(
-    name="Royal", bg="#0b0a08", text="#e9c96b", edge="#c9a227", wave="#e2bd4f",
+    name="Royal", bg="#0a0907", text="#f3dc95", edge="#c9a227", border="ornate", round=1.0,
+    wave="#e6c158", dim="#5e4b1a", wave_style="zigzag", dot="gem",
+    font="Palatino Linotype", font_size=13, accent="#d4af37",
+)
+ROYAL_V1 = Theme(
+    name="Royal V1", bg="#0b0a08", text="#e9c96b", edge="#c9a227", wave="#e2bd4f",
     dim="#5b4a1c", wave_style="line", font="Segoe Script", font_size=12, accent="#d4af37",
 )
-BUILT_IN = {"default": DEFAULT, "royal": ROYAL}
+CLASSIC = Theme()
+MATRIX = Theme(
+    name="Matrix", bg="#000000", text="#33ff66", edge="#0f7a2a", round=0.0, wave="#39ff6a",
+    dim="#0b3d17", wave_style="glyphs", dot="cursor", font="Consolas", font_size=13,
+    accent="#33ff66",
+)
+DOODLE = Theme(
+    name="Doodle", bg="#fbf8ef", text="#2f2f33", edge="#3b3b40", border="sketch", round=0.7,
+    wave="#3b3b40", dim="#b9b4a6", wave_style="scribble", dot="sketch", font="Ink Free",
+    font_size=14, accent="#3b3b40", mono=True,
+)
+NEWSPAPER = Theme(
+    name="Newspaper", bg="#f2efe6", text="#111111", edge="#111111", border="rule", round=0.18,
+    wave="#111111", dim="#b7b2a5", wave_style="halftone", dot="square", font="Georgia",
+    font_size=13, accent="#111111", mono=True,
+)
+MODERN = Theme(
+    name="Modern", bg="#0f1317", text="#e8eef4", edge="#26313b", round=1.0, wave="#7dd3fc",
+    dim="#24313c", wave_style="dotgrid", dot="circle", font="Segoe UI Variable Display",
+    font_size=13, accent="#7dd3fc",
+)
+#: The theme LocalFlow starts with (overlay.theme = "royal").
+DEFAULT = ROYAL
+BUILT_IN = {"royal": ROYAL, "royal v1": ROYAL_V1, "classic": CLASSIC, "matrix": MATRIX,
+            "doodle": DOODLE, "newspaper": NEWSPAPER, "modern": MODERN}
 
 
 def _from_dict(name: str, d: dict) -> Theme:
@@ -57,10 +102,15 @@ def _from_dict(name: str, d: dict) -> Theme:
     t.name = name
     if t.wave_style not in WAVE_STYLES:
         t.wave_style = "bars"
+    if t.border not in BORDERS:
+        t.border = "plain"
+    if t.dot not in DOT_STYLES:
+        t.dot = "circle"
     try:
         t.font_size = max(8, min(int(t.font_size), 24))
+        t.round = max(0.0, min(float(t.round), 1.0))
     except (TypeError, ValueError):
-        t.font_size = 13
+        t.font_size, t.round = 13, 1.0
     return t
 
 
@@ -104,7 +154,8 @@ def all_themes() -> dict[str, Theme]:
 
 
 def resolve(name: str) -> Theme:
-    return all_themes().get((name or "default").lower(), DEFAULT)
+    """A theme by name; "default" (or anything unknown) is the default."""
+    return all_themes().get((name or "").lower(), DEFAULT)
 
 
 class Current:
@@ -130,80 +181,41 @@ class Current:
         return self._theme
 
 
-# -- drawing (the pill and the Settings preview) ------------------------------
+# -- colours ---------------------------------------------------------------------
 
-def rounded(c, x0: float, y0: float, x1: float, y1: float, r: float, fill: str) -> None:
-    r = max(0.0, min(r, (y1 - y0) / 2, (x1 - x0) / 2))
-    c.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline=fill)
-    c.create_rectangle(x0, y0 + r, x1, y1 - r, fill=fill, outline=fill)
-    for cx, cy in ((x0 + r, y0 + r), (x1 - r, y0 + r), (x0 + r, y1 - r), (x1 - r, y1 - r)):
-        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=fill, outline=fill)
-
-
-def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, s: float) -> None:
-    """The pill's body, with its outline if the theme has one."""
-    if theme.edge:
-        e = max(1.0, 1.5 * s)
-        rounded(c, x0, y0, x1, y1, r, theme.edge)
-        rounded(c, x0 + e, y0 + e, x1 - e, y1 - e, r - e, theme.bg)
-    else:
-        rounded(c, x0, y0, x1, y1, r, theme.bg)
-
-
-def level_height(level: float) -> float:
-    """0-1 for a level, on a -60 dB .. -20 dB scale."""
-    db = 20 * math.log10(max(level, 1e-5))
-    return min(max((db + 60) / 40, 0.0), 1.0)
-
-
-def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float, s: float,
-         speech: float) -> None:
-    """The live level meter, newest on the right, in the theme's style."""
-    levels = list(levels)
-    n = len(levels) or 1
-    step = (x1 - x0) / n
-    if theme.wave_style == "line":
-        # One flowing line, swinging up and down by the level: a waveform.
-        pts = []
-        for i, level in enumerate(levels):
-            amp = max(0.6 * s, level_height(level) * max_h / 2)
-            pts += [x0 + i * step + step / 2, mid + (amp if i % 2 else -amp)]
-        loud = any(level >= speech for level in levels[-6:])
-        if len(pts) >= 4:
-            c.create_line(x0, mid, *pts, x1, mid, fill=theme.wave if loud else theme.dim,
-                          width=max(1.5, 1.6 * s), smooth=True, splinesteps=8,
-                          capstyle="round", joinstyle="round")
-        c.create_line(x0, mid, x1, mid, fill=theme.dim, width=1)
-        return
-    for i, level in enumerate(levels):
-        h = max(2 * s, level_height(level) * max_h)
-        x = x0 + i * step
-        colour = theme.wave if level >= speech else theme.dim
-        if theme.wave_style == "dots":
-            r = max(1.2 * s, h / 4)
-            cx = x + step / 2
-            c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=colour, outline=colour)
-        else:
-            bw = max(2, int(step * 0.55))
-            c.create_rectangle(x, mid - h / 2, x + bw, mid + h / 2, fill=colour, outline=colour)
+def blend(a: str, b: str, amount: float) -> str:
+    """``a`` moved ``amount`` of the way towards ``b`` (#rrggbb colours)."""
+    try:
+        ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+        cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    except (ValueError, IndexError):
+        return a
+    return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(ca, cb))
 
 
 def colour_for(theme: Theme, state_colour: str, error_colour: str) -> str:
-    """A state's colour under this theme: the accent, except errors."""
-    if theme.accent and state_colour != error_colour:
+    """A state's colour under this theme: the accent, except errors (unless
+    the theme is black and white only)."""
+    if theme.accent and (state_colour != error_colour or theme.mono):
         return theme.accent
     return state_colour
 
 
 #: The recording dot: LLM cleanup, algorithmic cleanup, raw (no cleanup).
-DOTS = {"llm": "#43b974", "rules": "#4c9aff", "raw": None}
+DOTS = {"llm": "#43b974", "rules": "#4c9aff"}
+#: ...as gems: emerald, sapphire, diamond.
+GEMS = {"llm": "#1fbf6b", "rules": "#3d7bff", "raw": "#e8f4ff"}
 
 
 def dot_colour(theme: Theme, kind: str) -> str:
-    """The recording dot. Its three meanings stay apart under an accent:
-    the accent, a darker accent, the text colour."""
+    """The recording dot. Its three meanings stay apart in every theme."""
+    if theme.dot == "gem":
+        return GEMS[kind]
     if kind == "raw":
         return theme.text
+    if theme.mono:
+        # Black and white: LLM solid, rules half-tone; raw is the text colour.
+        return theme.accent if kind == "llm" else blend(theme.accent, theme.bg, 0.55)
     if theme.accent:
         return theme.accent if kind == "llm" else blend(theme.accent, theme.bg, 0.5)
     return DOTS[kind]
@@ -216,6 +228,228 @@ def font(theme: Theme, s: float, bold: bool = False, size: int | None = None) ->
     return (theme.font, px, "bold") if bold else (theme.font, px)
 
 
+# -- shapes ----------------------------------------------------------------------
+
+def rounded(c, x0: float, y0: float, x1: float, y1: float, r: float, fill: str) -> None:
+    r = max(0.0, min(r, (y1 - y0) / 2, (x1 - x0) / 2))
+    c.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline=fill)
+    c.create_rectangle(x0, y0 + r, x1, y1 - r, fill=fill, outline=fill)
+    if r > 0:
+        for cx, cy in ((x0 + r, y0 + r), (x1 - r, y0 + r), (x0 + r, y1 - r), (x1 - r, y1 - r)):
+            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=fill, outline=fill)
+
+
+def _outline_points(x0, y0, x1, y1, r, step=6.0):
+    """Points round a rounded rectangle, clockwise from the top left."""
+    r = max(0.0, min(r, (y1 - y0) / 2, (x1 - x0) / 2))
+    pts = []
+
+    def arc(cx, cy, a0):
+        for i in range(7):
+            a = math.radians(a0 + i * 15)
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+
+    def line(ax, ay, bx, by):
+        n = max(1, int(math.hypot(bx - ax, by - ay) / step))
+        for i in range(n):
+            pts.append((ax + (bx - ax) * i / n, ay + (by - ay) * i / n))
+
+    line(x0 + r, y0, x1 - r, y0)
+    arc(x1 - r, y0 + r, 270)
+    line(x1, y0 + r, x1, y1 - r)
+    arc(x1 - r, y1 - r, 0)
+    line(x1 - r, y1, x0 + r, y1)
+    arc(x0 + r, y1 - r, 90)
+    line(x0, y1 - r, x0, y0 + r)
+    arc(x0 + r, y0 + r, 180)
+    return pts
+
+
+def _diamond(c, cx, cy, size, fill, outline):
+    c.create_polygon(cx, cy - size, cx + size * 0.75, cy, cx, cy + size, cx - size * 0.75, cy,
+                     fill=fill, outline=outline)
+
+
+def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, s: float,
+         t: float = 0.0) -> None:
+    """The pill's body and border. Everything stays inside x0..x1, y0..y1."""
+    r *= theme.round
+    edge = theme.edge
+    if not edge:
+        rounded(c, x0, y0, x1, y1, r, theme.bg)
+        return
+    e = max(1.0, 1.4 * s)
+    if theme.border == "ornate":
+        # Room above and below for the diamonds, so none is cut off.
+        y0, y1 = y0 + 3.4 * s, y1 - 3.4 * s
+    if theme.border == "sketch":
+        # Paper, then two loose pencil passes round it, re-drawn now and then.
+        rounded(c, x0 + 2 * s, y0 + 2 * s, x1 - 2 * s, y1 - 2 * s, r, theme.bg)
+        rng = random.Random(int(t * 4))
+        for k in range(2):
+            pts = _outline_points(x0 + 2.5 * s, y0 + 2.5 * s, x1 - 2.5 * s, y1 - 2.5 * s,
+                                  max(0.0, r - 2 * s), 9 * s)
+            flat = []
+            for px, py in pts:
+                flat += [px + rng.uniform(-1.1, 1.1) * s, py + rng.uniform(-1.1, 1.1) * s]
+            c.create_line(*flat, flat[0], flat[1], fill=edge if k == 0 else blend(edge, theme.bg, 0.4),
+                          width=max(1.0, (1.3 - 0.4 * k) * s), smooth=True)
+        return
+    rounded(c, x0, y0, x1, y1, r, edge)
+    rounded(c, x0 + e, y0 + e, x1 - e, y1 - e, max(0.0, r - e), theme.bg)
+    if theme.border == "ornate":
+        # A second, finer frame inside, and a diamond on each long side.
+        g = 3.0 * s
+        inner = blend(edge, theme.bg, 0.45)
+        rounded(c, x0 + e + g, y0 + e + g, x1 - e - g, y1 - e - g, max(0.0, r - e - g), inner)
+        f = max(1.0, 0.9 * s)
+        rounded(c, x0 + e + g + f, y0 + e + g + f, x1 - e - g - f, y1 - e - g - f,
+                max(0.0, r - e - g - f), theme.bg)
+        mid = (x0 + x1) / 2
+        d = 3.2 * s
+        for y in (y0 + e / 2, y1 - e / 2):
+            c.create_line(mid - 14 * s, y, mid + 14 * s, y, fill=theme.bg, width=e + 1)
+            _diamond(c, mid, y, d, edge, edge)
+            for side in (-1, 1):
+                c.create_line(mid + side * 5 * s, y, mid + side * 13 * s, y, fill=edge, width=e)
+    elif theme.border == "rule":
+        # Newsprint: a heavy rule and a hairline inside the top and bottom edges.
+        inset = max(r, 6 * s)
+        for y, w in ((y0 + 3.2 * s, 2.0 * s), (y0 + 6.2 * s, 0.8 * s),
+                     (y1 - 6.2 * s, 0.8 * s), (y1 - 3.2 * s, 2.0 * s)):
+            c.create_line(x0 + inset, y, x1 - inset, y, fill=edge, width=max(1.0, w))
+
+
+def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, t: float) -> None:
+    """The pulsing "recording" mark, in the theme's style."""
+    pulse = math.sin(t * 5)
+    if theme.dot == "gem":
+        # A cut gem: a flat table, a crown, a pointed pavilion, and facet lines.
+        w, top, mid, bot = 7.0 * s, -5.0 * s, -1.6 * s, 6.8 * s
+        w *= 1 + 0.05 * pulse
+        outline = theme.edge or theme.text
+        c.create_polygon(cx - w * 0.55, cy + top, cx + w * 0.55, cy + top, cx + w, cy + mid,
+                         cx, cy + bot, cx - w, cy + mid, fill=colour, outline=outline,
+                         width=max(1.0, 0.8 * s))
+        light = blend(colour, "#ffffff", 0.55)
+        c.create_line(cx - w, cy + mid, cx + w, cy + mid, fill=outline, width=max(1.0, 0.6 * s))
+        for x in (-0.55, 0.55):
+            c.create_line(cx + x * w, cy + top, cx + x * w * 0.4, cy + mid, cx, cy + bot,
+                          fill=outline, width=max(1.0, 0.5 * s))
+        c.create_polygon(cx - w * 0.45, cy + top + 0.8 * s, cx - w * 0.05, cy + top + 0.8 * s,
+                         cx - w * 0.3, cy + mid - 0.3 * s, fill=light, outline="")
+        if pulse > 0.7:  # a glint
+            gx, gy, gl = cx + w * 0.75, cy + top - 0.5 * s, 2.2 * s * (pulse - 0.6) * 2.5
+            c.create_line(gx - gl, gy, gx + gl, gy, fill="#ffffff", width=1)
+            c.create_line(gx, gy - gl, gx, gy + gl, fill="#ffffff", width=1)
+        return
+    if theme.dot == "cursor":
+        if int(t * 2.5) % 2 == 0:  # a blinking block cursor
+            c.create_rectangle(cx - 4 * s, cy - 6.5 * s, cx + 4 * s, cy + 6.5 * s, fill=colour,
+                               outline=colour)
+        return
+    r = (4.5 + 1.2 * pulse) * s
+    if theme.dot == "square":
+        c.create_rectangle(cx - r, cy - r, cx + r, cy + r, fill=colour, outline=colour)
+    elif theme.dot == "sketch":
+        rng = random.Random(int(t * 4))
+        pts = []
+        for i in range(26):  # a circle scribbled round once and a bit, then filled in
+            a = i / 22 * 2 * math.pi
+            rr = r * (1 + rng.uniform(-0.12, 0.12))
+            pts += [cx + rr * math.cos(a), cy + rr * math.sin(a)]
+        c.create_line(*pts, fill=colour, width=max(1.0, 1.2 * s), smooth=True)
+        for k in range(-2, 3):
+            off = k * r * 0.35
+            c.create_line(cx + off - r * 0.5, cy + r * 0.5, cx + off + r * 0.5, cy - r * 0.5,
+                          fill=colour, width=max(1.0, 0.8 * s))
+    else:
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=colour, outline=colour)
+
+
+def level_height(level: float) -> float:
+    """0-1 for a level, on a -60 dB .. -20 dB scale."""
+    db = 20 * math.log10(max(level, 1e-5))
+    return min(max((db + 60) / 40, 0.0), 1.0)
+
+
+_GLYPHS = "01ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456789Z:."
+
+
+def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float, s: float,
+         speech: float, t: float = 0.0) -> None:
+    """The live level meter, newest on the right, in the theme's style."""
+    levels = list(levels)
+    n = len(levels) or 1
+    step = (x1 - x0) / n
+    style = theme.wave_style
+    loud_now = any(level >= speech for level in levels[-6:])
+    if style in ("line", "zigzag", "scribble"):
+        pts = []
+        for i, level in enumerate(levels):
+            amp = max(0.6 * s, level_height(level) * max_h / 2)
+            pts += [x0 + i * step + step / 2, mid + (amp if i % 2 else -amp)]
+        colour = theme.wave if loud_now else theme.dim
+        if len(pts) < 4:
+            return
+        if style == "line":
+            c.create_line(x0, mid, *pts, x1, mid, fill=colour, width=max(1.5, 1.6 * s),
+                          smooth=True, splinesteps=8, capstyle="round", joinstyle="round")
+        elif style == "zigzag":
+            # Straight strokes, crisp points: a heart monitor, not a ribbon.
+            c.create_line(x0, mid, x1, mid, fill=theme.dim, width=max(1.0, 0.8 * s))
+            c.create_line(x0, mid, *pts, x1, mid, fill=colour, width=max(1.2, 1.4 * s),
+                          joinstyle="miter")
+            return
+        else:  # scribble: two pencil passes that wobble
+            rng = random.Random(int(t * 6))
+            for k in range(2):
+                wob = [p + rng.uniform(-1.4, 1.4) * s for p in pts]
+                c.create_line(x0, mid, *wob, x1, mid, smooth=True, splinesteps=6,
+                              fill=colour if k == 0 else blend(colour, theme.bg, 0.45),
+                              width=max(1.0, (1.5 - 0.5 * k) * s), capstyle="round")
+        c.create_line(x0, mid, x1, mid, fill=theme.dim, width=1)
+        return
+    for i, level in enumerate(levels):
+        h = max(2 * s, level_height(level) * max_h)
+        x = x0 + i * step
+        cx = x + step / 2
+        colour = theme.wave if level >= speech else theme.dim
+        if style == "dots":
+            r = max(1.2 * s, h / 4)
+            c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=colour, outline=colour)
+        elif style == "dotgrid":
+            # A dot-matrix meter: five dots a column, lit from the middle out.
+            rows, gap = 5, max_h / 5
+            lit = round(level_height(level) * rows)
+            for j in range(rows):
+                y = mid + (j - (rows - 1) / 2) * gap
+                on = abs(j - (rows - 1) / 2) * 2 < max(1, lit)
+                col = theme.wave if on and level >= speech else theme.dim
+                r = 1.3 * s if not on else 1.7 * s
+                c.create_oval(cx - r, y - r, cx + r, y + r, fill=col, outline=col)
+        elif style == "halftone":
+            # Newsprint: a stack of dots that shrink away from the middle.
+            rows, gap = 5, max_h / 5
+            for j in range(rows):
+                y = mid + (j - (rows - 1) / 2) * gap
+                k = 1 - abs(j - (rows - 1) / 2) / ((rows - 1) / 2 + 0.6)
+                r = max(0.4 * s, level_height(level) * k * step * 0.5)
+                c.create_oval(cx - r, y - r, cx + r, y + r, fill=colour, outline=colour)
+        elif style == "glyphs":
+            rows = max(1, round(level_height(level) * 4))
+            size = max(7, int(7.5 * s))
+            gap = max_h / 4
+            for j in range(rows):
+                y = mid + (j - (rows - 1) / 2) * gap
+                ch = _GLYPHS[(i * 7 + j * 3 + int(t * 8)) % len(_GLYPHS)]
+                col = theme.wave if j == rows - 1 and level >= speech else colour
+                c.create_text(cx, y, text=ch, fill=col, font=("MS Gothic", -size))
+        else:
+            bw = max(2, int(step * 0.55))
+            c.create_rectangle(x, mid - h / 2, x + bw, mid + h / 2, fill=colour, outline=colour)
+
+
 def preview_levels(t: float, n: int = 28) -> list[float]:
     """Speech-like levels for a preview: syllables rising and falling."""
     out = []
@@ -224,16 +458,6 @@ def preview_levels(t: float, n: int = 28) -> list[float]:
         env = 0.5 + 0.5 * math.sin(x * 0.9) * math.sin(x * 0.37 + 1)
         out.append(10 ** (-60 / 20 + 40 / 20 * max(0.0, env)) * (1 if env > 0.15 else 0.2))
     return out
-
-
-def blend(a: str, b: str, amount: float) -> str:
-    """``a`` moved ``amount`` of the way towards ``b`` (#rrggbb colours)."""
-    try:
-        ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
-        cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    except (ValueError, IndexError):
-        return a
-    return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(ca, cb))
 
 
 def with_changes(theme: Theme, **changes) -> Theme:

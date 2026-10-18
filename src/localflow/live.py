@@ -59,6 +59,9 @@ class LivePreview:
         #: Latest preview text and a counter the overlay uses to spot changes.
         self.text = ""
         self.version = 0
+        #: on_text(text, frames): each new preview, with how many samples of
+        #: the recording it covers (always-on checks it for the stop phrase).
+        self.hooks: list = []
         self._thread: threading.Thread | None = None
         engine.on_state(self._on_state)
 
@@ -75,9 +78,15 @@ class LivePreview:
                 self._thread = threading.Thread(target=self._loop, daemon=True, name="localflow-live")
                 self._thread.start()
 
-    def _set(self, text: str) -> None:
+    def _set(self, text: str, frames: int = 0) -> None:
         self.text = text
         self.version += 1
+        if text:
+            for hook in self.hooks:
+                try:
+                    hook(text, frames)
+                except Exception:
+                    log.exception("live text hook failed")
 
     def _cpu_model(self):
         from .models import cpu_whisper
@@ -108,11 +117,12 @@ class LivePreview:
             window = min(self.cfg.live_window, self.cfg.live_cpu_window) if cpu else self.cfg.live_window
             try:
                 audio = recorder.snapshot(window)
+                frames = recorder._frames  # the recording up to (just past) the snapshot
                 if len(audio) >= MIN_AUDIO_SECONDS * 16000 and self.engine.recording:
                     text = self._cpu_preview(audio) if cpu else self.engine.preview(audio)
                     # None = pipeline busy; keep the last preview rather than blank it.
                     if text is not None and self.engine.recording:
-                        self._set(text)
+                        self._set(text, frames)
             except Exception:
                 log.debug("live preview failed", exc_info=True)
             took = time.monotonic() - started

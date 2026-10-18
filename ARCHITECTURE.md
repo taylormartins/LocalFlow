@@ -571,10 +571,23 @@ phrase (while dictating) is among them.
   read from the ring). `Detector.check(squeezed=True)` shortens internal
   silence (`wake.squeeze`) before the voice veto, since the setup takes
   have no such pause.
-- **Themes** (`themes.py`): a `Theme` is colours + font + `wave_style`;
-  built-ins `default` and `royal`, custom ones in `themes.json`. `pill`,
-  `wave`, `colour_for` and `dot_colour` draw both the overlay and the
-  Settings preview. The overlay resolves `overlay.theme` every frame through
+- **Stop phrase from the live preview** (`Listener.on_live`, hooked with
+  `watch_live` to `LivePreview.hooks`): each preview passes its text and
+  `recorder._frames` read just after the snapshot. If the newest words are
+  the stop phrase (`find` on the tail, ending at the last word), the
+  dictation finishes with `keep` = those frames and the command window
+  opens, as `_end` does; `strip_phrases` removes the phrase from the text.
+  The small listening model had missed a clearly spoken short phrase with
+  no near miss logged.
+- **Themes** (`themes.py`): a `Theme` is colours, font, `wave_style`,
+  `border`, `dot`, `round` and `mono`. Built-ins: royal (default),
+  royal v1, classic, matrix, doodle, newspaper, modern; "default" resolves
+  to royal. Custom ones in `themes.json`. `pill`, `recording_dot`, `wave`,
+  `colour_for` and `dot_colour` draw both the overlay and the Settings
+  preview. Everything stays inside the given box (the ornate border insets
+  itself for its diamonds); the overlay window grows to fit two lines of live
+  text in the theme's font, which was what cut the top of a tall pill off.
+  `overlay.opacity` is the window's alpha. Icon: `icon.golden_wind`. The overlay resolves `overlay.theme` every frame through
   `themes.Current` (re-reads `themes.json` at most once a second) and remakes
   its Tk fonts when the family or size changes; labels are cut to fit by
   measured width, not by characters (script fonts are wide).

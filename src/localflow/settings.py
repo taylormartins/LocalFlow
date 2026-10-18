@@ -125,18 +125,18 @@ class Preview:
         c.delete("all")
         x, y = 12, 12
         # Recording.
-        themes.pill(c, theme, x, y, x + w, y + h, h / 2, s)
+        now = time.monotonic()
+        themes.pill(c, theme, x, y, x + w, y + h, h / 2, s, now)
         mid = y + h / 2
-        r = 4.5 + 1.2 * __import__("math").sin(t * 5)
-        dot = themes.dot_colour(theme, "llm")
-        c.create_oval(x + 22 - r, mid - r, x + 22 + r, mid + r, fill=dot, outline=dot)
-        themes.wave(c, theme, themes.preview_levels(t), x + 38, x + w - 58, mid, h - 16, s, 0.009)
+        themes.recording_dot(c, theme, x + 22, mid, s, themes.dot_colour(theme, "llm"), t)
+        themes.wave(c, theme, themes.preview_levels(t), x + 38, x + w - 58, mid, h - 16, s, 0.009,
+                    now)
         secs = int(t) % 60
         c.create_text(x + w - 18, mid, text=f"0:{secs:02d}", anchor="e", fill=theme.text,
                       font=themes.font(theme, s))
         # A message.
         y2 = y + h + 12
-        themes.pill(c, theme, x, y2, x + w, y2 + h, h / 2, s)
+        themes.pill(c, theme, x, y2, x + w, y2 + h, h / 2, s, now)
         mid2 = y2 + h / 2
         colour = themes.colour_for(theme, "#43b974", "#ef5350")
         cx = x + 24
@@ -259,6 +259,21 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     prev = Preview(body, lambda: themes.resolve(current.get()))
     prev.canvas.pack(side="left")
 
+    card = _card(tab, "Pill opacity", "Lower it to see what's behind the pill.")
+    row = _row(card, "Pill opacity")
+    op = tk.DoubleVar(value=cfg.overlay.opacity)
+    op_scale = ttk.Scale(row, from_=0.2, to=1.0, variable=op, length=240)
+    op_scale.pack(side="left")
+    op_shown = ttk.Label(row, text=f"{op.get():.0%}", style="Card.TLabel")
+    op_shown.pack(side="left", padx=8)
+
+    def op_done(_e=None):
+        op_shown.configure(text=f"{op.get():.0%}")
+        _save("overlay", "opacity", round(op.get(), 2))
+
+    op_scale.bind("<ButtonRelease-1>", op_done)
+    op_scale.configure(command=lambda _v: op_shown.configure(text=f"{op.get():.0%}"))
+
     card = _card(tab, "Click labels", '"Show labels" numbers: how solid they are.')
     row = _row(card, "Label opacity")
     var = tk.DoubleVar(value=cfg.overlay.label_opacity)
@@ -349,11 +364,19 @@ def _builder(nb, cfg: Config, state: dict) -> None:
     ttk.Spinbox(row, from_=8, to=24, textvariable=size_var, width=5,
                 command=lambda: set_("font_size", size_var.get())).pack(side="left")
     row = _row(controls, "Waveform", 16)
-    wave_var = tk.StringVar(value=work["theme"].wave_style)
-    for style in themes.WAVE_STYLES:
-        ttk.Radiobutton(row, text=style.capitalize(), value=style, variable=wave_var,
-                        command=lambda: set_("wave_style", wave_var.get())).pack(side="left",
-                                                                                 padx=(0, 8))
+    wave_var, _ = _choice(row, list(themes.WAVE_STYLES), work["theme"].wave_style,
+                          lambda v: set_("wave_style", v), width=14)
+    row = _row(controls, "Border", 16)
+    border_var, _ = _choice(row, list(themes.BORDERS), work["theme"].border,
+                            lambda v: set_("border", v), width=14)
+    row = _row(controls, "Recording mark", 16)
+    dot_var, _ = _choice(row, list(themes.DOT_STYLES), work["theme"].dot,
+                         lambda v: set_("dot", v), width=14)
+    row = _row(controls, "Corners", 16)
+    round_var = tk.DoubleVar(value=work["theme"].round)
+    ttk.Scale(row, from_=0.0, to=1.0, variable=round_var, length=160,
+              command=lambda _v: set_("round", round(round_var.get(), 2))).pack(side="left")
+    ttk.Label(row, text="  square ... round", style="Muted.TLabel").pack(side="left")
 
     def paint():
         t = work["theme"]
@@ -363,6 +386,9 @@ def _builder(nb, cfg: Config, state: dict) -> None:
         font_var.set(t.font)
         size_var.set(t.font_size)
         wave_var.set(t.wave_style)
+        border_var.set(t.border)
+        dot_var.set(t.dot)
+        round_var.set(t.round)
 
     def start_from(label: str):
         key = bases().get(label)
@@ -628,6 +654,15 @@ def main(cfg: Config) -> int:
 
     root = tk.Tk()
     root.title("LocalFlow - Settings")
+    try:
+        from PIL import ImageTk
+
+        from .icon import golden_wind
+
+        root._icon = ImageTk.PhotoImage(golden_wind(size=64))  # kept: Tk doesn't hold it
+        root.iconphoto(True, root._icon)
+    except Exception:
+        pass
     root.configure(bg=BLACK)
     root.geometry("760x640")
     root.minsize(620, 420)

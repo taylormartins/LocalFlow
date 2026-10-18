@@ -570,6 +570,18 @@ class Overlay:
                            for px in (base, base - 1, base - 2, base - 3)]
         self._fonts_for = (theme.font, theme.font_size)
         self._layout_key = None
+        if self.live:
+            # Two lines of live text in this font. A bigger font than the
+            # window was made for pushed the top of the pill (and its border)
+            # out of the window, so the window grows to fit.
+            need = 2 * self.live_fonts[0].metrics("linespace") + int(10 * s)
+            if need != self.text_area:
+                self.text_area = need
+                self.H = self.h + need
+                self.canvas.configure(height=self.H)
+                self.root.geometry(f"{self.w}x{self.H}")
+                if self.visible:
+                    self._hide()  # re-placed with the new height on the next frame
 
     def _fit(self, label: str, width: float) -> str:
         """The label, cut with "…" to fit ``width`` pixels in the theme's font."""
@@ -614,10 +626,18 @@ class Overlay:
         c.delete("all")
         lines, line_h = self._live_layout() if mode in ("recording", "busy") else ([], 0)
         text_h = len(lines) * line_h + int(8 * s) if lines else 0
+        while lines and H - h - text_h < 0:  # never past the top of the window
+            lines = lines[1:]
+            text_h = len(lines) * line_h + int(8 * s) if lines else 0
         y0 = H - h - text_h  # the pill is bottom-anchored and grows upward
-        themes.pill(c, theme, 0, y0, w - 1, H - 1, h / 2 if not lines else 16 * s, s)
+        now = time.monotonic()
+        themes.pill(c, theme, 0, y0, w - 1, H - 1, h / 2 if not lines else 16 * s, s, now)
         mid = y0 + h / 2
-        elapsed = time.monotonic() - self._since
+        elapsed = now - self._since
+        alpha = max(0.2, min(float(self.cfg.opacity), 1.0))
+        if alpha != getattr(self, "_alpha", None):
+            self.root.attributes("-alpha", alpha)  # see what's behind the pill
+            self._alpha = alpha
 
         for row, words in enumerate(lines):
             y = y0 + h - 4 * s + row * line_h
@@ -634,12 +654,10 @@ class Overlay:
                 dot = themes.dot_colour(theme, "llm")
             else:
                 dot = themes.dot_colour(theme, "rules")
-            r = (4.5 + 1.2 * math.sin(elapsed * 5)) * s
-            cx = 22 * s
-            c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=dot, outline=dot)
+            themes.recording_dot(c, theme, 22 * s, mid, s, dot, elapsed)
             # The level meter, newest on the right, in the theme's style.
             themes.wave(c, theme, self.levels, 38 * s, w - 58 * s, mid, h - 16 * s, s,
-                        self.cfg.speech_rms)
+                        self.cfg.speech_rms, now)
             secs = int(elapsed)
             c.create_text(
                 w - 18 * s, mid, text=f"{secs // 60}:{secs % 60:02d}",

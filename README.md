@@ -266,7 +266,10 @@ phrases...**:
 5. **Save**. Listening starts right away. Turn it on or off with tray ▸
    **Always-on listening**.
 
-A pause in the middle of the stop phrase is fine ("stop... over"). A pause of
+The stop phrase is also looked for in the live transcript (the dictation
+model's preview under the waveform). When the preview's newest words are the
+stop phrase, the dictation ends there, even if the small listening model
+didn't catch it. A pause in the middle of the stop phrase is fine too ("stop... over"). A pause of
 half a second ends one burst of speech and starts the next, so each half
 landed in a different burst and neither matched. Now a burst that follows the
 last one closely is also checked joined to it, with the pause shortened for
@@ -566,12 +569,27 @@ turn a lone "pop" into made-up text.
 Everything else is in tray ▸ **Settings...**, a black and gold window with
 tabs:
 
-- **Appearance**: the pill's **theme**, with a live preview. **Default** is
-  the original pill. **Royal** is black and gold, with a flowing gold line for
-  the waveform and script lettering. Also the click labels' opacity.
+- **Appearance**: the pill's **theme**, with a live preview, the **pill
+  opacity** (down to 20%, to see what's behind it), and the click labels'
+  opacity. The themes:
+  - **Royal** (the default): black and gold, a framed border with diamond
+    ornaments, a straight-line waveform, a cut gem for the recording mark
+    (emerald: LLM cleanup, sapphire: algorithmic, diamond: raw), and Palatino
+    lettering.
+  - **Royal V1**: the first royal: a flowing gold line and script lettering.
+  - **Classic**: the original grey pill.
+  - **Matrix**: black and green, code lettering, columns of glyphs for the
+    waveform, a blinking cursor.
+  - **Doodle**: pencil on paper, a sketched border, a scribbled waveform and a
+    scribbled-in dot, handwriting.
+  - **Newspaper**: black and white newsprint, printed rules, halftone dots.
+  - **Modern**: dark, with a dot-matrix meter.
 - **Theme builder**: make your own. Start from any theme and pick the
   background, text, outline, waveform and accent colours, the font (any font
-  on your PC) and its size, and the waveform style (bars, a line, or dots).
+  on your PC) and its size, the waveform (bars, line, zigzag, dots, dot grid,
+  glyphs, scribble, halftone), the border (plain, ornate, sketch, rule), the
+  recording mark (circle, gem, cursor, sketch, square) and how round the
+  corners are.
   The preview is drawn by the same code as the real pill. **Save and use**
   keeps it in `themes.json` (this PC only) and switches to it.
 - **Dictation**: cleanup and its model, Ollama's status and **Restart

@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .engine import Engine, State
 
@@ -46,7 +46,7 @@ LIVE_SETTINGS = {
     "audio": ("boost",),
     "sounds": ("enabled", "start", "stop", "paste", "response", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm"),
-    "overlay": ("theme", "label_opacity"),
+    "overlay": ("theme", "opacity", "label_opacity"),
     "history": ("enabled",),
 }
 
@@ -109,18 +109,11 @@ def open_history() -> None:
 
 
 def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
-    size = 64
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    if ring:
-        d.ellipse((2, 2, size - 3, size - 3), outline=colour + (255,), width=5)
-    else:
-        d.ellipse((10, 10, size - 11, size - 11), fill=colour + (255,))
-    # A stubby mic silhouette so the icon reads as dictation at 16px.
-    d.rounded_rectangle((26, 18, 38, 38), radius=6, fill=(255, 255, 255, 235))
-    d.arc((20, 28, 44, 46), start=0, end=180, fill=(255, 255, 255, 235), width=4)
-    d.line((32, 44, 32, 50), fill=(255, 255, 255, 235), width=4)
-    return img
+    """The golden wind, with a dot for the state (none when idle)."""
+    from .icon import golden_wind
+
+    idle = colour == STATE_COLOURS[State.IDLE]
+    return golden_wind(None if idle else colour, ring)
 
 
 class Tray:

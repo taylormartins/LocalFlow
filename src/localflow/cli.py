@@ -817,6 +817,7 @@ def cmd_run(args, cfg) -> int:
             from .live import LivePreview
 
             live = LivePreview(engine, cfg.overlay)
+            listener.watch_live(live)
         Overlay(engine, cfg.overlay, live=live).start()
 
     def boot() -> None:

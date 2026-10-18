@@ -118,6 +118,15 @@ def main(cfg: Config) -> int:
 
     root = tk.Tk()
     root.title("LocalFlow - dictation history")
+    try:
+        from PIL import ImageTk
+
+        from .icon import golden_wind
+
+        root._icon = ImageTk.PhotoImage(golden_wind(size=64))  # kept: Tk doesn't hold it
+        root.iconphoto(True, root._icon)
+    except Exception:
+        pass
     root.geometry("760x520")
     root.minsize(480, 320)
     try:
