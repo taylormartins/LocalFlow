@@ -98,6 +98,11 @@ LABEL_EDGE = "#ffd60a"  # outline of what the number clicks
 DIM_TEXT = "#8b8e98"
 
 FRAME_MS = 33
+
+
+def GLYPH_FONT(s: float) -> tuple:  # noqa: N802
+    """Icons inside the little circles stay in Segoe UI whatever the theme."""
+    return ("Segoe UI Semibold", -int(13 * s))
 BARS = 28
 
 
@@ -184,6 +189,11 @@ class Overlay:
         engine.on_state(self._on_state)
         engine.on_notice(self._on_notice)
         self._glyph = "!"
+        from .themes import Current
+
+        self._themes = Current()
+        self._fonts_for = None  # the theme the Tk fonts were made for
+        self._theme = self._themes.get(cfg.theme)
         # Numbered click labels (command mode), drawn by the Tk thread.
         self._labels: list = []
         self._labels_version = 0
@@ -369,18 +379,22 @@ class Overlay:
         live = self.live
         if live is None or not live.text:
             return [], 0
-        key = (live.version, self._mode == "recording")
+        theme = self._theme
+        key = (live.version, self._mode == "recording", theme)
         if key == self._layout_key:
             return self._layout
+        from .themes import blend
+
+        text, dim = theme.text, blend(theme.text, theme.bg, 0.45)
 
         from .live import display_words
 
         context, current, cut = display_words(
             live.text, self.cfg.live_context_words, self.cfg.live_max_words
         )
-        tokens = [(word, DIM_TEXT) for word in context] + [(word, TEXT) for word in current]
+        tokens = [(word, dim) for word in context] + [(word, text) for word in current]
         if cut:
-            tokens.insert(0, ("…", DIM_TEXT))
+            tokens.insert(0, ("…", dim))
         width = self.w - 36 * self.s
 
         lines: list = []
@@ -392,7 +406,7 @@ class Overlay:
         while len(lines) > 2 and len(tokens) > 1:
             # Smallest size still overflows: drop the oldest word, mark the cut.
             body = tokens[1:] if tokens[0][0] == "…" else tokens
-            tokens = [("…", DIM_TEXT)] + body[1:]
+            tokens = [("…", dim)] + body[1:]
             lines = _wrap(tokens, font, width)
 
         self._layout_key = key
@@ -426,6 +440,7 @@ class Overlay:
 
     def _draw_labels(self) -> None:
         self._labels_drawn = self._labels_version
+        self.label_win.attributes("-alpha", self.cfg.label_opacity)
         labels = self._labels
         c = self.label_canvas
         c.delete("all")
@@ -521,22 +536,48 @@ class Overlay:
         h = head + row * len(lines) + pad
         c.config(width=w, height=h)
         _rounded(c, 0, 0, w - 1, h - 1, 14 * s)
-        c.create_text(pad, pad, anchor="nw", fill=DIM_TEXT, font=self.font,
+        c.create_text(pad, pad, anchor="nw", fill=DIM_TEXT, font=("Segoe UI", -int(13 * s)),
                       text='Windows - say "switch to" and a number, or "close 3", "move 2 to the left"')
         for i, (n, text) in enumerate(lines):
             y = head + pad // 2 + i * row
             chip = int(28 * s)
             c.create_rectangle(pad, y, pad + chip, y + row - int(6 * s), fill=TEAL, outline=TEAL)
             c.create_text(pad + chip / 2, y + (row - int(6 * s)) / 2, text=str(n), fill=BG,
-                          font=self.font_bold)
+                          font=("Segoe UI Semibold", -int(13 * s)))
             label = text if len(text) <= 96 else text[:95] + "…"
             c.create_text(pad + chip + int(12 * s), y + (row - int(6 * s)) / 2, text=label,
-                          anchor="w", fill=TEXT, font=self.font)
+                          anchor="w", fill=TEXT, font=("Segoe UI", -int(13 * s)))
         area = _work_area()
         x = (area.left + area.right - w) // 2
         y = (area.top + area.bottom - h) // 2
         user32.SetWindowPos(self.list_hwnd, HWND_TOPMOST, x, y, w, h,
                             SWP_NOACTIVATE | SWP_SHOWWINDOW)
+
+    def _theme_fonts(self, theme) -> None:
+        """Tk fonts for the theme's family and size (remade when it changes)."""
+        if self._fonts_for == (theme.font, theme.font_size):
+            return
+        import tkinter.font as tkfont
+
+        from .themes import font
+
+        s = self.s
+        self.font = font(theme, s)
+        self.font_bold = font(theme, s, bold=True)
+        self.measure = tkfont.Font(root=self.root, font=self.font)
+        base = theme.font_size
+        self.live_fonts = [tkfont.Font(root=self.root, family=theme.font, size=-int(px * s))
+                           for px in (base, base - 1, base - 2, base - 3)]
+        self._fonts_for = (theme.font, theme.font_size)
+        self._layout_key = None
+
+    def _fit(self, label: str, width: float) -> str:
+        """The label, cut with "…" to fit ``width`` pixels in the theme's font."""
+        if self.measure.measure(label) <= width:
+            return label
+        while label and self.measure.measure(label + "…") > width:
+            label = label[:-1]
+        return label.rstrip() + "…"
 
     def _tick(self) -> None:
         if self._list_version != self._list_drawn:
@@ -564,12 +605,17 @@ class Overlay:
             self._hide()
             return
 
+        from . import themes
+
         c, s, w, h, H = self.canvas, self.s, self.w, self.h, self.H
+        theme = self._theme = self._themes.get(self.cfg.theme)
+        self._theme_fonts(theme)
+        state_colour = themes.colour_for(theme, self._colour, RED)
         c.delete("all")
         lines, line_h = self._live_layout() if mode in ("recording", "busy") else ([], 0)
         text_h = len(lines) * line_h + int(8 * s) if lines else 0
         y0 = H - h - text_h  # the pill is bottom-anchored and grows upward
-        _rounded(c, 0, y0, w - 1, H - 1, h / 2 if not lines else 16 * s)
+        themes.pill(c, theme, 0, y0, w - 1, H - 1, h / 2 if not lines else 16 * s, s)
         mid = y0 + h / 2
         elapsed = time.monotonic() - self._since
 
@@ -583,59 +629,51 @@ class Overlay:
             # Pulsing dot: green = LLM cleanup, blue = algorithmic cleanup (by
             # choice, or because the LLM is unavailable), white = raw.
             if not self.engine.cleanup_this_run:
-                dot = TEXT
+                dot = themes.dot_colour(theme, "raw")
             elif self.engine.cleaner.uses_llm and self._llm_ready:
-                dot = GREEN
+                dot = themes.dot_colour(theme, "llm")
             else:
-                dot = BLUE
+                dot = themes.dot_colour(theme, "rules")
             r = (4.5 + 1.2 * math.sin(elapsed * 5)) * s
             cx = 22 * s
             c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=dot, outline=dot)
-            # Level bars, newest on the right.
-            x0, x1 = 38 * s, w - 58 * s
-            step = (x1 - x0) / BARS
-            bar_w = max(2, int(step * 0.55))
-            max_h = h - 16 * s
-            for i, level in enumerate(self.levels):
-                db = 20 * math.log10(max(level, 1e-5))
-                t = min(max((db + 60) / 40, 0.0), 1.0)  # -60 dB .. -20 dB
-                bh = max(2 * s, t * max_h)
-                x = x0 + i * step
-                colour = TEXT if level >= self.cfg.speech_rms else DIM
-                c.create_rectangle(x, mid - bh / 2, x + bar_w, mid + bh / 2, fill=colour, outline=colour)
+            # The level meter, newest on the right, in the theme's style.
+            themes.wave(c, theme, self.levels, 38 * s, w - 58 * s, mid, h - 16 * s, s,
+                        self.cfg.speech_rms)
             secs = int(elapsed)
             c.create_text(
                 w - 18 * s, mid, text=f"{secs // 60}:{secs % 60:02d}",
-                anchor="e", fill=TEXT, font=self.font,
+                anchor="e", fill=theme.text, font=self.font,
             )
         else:
             cx, r = 24 * s, 8 * s
             if mode == "busy":
                 start = (-elapsed * 360) % 360
-                c.create_oval(cx - r, mid - r, cx + r, mid + r, outline=DIM, width=max(2, int(2.5 * s)))
+                c.create_oval(cx - r, mid - r, cx + r, mid + r, outline=theme.dim,
+                              width=max(2, int(2.5 * s)))
                 c.create_arc(
                     cx - r, mid - r, cx + r, mid + r, start=start, extent=110,
-                    style="arc", outline=self._colour, width=max(2, int(2.5 * s)),
+                    style="arc", outline=state_colour, width=max(2, int(2.5 * s)),
                 )
             elif mode == "done":
-                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
+                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=state_colour, outline=state_colour)
                 c.create_line(
                     cx - 4 * s, mid, cx - 1 * s, mid + 3.5 * s, cx + 4.5 * s, mid - 3.5 * s,
-                    fill=BG, width=max(2, int(2 * s)),
+                    fill=theme.bg, width=max(2, int(2 * s)),
                 )
             elif mode == "command":
                 # Breathing ring: listening for a command.
                 rr = r * (0.85 + 0.15 * math.sin(elapsed * 3))
-                c.create_oval(cx - rr, mid - rr, cx + rr, mid + rr, outline=self._colour,
+                c.create_oval(cx - rr, mid - rr, cx + rr, mid + rr, outline=state_colour,
                               width=max(2, int(2.5 * s)))
-                c.create_text(cx, mid, text="›", fill=self._colour, font=self.font_bold)
+                c.create_text(cx, mid, text="›", fill=state_colour, font=GLYPH_FONT(s))
             elif mode == "notice":
-                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
-                c.create_text(cx, mid, text=self._glyph, fill=BG, font=self.font_bold)
+                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=state_colour, outline=state_colour)
+                c.create_text(cx, mid, text=self._glyph, fill=theme.bg, font=GLYPH_FONT(s))
             else:  # message
-                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=self._colour, outline=self._colour)
-                c.create_text(cx, mid, text="!", fill=BG, font=self.font_bold)
-            label = self._label if len(self._label) <= 34 else self._label[:33] + "…"
-            c.create_text(40 * s, mid, text=label, anchor="w", fill=TEXT, font=self.font)
+                c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=state_colour, outline=state_colour)
+                c.create_text(cx, mid, text="!", fill=theme.bg, font=GLYPH_FONT(s))
+            label = self._fit(self._label, w - 40 * s - 14 * s)
+            c.create_text(40 * s, mid, text=label, anchor="w", fill=theme.text, font=self.font)
 
         self._show()

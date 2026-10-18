@@ -38,7 +38,7 @@ from .commands import (EDITS, Ctx, Grammar, Parsed, Runner, describe, grid_up, i
 from .desktop import number as desktop_number
 from .config import Config
 from .engine import State
-from .wake import RATE, Detector, Hit, Phrases, find, normalise, strip_phrases
+from .wake import RATE, Detector, Hit, Phrases, Word, find, normalise, strip_phrases
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +69,10 @@ ACCEPT_GUESS = 0.8
 #: much quiet after it: people pause mid-request ("bring my Chrome... Twitch window...
 #: to the middle"), and each piece used to be taken as a command of its own.
 HOLD = 1.8
+#: A burst this soon after the last one is also checked joined to it: a
+#: pause inside a phrase ("stop... chat") ends a burst, and then neither
+#: half matches alone.
+JOIN = 1.5
 
 
 class Ring:
@@ -169,6 +173,8 @@ class Listener:
         #: The last phrase that came close but wasn't accepted: (which, heard).
         self.last_near: tuple[str, str] | None = None
         self._held: list[str] = []  # command mode: words of an unfinished request
+        #: The last burst checked while dictating: (start, end, words).
+        self._prev_burst: tuple[int, int, list] | None = None
         self._held_at = 0  # absolute samples: end of the held request's last burst
         self._llm_lock = threading.Lock()  # one LLM request at a time
         self._file_run = False  # run_file(): everything on the calling thread
@@ -557,7 +563,20 @@ class Listener:
                         and self._command_instead(a, new)):
                     return
         hit = self.detector.check("stop", words, clip, after=after)
+        prev, self._prev_burst = self._prev_burst, (a, b, words)
+        if hit is None and prev is not None and 0 <= a - prev[1] < JOIN * RATE:
+            # The phrase across the pause between this burst and the last.
+            pa, _, pwords = prev
+            shift = (a - pa) / RATE
+            joined = list(pwords) + [Word(w.text, w.start + shift, w.end + shift) for w in words]
+            jclip = self.ring.get(pa, b)
+            jafter = max(0.0, (max(self._consumed, self._dict_start) - pa) / RATE)
+            hit = self.detector.check("stop", joined, jclip, after=jafter, squeezed=True)
+            if hit is not None:
+                log.info("always-on: stop phrase said across a pause")
+                a, words = pa, joined
         if hit is not None:
+            self._prev_burst = None
             self._end(a, hit)
             # "...that will be all, submit" in one breath.
             self._check_command(a, words, (self._consumed - a) / RATE)
@@ -657,6 +676,7 @@ class Listener:
                 return
             self._dict_start = begin
             self._dict_heard = False
+            self._prev_burst = None
             self._consumed = max(self._consumed, a + int(hit.end * RATE))
             self._last_speech = self.ring.end
             self.dictating = True

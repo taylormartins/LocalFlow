@@ -168,6 +168,18 @@ def main() -> int:
     expect("content kept", "dentist" in text.lower(), repr(text))
     expect("phrases cut", "marigold" not in text.lower() and "be all" not in text.lower(), repr(text))
 
+    print("\nthe stop phrase said across a pause")
+    # A pause inside the phrase ("That will... be all") ends a burst, so
+    # neither half holds the whole phrase: the two are checked joined.
+    got, ev = run(build(1.0, say(START), 0.5, say("Please water the plants on Sunday."), 0.6,
+                        say("That will"), 0.7, say("be all. Submit."), 2.0))
+    text = got[0] if got else ""
+    expect("one dictation, ended by the split phrase", len(got) == 1 and ("left-open", "") not in ev,
+           f"{got} events={ev}")
+    expect("the phrase isn't pasted", "be all" not in text.lower() and "that will" not in text.lower()
+           and "plants" in text.lower(), repr(text))
+    expect("...and the command after it still counts", ("command", "submit") in ev, str(ev))
+
     print("\nvoice command after the stop phrase")
     body = say("Please book the meeting room for Thursday.")
     cases = [

@@ -80,8 +80,8 @@ sentences. With an NVIDIA GPU (8 GB+ VRAM recommended):
 1. Install [Ollama](https://ollama.com/download).
 2. Run `.\install.cmd -PullModel -Cleanup llm`.
 
-You can switch between the two at any time from the tray: right-click ▸
-**Cleanup model** ▸ **Algorithmic** or a model name.
+You can switch between the two at any time: tray ▸ **Settings...** ▸
+**Dictation** ▸ **Clean up with**: **Algorithmic** or a model name.
 
 ### Locked-down networks (corporate proxy, no huggingface.co)
 
@@ -219,8 +219,8 @@ uv run localflow clean "um so send it tuesday no wait wednesday"
 Use the raw keys when you need exact text: code, quotes, anywhere a helpful
 rewrite would be wrong.
 
-**Choosing keys.** Right-click the tray icon ▸ **Dictation keys**, and tick any
-mix of the following. Changes apply immediately, with no restart:
+**Choosing keys.** Tray ▸ **Settings...** ▸ **Dictation** ▸ **Dictation keys**,
+and tick any mix of the following. Changes apply immediately, with no restart:
 
 | Key | Raw (verbatim) version |
 |---|---|
@@ -239,7 +239,7 @@ menu whenever capitals are on. Untick Caps Lock to get the normal key back.
 Tap-to-toggle is the default so you can start a recording and keep working. For
 push-to-talk instead, set `hotkeys.mode = "hold"` in `config.toml` and the same
 keys record only while held. Other key combinations can be set by hand under
-`[hotkeys]`. The tray menu lists them and leaves them alone.
+`[hotkeys]`. Settings leaves them alone.
 
 ### Always-on mode (hands-free)
 
@@ -266,9 +266,16 @@ phrases...**:
 5. **Save**. Listening starts right away. Turn it on or off with tray ▸
    **Always-on listening**.
 
+A pause in the middle of the stop phrase is fine ("stop... over"). A pause of
+half a second ends one burst of speech and starts the next, so each half
+landed in a different burst and neither matched. Now a burst that follows the
+last one closely is also checked joined to it, with the pause shortened for
+the voice check. This matters most for short, two-word stop phrases, which
+people naturally say with a comma.
+
 While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
-can't record the room indefinitely. Tray ▸ **Dictation timeout** changes that
+can't record the room indefinitely. Settings ▸ **Listening** ▸ **Dictation ends after** changes that
 (30 s to 5 min, or **Never**), or say "dictation timeout two minutes" /
 "dictation timeout never" in command mode.
 
@@ -279,7 +286,7 @@ headset plugged in), it reopens on the right one within a few seconds and the
 pill says which. Use **Refresh the list** for a mic plugged in after LocalFlow
 started.
 
-**Paste where I started.** Tray ▸ **Paste where I started**. The text goes to
+**Paste where I started.** Settings ▸ **Dictation** ▸ **Paste where I started**. The text goes to
 the window you were in when the dictation began (start phrase or hotkey), not
 wherever you've clicked since. So you can start a message in a terminal or a
 chat box, then keep working in other windows while you talk.
@@ -317,7 +324,7 @@ follows.
 followed by **"command mode"**, or by a command itself ("Okay listen,
 Marigold. Switch to Chrome."). The pill turns teal and everything you say is
 taken as a command until you say **"exit"**, the stop phrase, or nothing for
-30 seconds (`always_on.command_mode_seconds`). Tray ▸ **Command mode timeout**
+30 seconds (`always_on.command_mode_seconds`). Settings ▸ **Listening** ▸ **Command mode ends after**
 sets it (15 s to 10 min, or **Never**), or say **"command timeout two
 minutes"** / **"command timeout never"**. The start phrase still starts a
 dictation from command mode. Tray ▸ **Command mode** switches it on and off
@@ -382,7 +389,8 @@ Ollama. The tray shows **Ollama: answering / not running / not answering /
 model not found**. When it stops answering, the pill and a notification say
 so once, dictation carries on with algorithmic cleanup straight away (no
 waiting out a timeout on every dictation), and command mode skips the LLM.
-Tray ▸ **Restart Ollama** stops and restarts it and loads the model again.
+**Restart Ollama** (in the tray while it's in trouble, and always in Settings ▸
+**Dictation**) stops and restarts it and loads the model again.
 When it's back, you're told that too. "Model not found" usually means the
 drive the models live on isn't connected; a restart won't fix that.
 
@@ -423,7 +431,7 @@ becomes home instead. It's on from the start, and every dictation (start
 phrase, stop phrase) comes back to it. Its timeout still applies: set
 **"command timeout never"** to keep it on all the time. After a timeout or
 "exit", it's back after your next dictation. Say "change default mode", then "dictation mode",
-to go back. Tray ▸ **Default mode** does the same
+to go back. Settings ▸ **Listening** ▸ **Default mode** does the same
 (`always_on.default_mode`). In command mode everything you say is checked as
 a command, so with the LLM on, a conversation nearby can send requests to
 it.
@@ -448,8 +456,8 @@ worked, it offers to remember it. Say "remember that" and next time it runs
 straight away, without the LLM (so it works on a PC without one too). Numbers
 have to match exactly, so "move 8 to monitor 2" never replays "...monitor 1".
 **"Forget that"** drops the phrase just learned. A remembered answer that
-closes or sends something still asks for "yes" first. It never learns without your yes. Tray ▸ **Learned
-phrases** lists them; click one to forget it. They're kept in `learned.json`
+closes or sends something still asks for "yes" first. It never learns without your yes. Settings ▸ **Listening** ▸ **Learned
+phrases** lists them; select one and **Forget** it. They're kept in `learned.json`
 on this PC only.
 
 **When a phrase isn't caught.** A phrase that came close but wasn't accepted
@@ -505,8 +513,8 @@ comes from the small `base.en` model (shared with always-on) reading the last
 10 seconds, about every 1.5 s. It pauses between passes so at least half the
 CPU stays free. `live_cpu_model = ""` turns it off there.
 
-**Character and tone.** Needs Ollama. Right-click the tray icon and use **Character ▸** and
-**Tone ▸**. They stack: Rogue + Rage is one rewrite. Characters: humanize,
+**Character and tone.** Needs Ollama. Settings ▸ **Dictation** ▸ **Character** and
+**Tone**. They stack: Rogue + Rage is one rewrite. Characters: humanize,
 professional, tech professional, doctor, rogue, robot, caring mother, defiant
 worker, plus your own under `[style.characters]`, e.g.
 `pirate = "a salty pirate captain; nautical slang, gruff but cheerful"`. Tones
@@ -532,11 +540,11 @@ research and educational use and may not be redistributed. It is therefore
 `data/` (gitignored) and builds `data/tone_vocab.json`. Without it, tones use
 only the built-in word lists in `style.py`.
 
-**Cleanup model.** Right-click the tray icon, then **Cleanup model: … ▸**.
+**Cleanup model.** Settings ▸ **Dictation** ▸ **Clean up with**.
 **Algorithmic (no LLM, instant)** needs nothing. Below it are your installed
 Ollama models. LocalFlow unloads the old one and loads the new one in the
 background, and the choice is saved to `config.toml`.
-Use **Refresh list** after pulling a new model. `qwen2.5:7b` is marked *tested*:
+Reopen Settings after pulling a new model. `qwen2.5:7b` is the tested one:
 it's the model `tests/cleanup_quality.py` was tuned against. Other models work
 but may answer dictated questions instead of transcribing them, so run that suite
 before settling on one. Models over ~8.5 GB are marked *too big for GPU*; they
@@ -547,13 +555,35 @@ barely-there "faint pop" once the text has actually been pasted. Esc cancels
 silently, and a failed paste plays no paste sound. A fourth, the **response
 sound** (three clicks), means a command is waiting for your answer: sleep's
 "goodnight", a "yes" to an LLM plan, "change default mode", or a "remember
-that" offer. Plain commands never play it. Right-click the tray icon and
-use **Start sound ▸**, **Stop sound ▸**, **Paste sound ▸** and **Response sound ▸**
-to choose from tick, pop, faint pop, blip, click, triple click, chime up, chime
-down, soft or none. Picking one plays
-it and saves it to `config.toml`. Under `[sounds]` you can also give a path to your
+that" offer. Plain commands never play it. Settings ▸ **Sounds** has each of
+the four, to choose from tick, pop, faint pop, blip, click, triple click,
+chime up, chime down, soft or none, a **Play** button, and the volume. Picking
+one plays it and saves it to `config.toml`. Under `[sounds]` you can also give a path to your
 own `.wav`. The start cue is silenced out of the recording, because Whisper can
 turn a lone "pop" into made-up text.
+
+**Settings and themes.** The tray menu keeps only what you use day to day.
+Everything else is in tray ▸ **Settings...**, a black and gold window with
+tabs:
+
+- **Appearance**: the pill's **theme**, with a live preview. **Default** is
+  the original pill. **Royal** is black and gold, with a flowing gold line for
+  the waveform and script lettering. Also the click labels' opacity.
+- **Theme builder**: make your own. Start from any theme and pick the
+  background, text, outline, waveform and accent colours, the font (any font
+  on your PC) and its size, and the waveform style (bars, a line, or dots).
+  The preview is drawn by the same code as the real pill. **Save and use**
+  keeps it in `themes.json` (this PC only) and switches to it.
+- **Dictation**: cleanup and its model, Ollama's status and **Restart
+  Ollama**, character, tone, style model, paste where I started, dictation
+  keys, mic boost.
+- **Listening**: default mode, the timeouts, the LLM for commands, history,
+  learned phrases.
+- **Sounds**: the four cues and the volume.
+
+Every change applies at once, without a restart: Settings saves to
+`config.toml`, and LocalFlow picks the change up within a second. Editing
+`config.toml` by hand is picked up the same way, for those settings.
 
 **Why it runs as admin.** The installer registers two scheduled tasks that start
 it with highest privileges: **LocalFlow** at logon and **LocalFlow resume** on
@@ -836,7 +866,7 @@ power, the cable, and Windows mic privacy settings. `quiet` means speech is
 present but Whisper's VAD will discard some of it. The meter tells you which
 **Mic boost** to pick.
 
-**Mic is quiet even when you're close to it.** Right-click the tray icon ▸
+**Mic is quiet even when you're close to it.** Settings ▸ **Dictation** ▸
 **Mic boost**:
 
 | Setting | Boost | When |

@@ -22,8 +22,9 @@ log = logging.getLogger(__name__)
 #: Seconds between probes while it's fine, and while it isn't.
 EVERY_OK = 120.0
 EVERY_BAD = 20.0
-#: A one-token reply has to come back within this.
-PROBE_TIMEOUT = 15.0
+#: A one-token reply has to come back within this. Long enough to load the
+#: model from a slow drive first (~40 s measured), so loading isn't "hung".
+PROBE_TIMEOUT = 90.0
 
 OK, DOWN, MISSING, HUNG = "ok", "down", "missing", "hung"
 LABELS = {

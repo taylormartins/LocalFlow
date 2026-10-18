@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from pathlib import Path
 
 from PIL import Image, ImageDraw
 
@@ -36,6 +35,20 @@ STATE_COLOURS = {
 
 
 QUIT_GRACE = 8.0
+
+#: What the Settings window can change while LocalFlow runs: {section: keys}.
+#: Anything else in config.toml still needs a restart.
+LIVE_SETTINGS = {
+    "cleanup": ("enabled", "method", "model"),
+    "style": ("character", "tone", "model"),
+    "inject": ("paste_to",),
+    "hotkeys": ("dictate", "dictate_raw"),
+    "audio": ("boost",),
+    "sounds": ("enabled", "start", "stop", "paste", "response", "volume"),
+    "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm"),
+    "overlay": ("theme", "label_opacity"),
+    "history": ("enabled",),
+}
 
 
 def _exit_if_stuck() -> None:
@@ -121,6 +134,7 @@ class Tray:
         self.always_on = always_on  # always_on.Listener, or None
         self.health = health  # health.OllamaHealth, or None
         self._setup_open = False
+        self._settings_open = False
         self._updating = False
         self._on_quit = on_quit
         self._on_keys_changed = on_keys_changed
@@ -139,38 +153,7 @@ class Tray:
             menu=pystray.Menu(
                 pystray.MenuItem("Copy last transcript", self._copy_last),
                 pystray.MenuItem("Dictation history...", lambda icon, item: open_history()),
-                pystray.MenuItem(
-                    "Cleanup",
-                    self._toggle_cleanup,
-                    checked=lambda _: self.engine.cfg.cleanup.enabled,
-                ),
-                pystray.MenuItem(
-                    lambda _: self._cleanup_label(),
-                    pystray.Menu(lambda: self._model_items(pystray)),
-                ),
-                pystray.MenuItem(
-                    lambda _: f"Character: {self.engine.cfg.style.character}",
-                    self._character_menu(pystray),
-                ),
-                pystray.MenuItem(
-                    lambda _: f"Tone: {self.engine.cfg.style.tone}", self._tone_menu(pystray)
-                ),
-                pystray.MenuItem(
-                    lambda _: f"Style model: {self.engine.cfg.style.model or 'same as cleanup'}",
-                    pystray.Menu(lambda: self._style_model_items(pystray)),
-                ),
-                pystray.MenuItem(
-                    lambda _: self.health.label() if self.health else "",
-                    None,
-                    enabled=False,
-                    visible=lambda _: self._llm_in_use(),
-                ),
-                pystray.MenuItem(
-                    "Restart Ollama",
-                    lambda icon, item: self._restart_ollama(),
-                    visible=lambda _: self._llm_in_use(),
-                    enabled=lambda _: not (self.health and self.health.restarting),
-                ),
+                pystray.MenuItem("Settings...", lambda icon, item: self.open_settings()),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
                     "Always-on listening",
@@ -190,66 +173,26 @@ class Tray:
                     visible=lambda _: bool(self.always_on and self.always_on.running),
                 ),
                 pystray.MenuItem(
-                    lambda _: f"Default mode: {self.engine.cfg.always_on.default_mode}",
-                    pystray.Menu(
-                        pystray.MenuItem(
-                            "Dictation (wait for the start phrase)",
-                            lambda icon, item: self._set_default_mode("dictation"),
-                            checked=lambda _: self.engine.cfg.always_on.default_mode != "command",
-                            radio=True,
-                        ),
-                        pystray.MenuItem(
-                            "Command (always in command mode)",
-                            lambda icon, item: self._set_default_mode("command"),
-                            checked=lambda _: self.engine.cfg.always_on.default_mode == "command",
-                            radio=True,
-                        ),
-                    ),
-                    visible=lambda _: self.always_on is not None,
-                ),
-                pystray.MenuItem(
-                    lambda _: "Command mode timeout: " + self._secs("command_mode_seconds"),
-                    self._timeout_menu(pystray, "command", [15, 30, 60, 120, 300, 600, 0]),
-                    visible=lambda _: self.always_on is not None,
-                ),
-                pystray.MenuItem(
-                    lambda _: "Dictation timeout: " + self._secs("idle_stop_seconds"),
-                    self._timeout_menu(pystray, "dictation", [30, 45, 60, 120, 300, 0]),
-                    visible=lambda _: self.always_on is not None,
-                ),
-                pystray.MenuItem(
                     lambda _: self._near_label(),
                     lambda icon, item: self._accept_near(),
                     visible=lambda _: bool(self.always_on and self.always_on.last_near),
-                ),
-                pystray.MenuItem(
-                    "Learned phrases",
-                    pystray.Menu(lambda: self._learned_items(pystray)),
-                    visible=lambda _: self.always_on is not None,
-                ),
-                pystray.MenuItem(
-                    "Paste where I started",
-                    self._toggle_paste_to,
-                    checked=lambda _: self.engine.cfg.inject.paste_to == "start",
-                ),
-                pystray.MenuItem(lambda _: self._keys_label(), self._keys_menu(pystray)),
-                pystray.MenuItem(
-                    "Turn Caps Lock off",
-                    lambda icon, item: self._caps_off(),
-                    visible=lambda _: self._caps_on(),
                 ),
                 pystray.MenuItem(
                     lambda _: f"Microphone: {self._mic_label()}",
                     pystray.Menu(lambda: self._mic_items(pystray)),
                 ),
                 pystray.MenuItem(
-                    lambda _: f"Mic boost: {self.engine.recorder.boost.capitalize()}",
-                    self._boost_menu(pystray),
+                    "Turn Caps Lock off",
+                    lambda icon, item: self._caps_off(),
+                    visible=lambda _: self._caps_on(),
                 ),
-                pystray.MenuItem("Start sound", self._sound_menu(pystray, "start")),
-                pystray.MenuItem("Stop sound", self._sound_menu(pystray, "stop")),
-                pystray.MenuItem("Paste sound", self._sound_menu(pystray, "paste")),
-                pystray.MenuItem("Response sound", self._sound_menu(pystray, "response")),
+                # Only when Ollama is in trouble: the rest of the time it's in Settings.
+                pystray.MenuItem(
+                    lambda _: f"Restart Ollama ({self.health.label()[8:]})" if self.health else "",
+                    lambda icon, item: self._restart_ollama(),
+                    visible=lambda _: self._llm_in_use() and not self.health.ok,
+                    enabled=lambda _: not (self.health and self.health.restarting),
+                ),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(lambda _: self.updates.label(), None, enabled=False),
                 pystray.MenuItem(
@@ -265,47 +208,6 @@ class Tray:
 
         engine.on_state(self._on_state)
         engine.on_result(self._on_result)
-
-    def _sound_menu(self, pystray, which: str):
-        """Radio list of cues. Picking one previews it and saves it to config.toml."""
-        from .sounds import CHOICES
-
-        cfg = self.engine.cfg.sounds
-
-        def pick(choice: str):
-            def action(icon, item) -> None:
-                setattr(cfg, which, choice)
-                self._preview(choice)
-                try:
-                    from .config import save_setting
-
-                    save_setting("sounds", which, choice)
-                except OSError as exc:
-                    log.warning("could not save sound choice: %s", exc)
-
-            return action
-
-        items = [
-            pystray.MenuItem(
-                name.capitalize(),
-                pick(name),
-                checked=lambda item, name=name: getattr(cfg, which).lower() == name,
-                radio=True,
-            )
-            for name in CHOICES
-        ]
-        # A custom .wav set in config.toml shows up as its own checked entry.
-        is_custom = lambda item: getattr(cfg, which).lower() not in CHOICES  # noqa: E731
-        items.append(
-            pystray.MenuItem(
-                lambda item: f"Custom: {Path(getattr(cfg, which)).name}",
-                lambda icon, item: self._preview(getattr(cfg, which)),
-                checked=is_custom,
-                radio=True,
-                visible=is_custom,
-            )
-        )
-        return pystray.Menu(*items)
 
     # -- always-on ---------------------------------------------------------
 
@@ -410,29 +312,6 @@ class Tray:
 
     # -- learned phrases ----------------------------------------------------
 
-    def _learned_items(self, pystray) -> list:
-        """What's been learned from missed commands; click one to forget it."""
-        from .commands import BY_NAME, Parsed, describe
-
-        lis = self.always_on
-        learned = lis.grammar.learned if lis is not None else {}
-        if not learned:
-            return [pystray.MenuItem('None yet: say "remember that" when offered', None,
-                                     enabled=False)]
-
-        def forget(phrase: str):
-            def action(icon, item) -> None:
-                lis.grammar.forget(phrase)
-                self.notify(f'Forgot "{phrase}"')
-                icon.update_menu()
-            return action
-
-        items = [pystray.MenuItem("Click one to forget it", None, enabled=False)]
-        for phrase, d in sorted(learned.items()):
-            p = Parsed(BY_NAME[d["command"]], d.get("arg", ""), 1.0, where=d.get("where", ""))
-            items.append(pystray.MenuItem(f'"{phrase}" = {describe(p)}', forget(phrase)))
-        return items
-
     # -- microphone ---------------------------------------------------------
 
     def _mic_label(self) -> str:
@@ -489,21 +368,6 @@ class Tray:
 
             refresh_devices()
         self.icon.update_menu()
-
-    def _toggle_paste_to(self, icon, item) -> None:
-        cfg = self.engine.cfg.inject
-        cfg.paste_to = "focus" if cfg.paste_to == "start" else "start"
-        try:
-            from .config import save_setting
-
-            save_setting("inject", "paste_to", cfg.paste_to)
-        except OSError as exc:
-            log.warning("could not save paste target: %s", exc)
-        self.notify(
-            "Text goes to the window you were in when you started dictating"
-            if cfg.paste_to == "start" else "Text goes to whichever window has focus when it's ready"
-        )
-        icon.update_menu()
 
     # -- update ------------------------------------------------------------
 
@@ -605,366 +469,108 @@ class Tray:
 
         caps_lock_off()
 
-    def _key_lists(self) -> tuple[list[str], list[str]]:
-        h = self.engine.cfg.hotkeys
-        as_list = lambda v: [v] if isinstance(v, str) and v else list(v or [])  # noqa: E731
-        return as_list(h.dictate), as_list(h.dictate_raw)
+    # -- settings ------------------------------------------------------------
 
-    def _keys_label(self) -> str:
-        from .hotkey import KEY_PRESETS
+    def open_settings(self) -> None:
+        """The Settings window, as its own process (one at a time)."""
+        if self._settings_open:
+            return
+        from .proc import run_localflow
 
-        dictate, _ = self._key_lists()
-        if not dictate:
-            return "Dictation keys: none"
-        names = {spec: name for name, (spec, _raw) in KEY_PRESETS.items()}
-        return "Dictation keys: " + ", ".join(names.get(s, s) for s in dictate)
+        self._settings_open = True
 
-    def _set_keys(self, dictate: list[str], raw: list[str]) -> None:
-        h = self.engine.cfg.hotkeys
-        h.dictate, h.dictate_raw = dictate, raw
-        try:
-            from .config import save_setting
-
-            save_setting("hotkeys", "dictate", dictate)
-            save_setting("hotkeys", "dictate_raw", raw)
-        except OSError as exc:
-            log.warning("could not save dictation keys: %s", exc)
-        if self._on_keys_changed:
-            self._on_keys_changed()
-        self.icon.update_menu()
-        names = self._keys_label().split(": ", 1)[1]
-        self.notify(
-            f"Dictation keys: {names}" if dictate else "No dictation key - pick one here any time",
-            "LocalFlow",
-        )
-
-    def _keys_menu(self, pystray):
-        """Checkboxes: any mix of the presets, or none. Takes effect at once."""
-        from .hotkey import KEY_PRESETS
-
-        def toggle(name: str):
-            spec, raw_spec = KEY_PRESETS[name]
-
-            def action(icon, item) -> None:
-                dictate, raw = self._key_lists()
-                if spec in dictate:
-                    dictate = [s for s in dictate if s != spec]
-                    raw = [s for s in raw if s != raw_spec]
-                else:
-                    dictate.append(spec)
-                    if raw_spec not in raw:
-                        raw.append(raw_spec)
-                self._set_keys(dictate, raw)
-
-            return action
-
-        def labels(name: str) -> str:
-            spec, raw_spec = KEY_PRESETS[name]
-            raw = "F10" if raw_spec == "<f10>" else f"Shift+{name}"
-            return f"{name}   (raw: {raw})"
-
-        items = [
-            pystray.MenuItem(
-                labels(name),
-                toggle(name),
-                checked=lambda item, spec=spec: spec in self._key_lists()[0],
-            )
-            for name, (spec, _raw) in KEY_PRESETS.items()
-        ]
-        presets = {spec for spec, _raw in KEY_PRESETS.values()}
-        items += [
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                "None (no dictation key)",
-                lambda icon, item: self._set_keys([], []),
-                checked=lambda item: not self._key_lists()[0],
-                radio=True,
-            ),
-            # Keys set by hand in config.toml that aren't presets: shown, kept.
-            pystray.MenuItem(
-                lambda item: "Also from config.toml: "
-                + ", ".join(s for s in self._key_lists()[0] if s not in presets),
-                None,
-                enabled=False,
-                visible=lambda item: any(s not in presets for s in self._key_lists()[0]),
-            ),
-        ]
-        return pystray.Menu(*items)
-
-    def _boost_menu(self, pystray):
-        """Radio list of mic boosts. Takes effect from the next recording."""
-        cfg = self.engine.cfg.audio
-        labels = {
-            "none": "None",
-            "low": "Low (+6 dB)",
-            "medium": "Medium (+12 dB)",
-            "high": "High (+18 dB)",
-            "auto": "Auto (lifts quiet speech)",
-        }
-
-        def pick(choice: str):
-            def action(icon, item) -> None:
-                cfg.boost = choice
-                try:
-                    from .config import save_setting
-
-                    save_setting("audio", "boost", choice)
-                except OSError as exc:
-                    log.warning("could not save mic boost: %s", exc)
-
-            return action
-
-        return pystray.Menu(
-            *[
-                pystray.MenuItem(
-                    label,
-                    pick(name),
-                    checked=lambda item, name=name: self.engine.recorder.boost == name,
-                    radio=True,
-                )
-                for name, label in labels.items()
-            ]
-        )
-
-    def _style_action(self, key: str, value: str):
-        """Set [style] key (character / tone) now and persist it."""
-
-        def action(icon, item) -> None:
-            setattr(self.engine.cfg.style, key, value)
+        def run() -> None:
             try:
-                from .config import save_setting
+                run_localflow("settings")
+            finally:
+                self._settings_open = False
 
-                save_setting("style", key, value)
-            except OSError as exc:
-                log.warning("could not save style %s: %s", key, exc)
-            icon.update_menu()
+        threading.Thread(target=run, daemon=True, name="localflow-settings").start()
 
-        return action
+    def watch_settings(self) -> None:
+        """Apply changes saved to config.toml (by Settings, or by hand) and
+        to learned.json, within a second."""
+        from .commands import LEARNED
+        from .config import CONFIG_PATH
 
-    def _character_menu(self, pystray):
-        from .style import all_characters
+        def mtime(path) -> float:
+            try:
+                return path.stat().st_mtime
+            except OSError:
+                return 0.0
 
-        cfg = self.engine.cfg.style
+        def loop() -> None:
+            seen = {CONFIG_PATH: mtime(CONFIG_PATH), LEARNED: mtime(LEARNED)}
+            while True:
+                time.sleep(1.0)
+                for path in seen:
+                    now = mtime(path)
+                    if now == seen[path]:
+                        continue
+                    seen[path] = now
+                    try:
+                        if path == CONFIG_PATH:
+                            from .config import load
 
-        def items():
-            names = ["none", *all_characters(cfg)]
-            return [
-                pystray.MenuItem(
-                    name.title() if name != "none" else "None",
-                    self._style_action("character", name),
-                    checked=lambda item, name=name: cfg.character.lower() == name,
-                    radio=True,
-                )
-                for name in names
-            ]
+                            self.apply_settings(load()[0])
+                        elif self.always_on is not None:
+                            from .commands import load_learned
 
-        return pystray.Menu(items)
+                            self.always_on.grammar.learned = load_learned(LEARNED)
+                    except Exception:
+                        log.exception("applying %s failed", path.name)
 
-    def _tone_menu(self, pystray):
-        """Neutral, then Plutchik's 8 emotions, each with its 3 intensities."""
-        from .style import WHEEL
+        threading.Thread(target=loop, daemon=True, name="localflow-settings-watch").start()
 
-        cfg = self.engine.cfg.style
+    def apply_settings(self, new) -> dict:
+        """Copy what Settings can change from a freshly loaded config into the
+        live one, and do what each change needs. Returns {key: (old, new)}."""
+        cur = self.engine.cfg
+        changed = {}
+        for section, keys in LIVE_SETTINGS.items():
+            a, b = getattr(cur, section), getattr(new, section)
+            for key in keys:
+                old, value = getattr(a, key), getattr(b, key)
+                if old != value:
+                    setattr(a, key, value)
+                    changed[f"{section}.{key}"] = (old, value)
+        if not changed:
+            return changed
+        log.info("settings changed: %s", ", ".join(sorted(changed)))
+        cleaner = self.engine.cleaner
+        if "cleanup.method" in changed or "cleanup.model" in changed:
+            if cur.cleanup.method == "rules":
+                # Hand the cleanup model's VRAM back; nothing will use it now.
+                threading.Thread(target=cleaner.unload, daemon=True,
+                                 name="localflow-model-unload").start()
+            else:
+                previous = changed.get("cleanup.model", (cur.cleanup.model,))[0]
 
-        def level_item(level):
-            return pystray.MenuItem(
-                f"{level.name.title()}  ({level.intensity})",
-                self._style_action("tone", level.name),
-                checked=lambda item: cfg.tone.lower() == level.name,
-                radio=True,
-            )
+                def switch() -> None:
+                    cleaner.switch_model(cur.cleanup.model, previous)
+                    if self.health is not None:
+                        self.health.suspect()  # is the new one answering?
 
-        items = [
-            pystray.MenuItem(
-                "Neutral",
-                self._style_action("tone", "neutral"),
-                checked=lambda item: cfg.tone.lower() == "neutral",
-                radio=True,
-            ),
-            pystray.Menu.SEPARATOR,
-        ]
-        for emotion, levels in WHEEL.items():
-            names = {lv.name for lv in levels}
-            items.append(
-                pystray.MenuItem(
-                    emotion.title(),
-                    pystray.Menu(*[level_item(lv) for lv in levels]),
-                    checked=lambda item, names=names: cfg.tone.lower() in names,
-                )
-            )
-        return pystray.Menu(*items)
+                threading.Thread(target=switch, daemon=True, name="localflow-model-switch").start()
+        if "style.model" in changed and cur.style.model and self.engine.stylizer.active:
+            threading.Thread(target=cleaner.preload, args=(cur.style.model,), daemon=True).start()
+        if ("hotkeys.dictate" in changed or "hotkeys.dictate_raw" in changed) and self._on_keys_changed:
+            self._on_keys_changed()
+        lis = self.always_on
+        if lis is not None:
+            if "always_on.default_mode" in changed:
+                lis.set_default_mode(cur.always_on.default_mode)
+            if {"always_on.command_mode_seconds", "always_on.idle_stop_seconds"} & changed.keys():
+                lis._extend_mode()
+        if "overlay.theme" in changed:
+            from .themes import resolve
 
-    def _style_model_items(self, pystray) -> list:
-        """Model for the character/tone pass. A model other than the cleanup one
-        does cleanup + style in a single pass (see Stylizer.separate_model)."""
-        cfg = self.engine.cfg
-
-        def pick(name: str):
-            def action(icon, item) -> None:
-                cfg.style.model = name
-                try:
-                    from .config import save_setting
-
-                    save_setting("style", "model", name)
-                except OSError as exc:
-                    log.warning("could not save style model: %s", exc)
-                if name and self.engine.stylizer.active:
-                    # Load it now so the next dictation does not wait ~30 s.
-                    threading.Thread(
-                        target=self.engine.cleaner.preload, args=(name,), daemon=True
-                    ).start()
-                icon.update_menu()
-
-            return action
-
-        items = [
-            pystray.MenuItem(
-                f"Same as cleanup ({cfg.cleanup.model})",
-                pick(""),
-                checked=lambda item: not cfg.style.model,
-                radio=True,
-            ),
-            pystray.Menu.SEPARATOR,
-        ]
-        for name, size in sorted(self.engine.cleaner.list_models(), key=lambda m: m[1]):
-            label = f"{name}  ({size / 1e9:.1f} GB)"
-            if name == STYLE_MODEL:
-                label += "  - stronger voices"
-            elif size > GPU_MODEL_BUDGET:
-                label += "  - too big for GPU, slow"
-            items.append(
-                pystray.MenuItem(
-                    label,
-                    pick(name),
-                    checked=lambda item, name=name: cfg.style.model == name,
-                    radio=True,
-                )
-            )
-        return items
-
-    def _cleanup_label(self) -> str:
-        cfg = self.engine.cfg.cleanup
-        if cfg.method == "rules":
-            return "Cleanup: algorithmic (no LLM)"
-        return f"Cleanup model: {cfg.model}"
-
-    def _model_items(self, pystray) -> list:
-        """Algorithmic cleanup plus the installed Ollama models, rebuilt each
-        time the menu is refreshed."""
-        cfg = self.engine.cfg.cleanup
-        items = [
-            pystray.MenuItem(
-                "Algorithmic (no LLM, instant)",
-                lambda icon, item: self._pick_rules(icon),
-                checked=lambda item: cfg.method == "rules",
-                radio=True,
-            ),
-            pystray.Menu.SEPARATOR,
-        ]
-        models = self.engine.cleaner.list_models()
-        if not models:
-            return items + [
-                pystray.MenuItem("Ollama not reachable", None, enabled=False),
-                pystray.MenuItem("Refresh list", lambda icon, item: icon.update_menu()),
-            ]
-        for name, size in sorted(models, key=lambda m: m[1]):
-            label = f"{name}  ({size / 1e9:.1f} GB)"
-            if name == TESTED_MODEL:
-                label += "  - tested"
-            elif size > GPU_MODEL_BUDGET:
-                label += "  - too big for GPU, slow"
-            items.append(
-                pystray.MenuItem(
-                    label,
-                    self._model_action(name),
-                    checked=lambda item, name=name: cfg.method != "rules" and cfg.model == name,
-                    radio=True,
-                )
-            )
-        items += [
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Refresh list", lambda icon, item: icon.update_menu()),
-        ]
-        return items
-
-    def _model_action(self, name: str):
-        # pystray only accepts actions taking (icon, item); bind the name here.
-        def action(icon, item) -> None:
-            self._pick_model(icon, name)
-
-        return action
-
-    def _pick_rules(self, icon) -> None:
-        cfg = self.engine.cfg.cleanup
-        if cfg.method == "rules":
-            return
-        cfg.method = "rules"
+            self.engine.notice(f"Theme: {resolve(cur.overlay.theme).name}", "ok", 3)
         try:
-            from .config import save_setting
-
-            save_setting("cleanup", "method", "rules")
-        except OSError as exc:
-            log.warning("could not save cleanup method: %s", exc)
-        log.info("cleanup switched to algorithmic")
-        # Hand the cleanup model's VRAM back; nothing will use it now.
-        threading.Thread(
-            target=self.engine.cleaner.unload, daemon=True, name="localflow-model-unload"
-        ).start()
-        icon.update_menu()
-
-    def _pick_model(self, icon, name: str) -> None:
-        cfg = self.engine.cfg.cleanup
-        if name == cfg.model and cfg.method != "rules":
-            return
-        try:
-            from .config import save_setting
-
-            save_setting("cleanup", "model", name)
-            save_setting("cleanup", "method", "llm")
-        except OSError as exc:
-            log.warning("could not save cleanup model: %s", exc)
-        cfg.method = "llm"
-        previous = self.engine.cfg.cleanup.model
-        self.engine.cfg.cleanup.model = name  # menu and overlay see it immediately
-        # Unload + load can take tens of seconds; never block the tray thread.
-        def switch() -> None:
-            self.engine.cleaner.switch_model(name, previous)
-            if self.health is not None:
-                self.health.suspect()  # is the new one answering?
-
-        threading.Thread(target=switch, daemon=True, name="localflow-model-switch").start()
-        icon.update_menu()
-
-    def _secs(self, key: str) -> str:
-        from .commands import say_seconds
-
-        return say_seconds(getattr(self.engine.cfg.always_on, key))
-
-    def _timeout_menu(self, pystray, which: str, choices: list[int]):
-        """Command mode's quiet timeout, or how long a dictation waits in
-        silence before it finishes. "Never" = 0."""
-        from .commands import say_seconds
-
-        key = "command_mode_seconds" if which == "command" else "idle_stop_seconds"
-        cfg = self.engine.cfg.always_on
-
-        def pick(seconds: int):
-            def action(icon, item) -> None:
-                if self.always_on is not None:
-                    self.always_on.set_timeout(which, seconds)
-                icon.update_menu()
-            return action
-
-        return pystray.Menu(*[
-            pystray.MenuItem(say_seconds(c).capitalize(), pick(c),
-                             checked=lambda item, c=c: getattr(cfg, key) == c, radio=True)
-            for c in choices
-        ])
-
-    def _set_default_mode(self, mode: str) -> None:
-        if self.always_on is not None:
-            self.always_on.set_default_mode(mode)
-        self.icon.update_menu()
+            self.icon.update_menu()
+        except Exception:
+            pass
+        return changed
 
     def _llm_in_use(self) -> bool:
         return self.health is not None and self.engine.cfg.cleanup.method != "rules"
@@ -984,12 +590,6 @@ class Tray:
             self.icon.update_menu()
 
         threading.Thread(target=go, daemon=True, name="localflow-ollama-restart").start()
-
-    def _preview(self, choice: str) -> None:
-        if self.sounds is not None:
-            from .sounds import play
-
-            play(self.sounds.sound(choice))
 
     def _status_line(self) -> str:
         h = self.engine.history
@@ -1049,10 +649,6 @@ class Tray:
             set_clipboard_text(self._last_text)
         except Exception as exc:
             log.warning("copy failed: %s", exc)
-
-    def _toggle_cleanup(self) -> None:
-        self.engine.cfg.cleanup.enabled = not self.engine.cfg.cleanup.enabled
-        self.engine.cleaner.cfg.enabled = self.engine.cfg.cleanup.enabled
 
     def _quit(self) -> None:
         log.info("quitting")

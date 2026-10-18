@@ -338,6 +338,13 @@ def cmd_history(args, cfg) -> int:
     return history_main(cfg)
 
 
+def cmd_settings(args, cfg) -> int:
+    """The Settings window (themes, sounds, timeouts, cleanup...)."""
+    from .settings import main as settings_main
+
+    return settings_main(cfg)
+
+
 def cmd_enroll(args, cfg) -> int:
     """Set up the always-on start/stop phrases (opens a window)."""
     from .enroll import main as enroll_main
@@ -800,6 +807,7 @@ def cmd_run(args, cfg) -> int:
         tray.icon.update_menu()
 
     health.on_change = ollama_changed
+    tray.watch_settings()
 
     if cfg.overlay.enabled:
         from .overlay import Overlay
@@ -926,6 +934,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("enroll", help="set up always-on start/stop phrases", parents=[common])
     sub.add_parser("history", help="search past dictations; paste or copy one", parents=[common])
+    sub.add_parser("settings", help="the Settings window", parents=[common])
     p_li = sub.add_parser(
         "listen", help="try always-on mode in the console (pastes nothing)", parents=[common]
     )
@@ -960,6 +969,7 @@ def main(argv: list[str] | None = None) -> int:
         "devices": cmd_devices,
         "enroll": cmd_enroll,
         "history": cmd_history,
+        "settings": cmd_settings,
         "listen": cmd_listen,
         "fetch-model": cmd_fetch_model,
         "import-model": cmd_import_model,

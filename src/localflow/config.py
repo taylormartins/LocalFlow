@@ -137,6 +137,9 @@ class OverlayConfig:
     #: Live transcript under the waveform while you speak. Display only - the
     #: pasted text still comes from the full transcription after you stop.
     live_text: bool = True
+    #: The pill's look: "default", "royal" (black and gold), or one you built
+    #: in Settings > Theme builder (kept in themes.json).
+    theme: str = "default"
     #: Numbered click labels (command mode "show labels"): 0.3 faint - 1.0 solid.
     label_opacity: float = 0.7
     #: Seconds between live updates (each is one Whisper pass on the GPU).

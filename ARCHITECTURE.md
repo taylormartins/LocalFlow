@@ -562,6 +562,30 @@ phrase (while dictating) is among them.
   the probe. Restart: taskkill both Ollama processes, start
   `ollama app.exe` through `explorer.exe` (not elevated), wait for
   `/api/tags`, warm up.
+- **A phrase across a pause** (`always_on.JOIN`, `Listener._prev_burst`):
+  bursts end after `HANGOVER` (0.5 s) of quiet, so "stop, [pause] over" put
+  one word in each burst and neither matched (and, at 0.67 against the
+  merged form, not even a logged near miss). While dictating, a burst starting
+  within `JOIN` (1.5 s) of the last one is re-checked with the last one's
+  words prepended (times shifted onto the earlier burst's clock, the clip
+  read from the ring). `Detector.check(squeezed=True)` shortens internal
+  silence (`wake.squeeze`) before the voice veto, since the setup takes
+  have no such pause.
+- **Themes** (`themes.py`): a `Theme` is colours + font + `wave_style`;
+  built-ins `default` and `royal`, custom ones in `themes.json`. `pill`,
+  `wave`, `colour_for` and `dot_colour` draw both the overlay and the
+  Settings preview. The overlay resolves `overlay.theme` every frame through
+  `themes.Current` (re-reads `themes.json` at most once a second) and remakes
+  its Tk fonts when the family or size changes; labels are cut to fit by
+  measured width, not by characters (script fonts are wide).
+- **Settings** (`settings.py`, `localflow settings`): its own process (Tk,
+  ttk "clam" restyled black and gold), saving each change at once with
+  `save_setting` / `themes.save_custom` / `Grammar.forget`.
+  `Tray.watch_settings` polls the mtimes of config.toml and learned.json each
+  second. `apply_settings` copies only `LIVE_SETTINGS` keys (anything else
+  needs a restart) and acts on some: a model switch or unload, preloading the
+  style model, rebinding keys, `set_default_mode`, extending the command
+  timeout. The tray menu keeps only everyday items.
 - **Timeouts**: `command_mode_seconds` and `idle_stop_seconds`, 0 = never;
   the command timeout applies in either default mode. `Listener.set_timeout`
   (tray, or `commands.parse_timeout`: "command timeout two minutes") saves it.

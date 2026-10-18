@@ -313,6 +313,24 @@ def trim(audio: np.ndarray, pad: float = 0.08) -> np.ndarray:
     return audio[max(0, loud[0] * 480 - p) : min(audio.size, (loud[-1] + 1) * 480 + p)]
 
 
+def squeeze(audio: np.ndarray, keep: float = 0.15) -> np.ndarray:
+    """Shorten every quiet stretch inside ``audio`` to ``keep`` seconds. A
+    phrase said across a pause ("stop... chat") then sounds like the setup
+    takes rather than half silence."""
+    if audio.size < 480:
+        return audio
+    frames = audio[: audio.size // 480 * 480].reshape(-1, 480)
+    rms = np.sqrt((frames.astype(np.float64) ** 2).mean(axis=1))
+    loud = rms > max(rms.max() * 0.08, 1e-4)
+    limit = max(1, int(keep * RATE / 480))
+    out, run = [], 0
+    for f, is_loud in zip(frames, loud):
+        run = 0 if is_loud else run + 1
+        if run <= limit:
+            out.append(f)
+    return np.concatenate(out) if out else audio[:0]
+
+
 def learn_limit(templates: list[np.ndarray]) -> float:
     """DTW limit from how far apart the user's own takes are: a little looser
     than the worst pair, so a fourth take of the same phrase passes but a
@@ -458,8 +476,11 @@ class Detector:
                     out.append(Word(piece, w.start, w.end))
         return out
 
-    def check(self, which: str, words: list[Word], audio: np.ndarray, after: float = 0.0) -> Hit | None:
-        """Is the ``which`` phrase in these words (at or after ``after`` s)?"""
+    def check(self, which: str, words: list[Word], audio: np.ndarray, after: float = 0.0,
+              squeezed: bool = False) -> Hit | None:
+        """Is the ``which`` phrase in these words (at or after ``after`` s)?
+        ``squeezed``: the words come from two bursts joined across a pause,
+        so the pause is shortened before the voice check."""
         pool = [w for w in words if w.start >= after - 0.05]
         if not pool:
             return None
@@ -477,6 +498,8 @@ class Detector:
         templates = self._templates.get(which) or []
         if templates and limit > 0:
             clip = audio[int(first.start * RATE) : int(last.end * RATE) + 1]
+            if squeezed and clip.size:
+                clip = squeeze(clip)
             feats = features(trim(clip)) if clip.size else clip
             dist = min(dtw(feats, t) for t in templates) if len(feats) else float("inf")
             veto = max(limit * VOICE_VETO, VOICE_VETO_FLOOR)
