@@ -137,9 +137,9 @@ class OverlayConfig:
     #: Live transcript under the waveform while you speak. Display only - the
     #: pasted text still comes from the full transcription after you stop.
     live_text: bool = True
-    #: The pill's look: "royal" (black and gold), "royal v1", "classic" (the
-    #: original), "matrix", "doodle", "newspaper", "modern", or one you built
-    #: in Settings > Theme builder (kept in themes.json).
+    #: The pill's look: "royal" (black and gold), "gemstone", "smooth",
+    #: "modern", "classic" (the original), "matrix", "doodle", "newspaper",
+    #: or one you built in Settings > Theme builder (kept in themes.json).
     theme: str = "royal"
     #: How solid the pill is: 1.0 solid, down to 0.2 to see what's behind it.
     opacity: float = 1.0

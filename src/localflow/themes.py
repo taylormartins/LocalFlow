@@ -2,8 +2,10 @@
 
 Built-in themes:
 - Royal (the default): black and gold, a framed border with diamond
-  ornaments, a straight-line waveform, a gem for the recording dot.
-- Royal V1: the first royal (a flowing line, script lettering).
+  ornaments, a straight-line waveform, stardust for the recording mark.
+- Gemstone: light through crystal: a brilliant-cut gem (ruby, sapphire,
+  diamond), rainbow fire, an iridescent border, a prism waveform.
+- Smooth: light grey and white, soft capsule waveform, Apple-like.
 - Classic: the original pill.
 - Matrix: black and green, code lettering, columns of glyphs.
 - Doodle: pencil on paper, a sketched border and a scribbled line.
@@ -17,6 +19,7 @@ the same functions here, so the preview is exactly what the pill looks like.
 
 from __future__ import annotations
 
+import colorsys
 import json
 import logging
 import math
@@ -30,9 +33,10 @@ log = logging.getLogger(__name__)
 
 STORE = PROJECT_ROOT / "themes.json"
 
-WAVE_STYLES = ("bars", "line", "zigzag", "dots", "dotgrid", "glyphs", "scribble", "halftone")
-BORDERS = ("plain", "ornate", "sketch", "rule")
-DOT_STYLES = ("circle", "gem", "cursor", "sketch", "square")
+WAVE_STYLES = ("bars", "capsules", "line", "zigzag", "prism", "dots", "dotgrid", "glyphs",
+               "scribble", "halftone")
+BORDERS = ("plain", "ornate", "prism", "sketch", "rule")
+DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square")
 
 
 @dataclass
@@ -62,12 +66,18 @@ class Theme:
 
 ROYAL = Theme(
     name="Royal", bg="#0a0907", text="#f3dc95", edge="#c9a227", border="ornate", round=1.0,
-    wave="#e6c158", dim="#5e4b1a", wave_style="zigzag", dot="gem",
+    wave="#e6c158", dim="#5e4b1a", wave_style="zigzag", dot="stardust",
     font="Palatino Linotype", font_size=13, accent="#d4af37",
 )
-ROYAL_V1 = Theme(
-    name="Royal V1", bg="#0b0a08", text="#e9c96b", edge="#c9a227", wave="#e2bd4f",
-    dim="#5b4a1c", wave_style="line", font="Segoe Script", font_size=12, accent="#d4af37",
+GEMSTONE = Theme(
+    name="Gemstone", bg="#0b0a14", text="#eef0ff", edge="#9aa6ff", border="prism", round=1.0,
+    wave="#e8ecff", dim="#262a44", wave_style="prism", dot="gem",
+    font="Segoe UI Variable Display", font_size=13, accent="#b9c4ff",
+)
+SMOOTH = Theme(
+    name="Smooth", bg="#f5f5f7", text="#1d1d1f", edge="#d2d2d7", round=1.0, wave="#48484a",
+    dim="#c7c7cc", wave_style="capsules", dot="circle", font="Segoe UI Variable Text",
+    font_size=13, accent="#0a84ff",
 )
 CLASSIC = Theme()
 MATRIX = Theme(
@@ -92,8 +102,8 @@ MODERN = Theme(
 )
 #: The theme LocalFlow starts with (overlay.theme = "royal").
 DEFAULT = ROYAL
-BUILT_IN = {"royal": ROYAL, "royal v1": ROYAL_V1, "classic": CLASSIC, "matrix": MATRIX,
-            "doodle": DOODLE, "newspaper": NEWSPAPER, "modern": MODERN}
+BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "smooth": SMOOTH, "modern": MODERN,
+            "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER}
 
 
 def _from_dict(name: str, d: dict) -> Theme:
@@ -203,14 +213,23 @@ def colour_for(theme: Theme, state_colour: str, error_colour: str) -> str:
 
 #: The recording dot: LLM cleanup, algorithmic cleanup, raw (no cleanup).
 DOTS = {"llm": "#43b974", "rules": "#4c9aff"}
-#: ...as gems: emerald, sapphire, diamond.
-GEMS = {"llm": "#1fbf6b", "rules": "#3d7bff", "raw": "#e8f4ff"}
+#: ...as gems: ruby, sapphire, diamond.
+GEMS = {"llm": "#e0115f", "rules": "#2f6bff", "raw": "#eaf6ff"}
+#: ...as stardust: gold, starlight blue, white.
+STARDUST = {"llm": "#f6cf5a", "rules": "#a9c8ff", "raw": "#ffffff"}
+
+
+def hue(h: float, sat: float = 0.55, val: float = 1.0) -> str:
+    r, g, b = colorsys.hsv_to_rgb(h % 1.0, sat, val)
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
 def dot_colour(theme: Theme, kind: str) -> str:
     """The recording dot. Its three meanings stay apart in every theme."""
     if theme.dot == "gem":
         return GEMS[kind]
+    if theme.dot == "stardust":
+        return STARDUST[kind]
     if kind == "raw":
         return theme.text
     if theme.mono:
@@ -295,6 +314,19 @@ def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, 
             c.create_line(*flat, flat[0], flat[1], fill=edge if k == 0 else blend(edge, theme.bg, 0.4),
                           width=max(1.0, (1.3 - 0.4 * k) * s), smooth=True)
         return
+    if theme.border == "prism":
+        # Light through crystal: the edge runs through the rainbow, slowly turning.
+        rounded(c, x0, y0, x1, y1, r, theme.bg)
+        e2 = max(1.2, 1.6 * s)
+        pts = _outline_points(x0 + e2 / 2, y0 + e2 / 2, x1 - e2 / 2, y1 - e2 / 2,
+                              max(0.0, r - e2 / 2), 4 * s)
+        n = len(pts)
+        for i in range(n):
+            ax, ay = pts[i]
+            bx, by = pts[(i + 1) % n]
+            c.create_line(ax, ay, bx, by, fill=hue(i / n + t * 0.08, 0.45, 1.0), width=e2,
+                          capstyle="round")
+        return
     rounded(c, x0, y0, x1, y1, r, edge)
     rounded(c, x0 + e, y0 + e, x1 - e, y1 - e, max(0.0, r - e), theme.bg)
     if theme.border == "ornate":
@@ -323,25 +355,11 @@ def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, 
 def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, t: float) -> None:
     """The pulsing "recording" mark, in the theme's style."""
     pulse = math.sin(t * 5)
+    if theme.dot == "stardust":
+        _stardust(c, cx, cy, s, colour, t)
+        return
     if theme.dot == "gem":
-        # A cut gem: a flat table, a crown, a pointed pavilion, and facet lines.
-        w, top, mid, bot = 7.0 * s, -5.0 * s, -1.6 * s, 6.8 * s
-        w *= 1 + 0.05 * pulse
-        outline = theme.edge or theme.text
-        c.create_polygon(cx - w * 0.55, cy + top, cx + w * 0.55, cy + top, cx + w, cy + mid,
-                         cx, cy + bot, cx - w, cy + mid, fill=colour, outline=outline,
-                         width=max(1.0, 0.8 * s))
-        light = blend(colour, "#ffffff", 0.55)
-        c.create_line(cx - w, cy + mid, cx + w, cy + mid, fill=outline, width=max(1.0, 0.6 * s))
-        for x in (-0.55, 0.55):
-            c.create_line(cx + x * w, cy + top, cx + x * w * 0.4, cy + mid, cx, cy + bot,
-                          fill=outline, width=max(1.0, 0.5 * s))
-        c.create_polygon(cx - w * 0.45, cy + top + 0.8 * s, cx - w * 0.05, cy + top + 0.8 * s,
-                         cx - w * 0.3, cy + mid - 0.3 * s, fill=light, outline="")
-        if pulse > 0.7:  # a glint
-            gx, gy, gl = cx + w * 0.75, cy + top - 0.5 * s, 2.2 * s * (pulse - 0.6) * 2.5
-            c.create_line(gx - gl, gy, gx + gl, gy, fill="#ffffff", width=1)
-            c.create_line(gx, gy - gl, gx, gy + gl, fill="#ffffff", width=1)
+        _gem(c, cx, cy, s, colour, t)
         return
     if theme.dot == "cursor":
         if int(t * 2.5) % 2 == 0:  # a blinking block cursor
@@ -365,6 +383,57 @@ def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, 
                           fill=colour, width=max(1.0, 0.8 * s))
     else:
         c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=colour, outline=colour)
+
+
+def _star(c, cx: float, cy: float, size: float, colour: str) -> None:
+    """A four-pointed sparkle."""
+    w = size * 0.24
+    c.create_polygon(cx, cy - size, cx + w, cy - w, cx + size, cy, cx + w, cy + w,
+                     cx, cy + size, cx - w, cy + w, cx - size, cy, cx - w, cy - w,
+                     fill=colour, outline="")
+
+
+def _stardust(c, cx: float, cy: float, s: float, colour: str, t: float) -> None:
+    """A star in the middle, a ring of six sparkles and a ring of dust round
+    it. Each part twinkles in its own time; the whole stays round."""
+    glow = 0.5 + 0.5 * math.sin(t * 2.2)
+    _star(c, cx, cy, (4.2 + 1.2 * glow) * s, blend(colour, "#ffffff", 0.35 * glow))
+    for k in range(6):
+        a = math.radians(30 + k * 60)
+        tw = 0.5 + 0.5 * math.sin(t * 3.1 + k * 2.4)
+        x, y = cx + 6.6 * s * math.cos(a), cy + 6.6 * s * math.sin(a)
+        _star(c, x, y, (0.8 + 1.8 * tw) * s, blend(colour, "#ffffff", 0.5 * tw))
+    for k in range(6):
+        a = math.radians(k * 60)
+        tw = 0.5 + 0.5 * math.sin(t * 4.3 + k * 1.7 + 1)
+        x, y = cx + 8.4 * s * math.cos(a), cy + 8.4 * s * math.sin(a)
+        r = (0.35 + 0.55 * tw) * s
+        c.create_oval(x - r, y - r, x + r, y + r, fill=blend(colour, "#000000", 0.4 * (1 - tw)),
+                      outline="")
+
+
+def _gem(c, cx: float, cy: float, s: float, colour: str, t: float) -> None:
+    """A brilliant-cut gem seen from above: an octagon, its table, and
+    facets that catch the light in turn, with flashes of rainbow fire."""
+    R, r = 7.6 * s, 3.9 * s
+    outer = [(cx + R * math.cos(math.radians(22.5 + k * 45)),
+              cy + R * math.sin(math.radians(22.5 + k * 45))) for k in range(8)]
+    inner = [(cx + r * math.cos(math.radians(k * 45)), cy + r * math.sin(math.radians(k * 45)))
+             for k in range(8)]
+    c.create_polygon(*[v for p in outer for v in p], fill=blend(colour, "#000000", 0.3),
+                     outline=blend(colour, "#ffffff", 0.6), width=max(1.0, 0.7 * s))
+    for k in range(8):  # star facets between the table and the girdle
+        lit = 0.5 + 0.5 * math.sin(t * 2.6 - k * math.pi / 4)
+        shade = blend(colour, "#ffffff", 0.55 * lit) if k % 2 else blend(colour, "#000000", 0.25 * (1 - lit))
+        p1, p2, q = outer[k], outer[(k + 1) % 8], inner[(k + 1) % 8]
+        c.create_polygon(*p1, *p2, *q, fill=shade, outline="")
+    c.create_polygon(*[v for p in inner for v in p], fill=blend(colour, "#ffffff", 0.25),
+                     outline=blend(colour, "#ffffff", 0.7), width=1)
+    for k in range(4):  # fire: little rainbow flashes at the corners
+        phase = math.sin(t * 3.0 + k * 1.9)
+        if phase > 0.55:
+            x, y = outer[k * 2]
+            _star(c, x, y, 2.4 * s * (phase - 0.4), hue(t * 0.3 + k / 4, 0.6, 1.0))
 
 
 def level_height(level: float) -> float:
@@ -415,7 +484,19 @@ def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float
         x = x0 + i * step
         cx = x + step / 2
         colour = theme.wave if level >= speech else theme.dim
-        if style == "dots":
+        if style == "capsules":
+            # Soft rounded capsules, heights eased between neighbours.
+            prev = level_height(levels[i - 1]) if i else level_height(level)
+            hh = max(2.2 * s, (0.35 * prev + 0.65 * level_height(level)) * max_h * 0.9)
+            bw = max(2.0, step * 0.5)
+            c.create_line(cx, mid - hh / 2 + bw / 2, cx, mid + hh / 2 - bw / 2, fill=colour,
+                          width=bw, capstyle="round")
+        elif style == "prism":
+            # Light split into its colours, drifting along as you talk.
+            col = hue(i / n * 0.85 + t * 0.12, 0.5, 1.0) if level >= speech else theme.dim
+            bw = max(2, int(step * 0.55))
+            c.create_rectangle(x, mid - h / 2, x + bw, mid + h / 2, fill=col, outline=col)
+        elif style == "dots":
             r = max(1.2 * s, h / 4)
             c.create_oval(cx - r, mid - r, cx + r, mid + r, fill=colour, outline=colour)
         elif style == "dotgrid":

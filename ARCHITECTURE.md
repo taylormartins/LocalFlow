@@ -581,8 +581,10 @@ phrase (while dictating) is among them.
   no near miss logged.
 - **Themes** (`themes.py`): a `Theme` is colours, font, `wave_style`,
   `border`, `dot`, `round` and `mono`. Built-ins: royal (default),
-  royal v1, classic, matrix, doodle, newspaper, modern; "default" resolves
-  to royal. Custom ones in `themes.json`. `pill`, `recording_dot`, `wave`,
+  gemstone, smooth, modern, classic, matrix, doodle, newspaper; "default"
+  and any unknown name (royal v1 was retired) resolve to royal. Recording
+  marks keep their three colours per meaning (`GEMS`, `STARDUST`, or the
+  accent). Custom ones in `themes.json`. `pill`, `recording_dot`, `wave`,
   `colour_for` and `dot_colour` draw both the overlay and the Settings
   preview. Everything stays inside the given box (the ornate border insets
   itself for its diamonds); the overlay window grows to fit two lines of live

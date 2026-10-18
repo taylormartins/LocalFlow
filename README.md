@@ -573,10 +573,15 @@ tabs:
   opacity** (down to 20%, to see what's behind it), and the click labels'
   opacity. The themes:
   - **Royal** (the default): black and gold, a framed border with diamond
-    ornaments, a straight-line waveform, a cut gem for the recording mark
-    (emerald: LLM cleanup, sapphire: algorithmic, diamond: raw), and Palatino
-    lettering.
-  - **Royal V1**: the first royal: a flowing gold line and script lettering.
+    ornaments, a straight-line waveform, Palatino lettering, and stardust for
+    the recording mark: a star with a ring of sparkles, each twinkling in its
+    own time (gold: LLM cleanup, starlight blue: algorithmic, white: raw).
+  - **Gemstone**: light through crystal. A brilliant-cut gem seen from above
+    (ruby: LLM cleanup, sapphire: algorithmic, diamond: raw) with flashes of
+    rainbow fire, a border that slowly runs through the rainbow, and a prism
+    waveform.
+  - **Smooth**: light grey and white with soft capsules for the waveform, in
+    the spirit of Apple's design.
   - **Classic**: the original grey pill.
   - **Matrix**: black and green, code lettering, columns of glyphs for the
     waveform, a blinking cursor.
@@ -586,10 +591,10 @@ tabs:
   - **Modern**: dark, with a dot-matrix meter.
 - **Theme builder**: make your own. Start from any theme and pick the
   background, text, outline, waveform and accent colours, the font (any font
-  on your PC) and its size, the waveform (bars, line, zigzag, dots, dot grid,
-  glyphs, scribble, halftone), the border (plain, ornate, sketch, rule), the
-  recording mark (circle, gem, cursor, sketch, square) and how round the
-  corners are.
+  on your PC) and its size, the waveform (bars, capsules, line, zigzag, prism,
+  dots, dot grid, glyphs, scribble, halftone), the border (plain, ornate,
+  prism, sketch, rule), the recording mark (circle, stardust, gem, cursor,
+  sketch, square) and how round the corners are.
   The preview is drawn by the same code as the real pill. **Save and use**
   keeps it in `themes.json` (this PC only) and switches to it.
 - **Dictation**: cleanup and its model, Ollama's status and **Restart
