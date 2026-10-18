@@ -311,9 +311,12 @@ follows.
 - Any command from the list below works here too. Key commands such as
   **"scratch that"** (deletes the text just pasted), **"new line"** and
   **"undo"** act on the window the text went into.
-- A command counts within 5 seconds of the stop phrase, and again for 5
-  seconds after the text appears (`always_on.command_window`). So waiting to
-  see a long dictation land before saying "submit" works.
+- Say it whenever you like: a command said any time between the stop phrase
+  and the text appearing is held and run the moment the text is in (input
+  buffering, like a fighting game holding your next move), however long
+  cleanup takes. It still counts for 5 seconds after the text appears
+  (`always_on.command_window`), so waiting to see a long dictation land
+  before saying "submit" works too.
 - A command only counts said on its own: "submit the form tomorrow" is just
   talk.
 - **"cancel"** (or "never mind", "forget it", "don't paste") throws the
@@ -322,6 +325,23 @@ follows.
   say it in the same breath as the stop phrase. The window stays open, so
   **"command mode"** can follow: that's the way out of a dictation you didn't
   mean to make.
+
+**Quick mode: for talking fast.** Tray ▸ **Quick mode**, or Settings ▸
+Listening. Off by default. One breath does it all, with no waiting for the
+start sound:
+
+- **"Okay listen, Marigold. Continue over."** pastes "continue".
+- **"Okay listen, Marigold. Continue send."** pastes it and presses Enter.
+- The end word also ends a longer dictation, in place of the stop phrase.
+- An end word only counts as the very last thing you say before a pause
+  (0.4 s), so "move it over here" doesn't stop anything. Change the words in
+  Settings (`always_on.quick_stop`, `quick_send`).
+- **Code words** (quick mode only): your own one-word shorthand for any
+  command, said on its own after the start phrase or in command mode, e.g.
+  `go = submit`, `nope = scratch`, `chrome = switch chrome` (Settings ▸
+  Listening, `always_on.code_words`). Short real words work better than
+  single letters, which Whisper often mishears; filler like "ok" or "so"
+  can't be one.
 
 **Command mode: control the computer by voice.** Say the start phrase
 followed by **"command mode"**, or by a command itself ("Okay listen,
@@ -625,7 +645,8 @@ tabs:
   keys, mic boost.
 - **Listening**: default mode, the timeouts, **escape words** (the built-in
   ones, plus your own, for throwing a dictation away and for leaving command
-  mode), the LLM for commands, history, learned phrases.
+  mode), **quick mode** with its end words and code words, the LLM for
+  commands, history, learned phrases.
 - **Sounds**: the four cues and the volume.
 
 Every change applies at once, without a restart: Settings saves to

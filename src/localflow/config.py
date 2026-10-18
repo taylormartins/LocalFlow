@@ -222,6 +222,16 @@ class AlwaysOnConfig:
     #: command mode ("exit", "done"...). Settings > Listening.
     cancel_words: list[str] = field(default_factory=list)
     exit_words: list[str] = field(default_factory=list)
+    #: Quick mode (off by default): one breath does it all. "<start phrase>
+    #: continue over" pastes "continue"; "... continue send" pastes it and
+    #: presses Enter. The end word also ends a longer dictation, but only as
+    #: the last thing said before a pause, so "move it over here" doesn't.
+    quick: bool = False
+    quick_stop: list[str] = field(default_factory=lambda: ["over"])
+    quick_send: list[str] = field(default_factory=lambda: ["send"])
+    #: Quick mode's shorthand, each "word = command [argument]": "go = submit",
+    #: "nope = scratch", "chrome = switch chrome". Only while quick mode is on.
+    code_words: list[str] = field(default_factory=list)
     #: Command mode ends after this many seconds without a command; 0 = never.
     #: Applies whichever mode is the default. "command timeout two minutes".
     command_mode_seconds: float = 30.0

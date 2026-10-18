@@ -46,7 +46,8 @@ LIVE_SETTINGS = {
     "audio": ("boost",),
     "sounds": ("enabled", "start", "stop", "paste", "response", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
-                  "cancel_words", "exit_words"),
+                  "cancel_words", "exit_words", "quick", "quick_stop", "quick_send",
+                  "code_words"),
     "overlay": ("theme", "opacity", "label_opacity", "label_theme"),
     "history": ("enabled",),
 }
@@ -167,6 +168,12 @@ class Tray:
                     visible=lambda _: bool(self.always_on and self.always_on.running),
                 ),
                 pystray.MenuItem(
+                    "Quick mode",
+                    self._toggle_quick,
+                    checked=lambda _: self.engine.cfg.always_on.quick,
+                    visible=lambda _: bool(self.always_on and self.always_on.running),
+                ),
+                pystray.MenuItem(
                     lambda _: self._near_label(),
                     lambda icon, item: self._accept_near(),
                     visible=lambda _: bool(self.always_on and self.always_on.last_near),
@@ -276,6 +283,30 @@ class Tray:
         else:
             lis.enter_commands()
         icon.update_menu()
+
+    def _toggle_quick(self, icon, item) -> None:
+        """Quick mode on or off: the end words and the code words."""
+        from .config import save_setting
+
+        on = self.engine.cfg.always_on
+        on.quick = not on.quick
+        try:
+            save_setting("always_on", "quick", on.quick)
+        except OSError as exc:
+            log.warning("could not save quick mode: %s", exc)
+        self._quick_changed()
+        icon.update_menu()
+
+    def _quick_changed(self) -> None:
+        on = self.engine.cfg.always_on
+        if self.always_on is not None:
+            self.always_on.grammar.set_code_words(on.code_words if on.quick else [])
+        if on.quick:
+            stop, send = (on.quick_stop or ["?"])[0], (on.quick_send or ["?"])[0]
+            self.engine.notice(f'Quick mode: end with "{stop}", or "{send}" to press Enter',
+                               "info", 5)
+        else:
+            self.engine.notice("Quick mode off", "info", 3)
 
     def _near_label(self) -> str:
         near = self.always_on.last_near if self.always_on else None
@@ -558,6 +589,11 @@ class Tray:
                 lis._extend_mode()
             if {"always_on.cancel_words", "always_on.exit_words"} & changed.keys():
                 lis.grammar.set_escape_words(cur.always_on.cancel_words, cur.always_on.exit_words)
+            if "always_on.quick" in changed:
+                self._quick_changed()
+            elif "always_on.code_words" in changed:
+                lis.grammar.set_code_words(
+                    cur.always_on.code_words if cur.always_on.quick else [])
         if "overlay.theme" in changed:
             from .themes import resolve
 

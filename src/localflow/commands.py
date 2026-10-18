@@ -1356,6 +1356,9 @@ class Grammar:
     #: leave command mode.
     cancel_extra: list[str] = field(default_factory=list)
     exit_extra: list[str] = field(default_factory=list)
+    #: Quick mode's shorthand, "word = command [argument]" ("go = submit");
+    #: empty while quick mode is off.
+    code_words: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.patterns = [Pattern.compile(c, p) for c in COMMANDS
@@ -1368,6 +1371,7 @@ class Grammar:
         self.enter = [normalise(s) for s in ENTER]
         self.exit = [normalise(s) for s in EXIT]
         self.set_escape_words(self.cancel_extra, self.exit_extra)
+        self.set_code_words(self.code_words)
         self.yes = [normalise(s) for s in YES]
         self.dictate = [normalise(s) for s in DICTATE]
         self.no = [normalise(s) for s in NO]
@@ -1382,6 +1386,39 @@ class Grammar:
         self.exit = [w for w in (normalise(s) for s in EXIT + self.exit_extra) if w]
         ESCAPES["cancel"], ESCAPES["exit"] = self.cancel_extra, self.exit_extra
 
+    def set_code_words(self, lines: list[str]) -> list[str]:
+        """Quick mode's shorthand: each "word = command [argument]" line.
+        Returns the lines that couldn't be used (unknown command, no "=",
+        or a filler word)."""
+        self.code_words = list(lines or [])
+        self.codes: dict[str, Parsed] = {}
+        bad = []
+        for line in self.code_words:
+            said, _, does = line.partition("=")
+            key = " ".join(normalise(said))
+            name, _, arg = does.strip().partition(" ")
+            name = name.strip().lower().replace(" ", "_")
+            # Filler ("ok", "so", "please") is dropped before a command is
+            # read, so it can't be a code word.
+            if not key or name not in BY_NAME or key in NOISE or not trim(key.split()):
+                bad.append(line)
+                continue
+            self.codes[key] = Parsed(BY_NAME[name], arg.strip(), 1.0)
+        if bad:
+            log.warning("code words not understood (want 'word = command'): %s", bad)
+        return bad
+
+    def code(self, words: list[str]) -> Parsed | None:
+        """A code word said on its own (exactly: they're short, and a near
+        miss of a two-letter word is just another word)."""
+        if not self.codes:
+            return None
+        for said in (" ".join(normalise(" ".join(words))), " ".join(trim(words))):
+            p = self.codes.get(said)
+            if p is not None:
+                return Parsed(p.command, p.arg, 1.0)
+        return None
+
     def parse(self, words: list[str]) -> Parsed | None:
         """The command these words are, if they are one in full.
 
@@ -1392,6 +1429,9 @@ class Grammar:
         switches to Chrome first. The plain reading wins unless the split one
         is a better fit and its window exists.
         """
+        coded = self.code(words)
+        if coded is not None:
+            return coded
         words = trim(words)
         if not words:
             return None

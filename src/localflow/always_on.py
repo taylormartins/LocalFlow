@@ -73,6 +73,12 @@ HOLD = 1.8
 #: pause inside a phrase ("stop... chat") ends a burst, and then neither
 #: half matches alone.
 JOIN = 1.5
+#: A command said after the stop phrase is held (input buffering) until the
+#: text is in, however long cleanup takes, at most this long; then
+#: command_window more seconds from the paste.
+BUFFER = 90.0
+#: Quick mode: quiet needed after an end word ("over") before it counts.
+QUICK_QUIET = 0.4
 
 
 class Ring:
@@ -146,7 +152,8 @@ class Listener:
 
         self.grammar = Grammar(extra=cfg.always_on.commands, learned_file=LEARNED,
                                cancel_extra=cfg.always_on.cancel_words,
-                               exit_extra=cfg.always_on.exit_words)
+                               exit_extra=cfg.always_on.exit_words,
+                               code_words=cfg.always_on.code_words if cfg.always_on.quick else [])
         #: The last thing said that wasn't understood: (words, monotonic time).
         self._miss: tuple[str, float] | None = None
         #: "Learn this?" waiting for "remember that": (phrase, command, deadline).
@@ -551,6 +558,8 @@ class Listener:
             if stop is not None:
                 self._end(a, stop)
                 self._check_command(a, words, (self._consumed - a) / RATE)
+            else:
+                self._quick(a, b, words, hit.end)
             return
 
         after = max(fresh, (self._dict_start - a) / RATE)
@@ -582,8 +591,55 @@ class Listener:
             self._end(a, hit)
             # "...that will be all, submit" in one breath.
             self._check_command(a, words, (self._consumed - a) / RATE)
-        else:
+        elif not self._quick(a, b, words, after):
             self._near("stop", words, after)
+
+    # -- quick mode ------------------------------------------------------------
+
+    def _quick(self, a: int, b: int, words, after: float) -> bool:
+        """Quick mode: the burst ends on an end word ("over": stop) or a send
+        word ("send": stop, then Enter once the text is in). Only as the
+        very last word, and only once a pause follows it."""
+        on = self.cfg.always_on
+        if not on.quick or not self.dictating:
+            return False
+        pool = [w for w in words if w.start >= after - 0.05]
+        if not pool:
+            return False
+        said = [" ".join(normalise(w.text)) for w in pool]
+        found = None
+        for phrase, send in [(x, False) for x in on.quick_stop] + [(x, True) for x in on.quick_send]:
+            want = normalise(phrase)
+            n = len(want)
+            if n and n <= len(said) and " ".join(said[-n:]).split() == want:
+                found = (" ".join(want), send, n)
+                break
+        if found is None or not self._quiet_after(b):
+            return False
+        last, send, n = found
+        first = pool[-n]
+        prev = pool[-n - 1].end if len(pool) > n else None
+        hit = Hit("stop", 1.0, first.start, pool[-1].end, last, "quick", prev_end=prev)
+        then = None
+        if send:
+            from .commands import BY_NAME
+
+            then = Parsed(BY_NAME["submit"], "", 1.0)
+        self._end(a, hit, then=then, drop=last)
+        return True
+
+    def _quiet_after(self, b: int) -> bool:
+        """Nothing said since the burst ended, for QUICK_QUIET seconds
+        (waits up to half a second for that). A burst cut short while you
+        talk on ("move it over... here") isn't the end."""
+        deadline = time.monotonic() + 0.5
+        while True:
+            if self._last_speech > b:
+                return False
+            if (self._file_run or self.ring.end - self._last_speech >= QUICK_QUIET * RATE
+                    or time.monotonic() > deadline):
+                return True
+            time.sleep(0.05)
 
     def _relisten(self, clip, fresh: float) -> list[str]:
         """The words of ``clip`` (after ``fresh`` s) by the dictation model,
@@ -685,7 +741,10 @@ class Listener:
         if self.commands_default:
             self._return_to_commands = True  # command mode is home
 
-    def _end(self, a: int, hit: Hit) -> None:
+    def _end(self, a: int, hit: Hit, then: Parsed | None = None, drop: str = "") -> None:
+        """Finish at the stop phrase. ``then``: a command to run once the text
+        is in (quick mode's "send"); ``drop``: a quick end word to take off
+        the end of the text if the cut left it there."""
         log.info("always-on: stop phrase (%r, %.2f, %s)", hit.heard, hit.score, hit.by)
         self.on_event("stop", hit.heard)
         at = hit.start - STOP_MARGIN
@@ -697,9 +756,11 @@ class Listener:
         self._consumed = max(self._consumed, end)
         with self._cmd_lock:
             self._cmd_from = end
-            self._cmd_until = end + int(self.cfg.always_on.command_window * RATE)
-            self._delivered, self._pending = False, None
-        self.finish(keep=stop_at - self._dict_start)
+            # Open until the text is in (see _delivered_now), not just
+            # command_window from here: cleanup can take longer than that.
+            self._cmd_until = 0 if then else end + int(BUFFER * RATE)
+            self._delivered, self._pending = False, then
+        self.finish(keep=stop_at - self._dict_start, drop=drop)
 
     def watch_live(self, live) -> None:
         """Check the live preview for the stop phrase too (see on_live)."""
@@ -726,28 +787,39 @@ class Listener:
         heard = " ".join(tail[m.first:])
         log.info("always-on: stop phrase in the live transcript (%r, %.2f)", heard, m.score)
         self.on_event("stop", heard)
-        now = self.ring.end
-        self._consumed = max(self._consumed, now)
+        # Where the phrase ended: the end of the audio the preview read, not
+        # now. The preview runs a second or more behind, and a "submit" said
+        # straight after the phrase fell before "now" and was thrown away.
+        said = min(self.ring.end, self._dict_start + frames)
+        self._consumed = max(self._consumed, said)
         with self._cmd_lock:
-            self._cmd_from = now
-            self._cmd_until = now + int(self.cfg.always_on.command_window * RATE)
+            self._cmd_from = said
+            self._cmd_until = said + int(BUFFER * RATE)
             self._delivered, self._pending = False, None
         # The phrase is at the end of what's kept; strip_phrases takes it off
         # the text.
         self.finish(keep=frames)
 
-    def finish(self, keep: int | None = None) -> None:
-        """End the current dictation (stop phrase, hotkey, idle or overflow)."""
+    def finish(self, keep: int | None = None, drop: str = "") -> None:
+        """End the current dictation (stop phrase, hotkey, idle or overflow).
+        ``drop``: a quick end word to remove if the text still ends with it."""
         with self._lock:
             if not self.dictating:
                 return
             self.dictating = False
         start = self.detector.variants("start")
         stop = self.detector.variants("stop")
-        self.engine.finish_external(
-            keep, transform=lambda raw: strip_phrases(raw, start, stop), inject=self.inject,
-            done=self._delivered_now,
-        )
+
+        def transform(raw: str) -> str:
+            text = strip_phrases(raw, start, stop)
+            tokens = text.split()
+            n = len(drop.split())
+            if drop and len(tokens) >= n and normalise(" ".join(tokens[-n:])) == drop.split():
+                text = " ".join(tokens[:-n]).rstrip(" ,;:-")
+            return text
+
+        self.engine.finish_external(keep, transform=transform, inject=self.inject,
+                                    done=self._delivered_now)
 
     # -- voice commands after the stop phrase -------------------------------
 
@@ -831,9 +903,9 @@ class Listener:
         with self._cmd_lock:
             self._delivered = bool(text)
             p, self._pending = self._pending, None
-            if text and self._cmd_until:
-                self._cmd_until = max(
-                    self._cmd_until, self.ring.end + int(self.cfg.always_on.command_window * RATE))
+            if self._cmd_until:
+                # The buffer ends here: command_window more seconds from the paste.
+                self._cmd_until = self.ring.end + int(self.cfg.always_on.command_window * RATE)
         if not (p and text):
             return
         if p.command.keys and p.command.name != "click":
@@ -1024,6 +1096,13 @@ class Listener:
             self.engine.announce(State.COMMAND, message)
 
     def _on_engine_state(self, state, detail: str) -> None:
+        if state in (State.IDLE, State.ERROR) and not self.dictating:
+            # Finished without delivering (nothing said, an error): don't
+            # keep the after-the-stop-phrase window open for BUFFER seconds.
+            with self._cmd_lock:
+                window = self.ring.end + int(self.cfg.always_on.command_window * RATE)
+                if self._cmd_until > window:
+                    self._cmd_until = window
         # A dictation or paste took over the pill; put command mode back after.
         if state == State.IDLE and self.commanding:
             threading.Timer(0.6, lambda: self._show(self._mode_msg)).start()

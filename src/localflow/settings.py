@@ -632,6 +632,52 @@ def _listening(nb, cfg: Config) -> None:
         ttk.Button(row, text="Save", style="Small.TButton",
                    command=save_words).pack(side="left", padx=8)
 
+    card = _card(tab, "Quick mode", "For talking fast: one breath does it all. Say your start "
+                 'phrase, the words, then an end word: "... continue over" pastes "continue", '
+                 '"... continue send" pastes it and presses Enter. No waiting for the start '
+                 "sound. An end word only counts as the last thing you say before a pause, so "
+                 '"move it over here" doesn\'t stop anything. Also in the tray menu.')
+    _check(card, "Quick mode on", cfg.always_on.quick, lambda v: _save("always_on", "quick", v))
+    for key, label in (("quick_stop", "End words (stop)"), ("quick_send", "Send words (+ Enter)")):
+        row = _row(card, label, 20)
+        var = tk.StringVar(value=", ".join(getattr(cfg.always_on, key)))
+        entry = ttk.Entry(row, textvariable=var, width=30)
+        entry.pack(side="left")
+
+        def save_quick(_e=None, key=key, var=var):
+            words = [w.strip() for w in var.get().split(",") if w.strip()]
+            if words:
+                _save("always_on", key, words)
+
+        entry.bind("<FocusOut>", save_quick)
+        entry.bind("<Return>", save_quick)
+        ttk.Button(row, text="Save", style="Small.TButton",
+                   command=save_quick).pack(side="left", padx=8)
+    ttk.Label(card, text='Code words (quick mode only): a word of your own for a command, said '
+              'on its own after the start phrase or in command mode. One per line, '
+              '"word = command": go = submit, nope = scratch, chrome = switch chrome. '
+              "Short real words work better than single letters, and filler (ok, so, "
+              "please) can't be one.", style="Muted.TLabel", wraplength=560,
+              justify="left").pack(anchor="w", pady=(8, 2))
+    codes = tk.Text(card, height=5, width=60, bg=FIELD, fg=TEXT, insertbackground=TEXT,
+                    relief="flat", font=("Segoe UI", 10))
+    codes.insert("1.0", "\n".join(cfg.always_on.code_words))
+    codes.pack(anchor="w")
+    codes_note = ttk.Label(card, text="", style="Muted.TLabel")
+    codes_note.pack(anchor="w")
+
+    def save_codes():
+        from .commands import Grammar
+
+        lines = [x.strip() for x in codes.get("1.0", "end").splitlines() if x.strip()]
+        bad = Grammar().set_code_words(lines)
+        _save("always_on", "code_words", [x for x in lines if x not in bad])
+        codes_note.configure(text=("Not used (want word = command, no filler): " + "; ".join(bad))
+                             if bad else f"Saved {len(lines)} code words.")
+
+    ttk.Button(card, text="Save code words", style="Small.TButton",
+               command=save_codes).pack(anchor="w", pady=(4, 0))
+
     card = _card(tab, "Command mode")
     _check(card, "Let the LLM work out requests the built-in commands don't cover",
            cfg.always_on.command_llm, lambda v: _save("always_on", "command_llm", v))

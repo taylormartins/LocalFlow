@@ -392,15 +392,32 @@ phrase (while dictating) is among them.
   10 s old (`STALE`), and logs any check slower than 2 s. The whole utterance must be the
   command, give or take a lead-in ("okay", "please"). Actions run on one
   worker thread (`Runner`), because UI Automation is COM.
-  - After the stop phrase a window opens (`command_window`, 5 s), and
-    reopens for 5 s when the text is pasted (`_delivered_now`). The live log
-    showed every missed "submit" came after a long dictation, where the
-    paste landed 4-6 s after the stop phrase. A burst in the window that
+  - After the stop phrase a window opens and stays open until the text is
+    in (`BUFFER`, at most 90 s), then `command_window` (5 s) more from the
+    paste (`_delivered_now`); a pipeline that ends without delivering
+    (`_on_engine_state` IDLE/ERROR) closes it to 5 s. It used to be 5 s from
+    the stop phrase: "submit" said during a 16-25 s LLM cleanup was lost.
+    When the live preview finds the stop phrase, the window opens where the
+    phrase ended (`_dict_start + frames`), not at "now": the preview runs a
+    second or more behind, and a "submit" said straight after the phrase
+    fell before "now" and was dropped (tests/quick_mode.py, with a control). A burst in the window that
     parses runs it. A slot command must resolve ("go to the shops" is talk).
     One heard before the paste waits for `finish_external(done=...)`. Key
     commands run inside the target window, others after the paste.
   - "submit" waits 0.15 s before Enter, because Ctrl+V is processed
     asynchronously and an earlier Enter overtook it.
+  - **Quick mode** (`always_on.quick`): `_quick` ends a dictation on a
+    burst whose last word is in `quick_stop` / `quick_send` (exact, after
+    `normalise`), only if nothing was said since the burst ended for
+    `QUICK_QUIET` (`_quiet_after`, waits up to 0.5 s). It also runs after
+    `_begin` on the rest of the start burst, so "<start> continue send" is
+    one breath. A send word passes `then=submit` to `_end`, which sets it as
+    `_pending` before `finish` (so a fast paste can't beat it) and closes
+    the window. `finish(drop=)` removes the end word if the cut left it at
+    the end of the text. Code words (`Grammar.set_code_words`, "word =
+    command [arg]") are matched whole and exactly at the top of `parse`,
+    only while quick mode is on (`Tray._quick_changed`); filler words are
+    refused because `trim` would strip them first.
   - **Command mode**: the start phrase plus "command mode", or plus a
     resolvable command (in the same burst, or the first burst within 4 s of
     the start, which then cancels the fed dictation). Every burst is then a

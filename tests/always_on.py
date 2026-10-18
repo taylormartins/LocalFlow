@@ -292,7 +292,9 @@ def main() -> int:
         "Okay, listen to the radio.",
     ):
         got, ev = run(build(1.0, say(sentence), 2.0))
-        expect(repr(sentence), not ev and not got, f"events={ev} dictations={got}")
+        # A logged near miss ("start phrase? heard ...") is fine: it starts nothing.
+        acted = [e for e in ev if e[0] != "near"]
+        expect(repr(sentence), not acted and not got, f"events={ev} dictations={got}")
 
     print(f"\n{'all passed' if not failures else f'{failures} FAILED'}  (scratch: {TMP})")
     return 1 if failures else 0
