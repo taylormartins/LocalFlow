@@ -37,6 +37,8 @@ from .wake import _aligned, normalise
 
 #: Phrases learned from missed commands, on this PC only (gitignored).
 LEARNED = PROJECT_ROOT / "learned.json"
+#: Saved window layouts ("save layout as work"), on this PC only (gitignored).
+LAYOUTS = PROJECT_ROOT / "layouts.json"
 
 log = logging.getLogger(__name__)
 
@@ -565,6 +567,94 @@ def _paste_again(arg: str, ctx: Ctx) -> str:
     return f"Pasted again ({len(ctx.last_any.split())} words)"
 
 
+# -- arranging windows and saved layouts -----------------------------------------
+
+def _arrange(arg: str, ctx: Ctx) -> str:
+    n = desktop.arrange()
+    if not n:
+        raise CommandError("no windows to arrange")
+    return f"Arranged {n} windows"
+
+
+def load_layouts() -> dict[str, list[dict]]:
+    try:
+        data = json.loads(LAYOUTS.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        log.warning("could not read %s: %s", LAYOUTS.name, exc)
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, list)}
+
+
+def _layout_name(arg: str) -> str:
+    return " ".join(arg.lower().split()) or "default"
+
+
+def find_layout(arg: str, layouts: dict | None = None) -> str | None:
+    """The saved layout a spoken name means, if any."""
+    layouts = load_layouts() if layouts is None else layouts
+    name = _layout_name(arg)
+    if name in layouts:
+        return name
+    best = max(layouts, key=lambda k: difflib.SequenceMatcher(None, k, name).ratio(), default=None)
+    if best and difflib.SequenceMatcher(None, best, name).ratio() >= 0.75:
+        return best
+    return None
+
+
+def _save_layout(arg: str, ctx: Ctx) -> str:
+    snap = desktop.snapshot()
+    if not snap:
+        raise CommandError("no windows to save")
+    name = _layout_name(arg)
+    layouts = load_layouts()
+    layouts[name] = snap
+    LAYOUTS.write_text(json.dumps(layouts, indent=1), encoding="utf-8")
+    log.info("commands: saved layout %r (%d windows)", name, len(snap))
+    return f"Saved layout {name}: {len(snap)} windows"
+
+
+def _restore_layout(arg: str, ctx: Ctx) -> str:
+    layouts = load_layouts()
+    name = find_layout(arg, layouts)
+    if name is None:
+        if not layouts:
+            raise CommandError('no layouts saved yet - say "save layout as" and a name')
+        raise CommandError(f"no layout called {_layout_name(arg)}")
+    entries = layouts[name]
+    placed, opened, missing = desktop.restore(entries)
+    if entries:  # the window that was in front comes to the front again
+        front = desktop.windows()
+        for w in front:
+            if w.exe == entries[0]["exe"]:
+                desktop.focus(w)
+                break
+    out = f"Layout {name}: {placed + opened} windows"
+    if opened:
+        out += f", {opened} opened"
+    if missing:
+        out += f", {len(missing)} not found"
+    return out
+
+
+def _delete_layout(arg: str, ctx: Ctx) -> str:
+    layouts = load_layouts()
+    name = find_layout(arg, layouts)
+    if name is None:
+        raise CommandError(f"no layout called {_layout_name(arg)}")
+    del layouts[name]
+    LAYOUTS.write_text(json.dumps(layouts, indent=1), encoding="utf-8")
+    return f"Deleted layout {name}"
+
+
+def _list_layouts(arg: str, ctx: Ctx) -> str:
+    layouts = load_layouts()
+    if not layouts:
+        return 'No layouts yet - say "save layout as" and a name'
+    return "Layouts: " + ", ".join(layouts)
+
+
 # -- undo ----------------------------------------------------------------------
 
 #: Commands that move or resize a window: undone by putting it back exactly.
@@ -574,6 +664,8 @@ MOVES = {"center", "next_monitor", "previous_monitor", "maximize", "minimize", "
          "place_bottom_of",
          "place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
          "place_left", "place_right", "place_top", "place_bottom"}
+#: Commands that move many windows: undone by putting every one back.
+REARRANGES = {"arrange", "restore_layout"}
 #: Commands undone by pressing other keys in the same window.
 INVERSE_KEYS = {
     "new_tab": "ctrl+w", "close_tab": "ctrl+shift+t", "reopen_tab": "ctrl+w",
@@ -583,7 +675,7 @@ INVERSE_KEYS = {
 }
 #: Plain "undo" right after one of these undoes it, rather than pressing Ctrl+Z
 #: in the app (which would undo some typing instead of the window move).
-SMART_UNDO = MOVES | {"switch", "open", "new_tab", "close_tab", "reopen_tab", "next_tab",
+SMART_UNDO = MOVES | REARRANGES | {"switch", "open", "new_tab", "close_tab", "reopen_tab", "next_tab",
                       "previous_tab", "scroll_down", "scroll_up", "show_labels", "desktop",
                       "switch_window", "edit", "fix_text", "edit_said"}
 SMART_UNDO_SECONDS = 30.0
@@ -625,6 +717,8 @@ def undo_step(p: Parsed, ctx: Ctx, before_fg: int, after_fg: int, target: int, s
     """How to take back a command that just ran, if it can be."""
     name = p.command.name
     label = describe(p)
+    if name in REARRANGES and saved:
+        return UndoStep(name, label, lambda: desktop.restore(saved, launch_missing=False))
     if name in MOVES and saved:
         def put_back() -> None:
             if not desktop.set_placement(target, saved):
@@ -745,6 +839,11 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("move it to monitor 2  ·  next monitor", "another screen",
          ("to_monitor", "next_monitor", "previous_monitor")),
         ("show monitors", "each screen's number", ("show_monitors",)),
+        ("arrange windows  ·  tile windows", "every window side by side, on its own screen",
+         ("arrange",)),
+        ("save layout as work  ·  layout work", "save where every window is; put them back",
+         ("save_layout", "restore_layout")),
+        ("list layouts  ·  delete layout work", "", ("list_layouts", "delete_layout")),
         ("center it  ·  switch window  ·  show desktop", "",
          ("center", "switch_window", "desktop")),
     ]),
@@ -973,6 +1072,22 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
             _show_windows, "a numbered list of open windows; then 'switch to 3', 'close 2', 'move 4 to the left'"),
     Command("hide_windows", ["hide [the] (window list|windows list|list)", "close [the] (window list|list)"],
             hide_windows, "hide the window list"),
+    Command("arrange", ["(arrange|tile|organize|organise) [all] [the|my] windows",
+                        "(put|lay out|spread out) [all] [the|my] windows side by side",
+                        "windows side by side", "spread out [all] [the|my] windows"],
+            _arrange, "tile every window on its own screen so all can be seen"),
+    Command("save_layout", ["save [the|this|my] [window] layout [as|called|named] {name}",
+                            "save [the|this|my] [window] layout"],
+            _save_layout, "save where every window is, under a name"),
+    Command("restore_layout", ["(restore|load|apply|open) [the|my] [window] layout {name}",
+                               "(restore|load|apply) [the|my] [window] layout",
+                               "layout {name}"],
+            _restore_layout, "put every window back as in a saved layout, opening missing apps"),
+    Command("delete_layout", ["(delete|forget|remove) [the|my] [window] layout {name}"],
+            _delete_layout, "delete a saved layout"),
+    Command("list_layouts", ["(list|show) [me] [my|the] [window] layouts",
+                             "what layouts [do i have]"],
+            _list_layouts, "say which layouts are saved"),
     Command("next_monitor", ["move [it|the window] to the (next|other) (monitor|screen)",
                              "move [it|the window] (right|to the right) a (monitor|screen)"],
             _keys("win+shift+right", "Moved to the next screen"), "move the window to the next monitor"),
@@ -1025,9 +1140,15 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
     Command("edit_said", [], _edit_with(verbatim=True),
             "rewrite the selected text as the arg says (\"translate it to French\")",
             keys=True, text_slot=True),
-    Command("help", ["what can i say", "help", "show [me] [the] commands", "list [the] commands",
-                     "show [me] what i can say"], _help,
-            "show the list of commands on screen"),
+    # "show command" and "show help" would otherwise be "switch to" a window
+    # called that (and "command" is the terminal); "community" is how the
+    # small model heard "commands" in a real attempt.
+    Command("help", ["what can i say", "help", "[show|open] [me] [the] help",
+                     "show [me] [the] (commands|command|community|command list|command sheet)",
+                     "(list|see) [the|my] commands", "(commands|command) list",
+                     "what commands [do i have|are there|can i say|can i use]",
+                     "what are [the|my] commands", "show [me] what i can say"], _help,
+            "show the list of every voice command on screen (when asked what can be said)"),
     Command("hide_help", ["hide [the] commands", "hide [the] help", "close [the] (help|commands)"],
             hide_help, "hide the list of commands"),
 ]
@@ -1453,6 +1574,8 @@ def resolvable(p: Parsed) -> bool:
             or name.startswith("place_")) and p.arg:
         _, score = desktop.find_window(p.arg)
         return score >= NAME_ACCEPT
+    if name in ("restore_layout", "delete_layout"):
+        return find_layout(p.arg) is not None
     if name == "open":
         _, a = desktop.find_app(p.arg)
         _, w = desktop.find_window(p.arg)
@@ -1489,8 +1612,6 @@ Examples:
 def _describe() -> str:
     lines = []
     for c in COMMANDS:
-        if c.name == "help":
-            continue
         takes = "arg: text" if c.text_slot else ("arg: name" if any("{" in p for p in c.patterns)
                                                  else "")
         lines.append(f"- {c.name}: {c.help}" + (f" ({takes})" if takes else ""))
@@ -1581,6 +1702,8 @@ class Runner:
                     before_fg = desktop.foreground()
                     target = _target(p, before_fg) if name in MOVES else 0
                     saved = desktop.get_placement(target) if target else None
+                    if name in REARRANGES:
+                        saved = desktop.snapshot()
                     if p.where:
                         _switch(p.where, ctx)
                         time.sleep(0.2)  # let it take focus before the keys

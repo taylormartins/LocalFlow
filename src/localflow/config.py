@@ -138,13 +138,16 @@ class OverlayConfig:
     #: pasted text still comes from the full transcription after you stop.
     live_text: bool = True
     #: The pill's look: "royal" (black and gold), "gemstone", "silver", "smooth",
-    #: "modern", "classic" (the original), "matrix", "doodle", "newspaper",
+    #: "modern", "fire", "ice", "classic" (the original), "matrix", "doodle", "newspaper",
     #: or one you built in Settings > Theme builder (kept in themes.json).
     theme: str = "royal"
     #: How solid the pill is: 1.0 solid, down to 0.2 to see what's behind it.
     opacity: float = 1.0
     #: Numbered click labels (command mode "show labels"): 0.3 faint - 1.0 solid.
     label_opacity: float = 0.7
+    #: Their look (and the window list's): "match" the pill's theme, "yellow"
+    #: (the original yellow on black), or any theme's name.
+    label_theme: str = "match"
     #: Seconds between live updates (each is one Whisper pass on the GPU).
     live_interval: float = 1.0
     #: Only the most recent this-many seconds are re-transcribed each update.

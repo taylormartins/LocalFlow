@@ -271,6 +271,14 @@ say("show commands")
 expect("'show commands' in command mode shows the list", ("ran", "help") in events, str(events))
 say("hide commands")
 expect("'hide commands' hides it", ("ran", "hide_help") in events, str(events))
+# Heard in real use: each went to "switch to" (the terminal), nowhere, or
+# the LLM, which couldn't pick help and chose hide_help.
+for said in ("show command", "show community", "show help", "what commands do i have",
+             "commands list"):
+    events.clear()
+    say(said)
+    expect(f"'{said}' shows the list", ("ran", "help") in events, str(events))
+expect("the LLM can choose it too", "- help:" in cmds._describe())
 lis.leave_commands()
 
 print("scratch gets the text it deletes")

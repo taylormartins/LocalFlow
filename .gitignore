@@ -34,6 +34,7 @@ history.tmp
 
 # Pill themes you built in Settings (this PC only)
 themes.json
+layouts.json
 
 # Always-on voice templates (your recorded phrases)
 wake/

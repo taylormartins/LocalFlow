@@ -19,6 +19,7 @@ from __future__ import annotations
 import ctypes
 import difflib
 import logging
+import math
 import os
 import re
 import threading
@@ -703,6 +704,168 @@ def set_placement(hwnd: int, saved) -> bool:
     if wp.showCmd == 1:  # SW_SHOWNORMAL: the exact spot, not just the normal rect
         user32.SetWindowPos(hwnd, 0, l, t, r - l, b - t, 0x0004 | 0x0010)
     return True
+
+
+# -- arranging windows and saved layouts ---------------------------------------
+
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
+
+
+def _set_visible(hwnd: int, x: int, y: int, w: int, h: int) -> None:
+    """Put a window's visible frame at x, y, w, h. Windows 10 and 11 frames
+    have invisible resize borders, so tiling by the window rect leaves gaps."""
+    l, t, r, b = window_rect(hwnd)
+    vis = wintypes.RECT()
+    if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(vis),
+                                    ctypes.sizeof(vis)) == 0:
+        dl, dt, dr, db = vis.left - l, vis.top - t, r - vis.right, b - vis.bottom
+    else:
+        dl = dt = dr = db = 0
+    user32.SetWindowPos(hwnd, 0, x - dl, y - dt, w + dl + dr, h + dt + db, 0x0004 | 0x0010)
+
+
+def grid(n: int, area: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    """n tiles filling an area (left, top, right, bottom), row by row. Wide
+    screens get more columns than rows; a short row's tiles are wider."""
+    left, top, right, bottom = area
+    w, h = right - left, bottom - top
+    if n <= 0:
+        return []
+    rows = max(1, min(n, round(math.sqrt(n * h / max(w, 1) * 1.2))))
+    out = []
+    for row in range(rows):
+        cols = n // rows + (1 if row < n % rows else 0)
+        y0, y1 = top + h * row // rows, top + h * (row + 1) // rows
+        for col in range(cols):
+            out.append((left + w * col // cols, y0, left + w * (col + 1) // cols, y1))
+    return out
+
+
+def arrange(wins: list[Win] | None = None) -> int:
+    """Tile the windows open on each screen (not minimised ones) so every one
+    can be seen. Each stays on its own screen; ones on the left stay left."""
+    wins = [w for w in (windows() if wins is None else wins) if not user32.IsIconic(w.hwnd)]
+    mons = monitors()
+    by_screen: dict[int, list[Win]] = {}
+    for w in wins:
+        by_screen.setdefault(monitor_of(w.hwnd, mons), []).append(w)
+    done = 0
+    for n, group in by_screen.items():
+        if not 1 <= n <= len(mons):
+            continue
+        work = mons[n - 1][2]
+        tiles = grid(len(group), (work.left, work.top, work.right, work.bottom))
+
+        def centre(w: Win) -> tuple[float, float]:
+            l, t, r, b = window_rect(w.hwnd)
+            return (l + r) / 2, (t + b) / 2
+
+        # Top ones to the top row, then left to right within each row.
+        group.sort(key=lambda w: centre(w)[1])
+        ordered, i = [], 0
+        for row_top in sorted({t[1] for t in tiles}):
+            k = sum(1 for t in tiles if t[1] == row_top)
+            ordered += sorted(group[i:i + k], key=lambda w: centre(w)[0])
+            i += k
+        for w, (l, t, r, b) in zip(ordered, tiles):
+            if user32.IsZoomed(w.hwnd):
+                user32.ShowWindow(w.hwnd, SW_RESTORE)
+            _set_visible(w.hwnd, l, t, r - l, b - t)
+            done += 1
+    return done
+
+
+def _placement_dict(hwnd: int) -> dict | None:
+    got = get_placement(hwnd)
+    if got is None:
+        return None
+    wp, rect = got
+    n = wp.rcNormalPosition
+    return {"show": wp.showCmd, "flags": wp.flags,
+            "min": [wp.ptMinPosition.x, wp.ptMinPosition.y],
+            "max": [wp.ptMaxPosition.x, wp.ptMaxPosition.y],
+            "normal": [n.left, n.top, n.right, n.bottom], "rect": list(rect)}
+
+
+def _apply_placement(hwnd: int, d: dict) -> bool:
+    wp = WINDOWPLACEMENT(length=ctypes.sizeof(WINDOWPLACEMENT))
+    wp.flags, wp.showCmd = d["flags"], d["show"]
+    wp.ptMinPosition = wintypes.POINT(*d["min"])
+    wp.ptMaxPosition = wintypes.POINT(*d["max"])
+    wp.rcNormalPosition = wintypes.RECT(*d["normal"])
+    return set_placement(hwnd, (wp, tuple(d["rect"])))
+
+
+def snapshot() -> list[dict]:
+    """Every app window: which program, its title (to tell two of the same
+    program apart) and exactly where it is. Front to back."""
+    out = []
+    for w in windows():
+        place_ = _placement_dict(w.hwnd)
+        if place_:
+            out.append({"hwnd": w.hwnd, "exe": w.exe, "path": _exe_path(w.hwnd),
+                        "title": w.title, **place_})
+    return out
+
+
+#: Programs that can't be started again from their file to fill a layout.
+_NO_RELAUNCH = {"applicationframehost", "explorer", ""}
+
+
+def restore(entries: list[dict], launch_missing: bool = True,
+            wait: float = 10.0) -> tuple[int, int, list[str]]:
+    """Put windows back as saved: (placed, opened, programs not found).
+
+    Each saved window goes to the open window of the same program with the
+    closest title (the same window, if it's still open). A program with no
+    window open is started, when ``launch_missing``, and placed once its
+    window appears."""
+    used: set[int] = set()
+    cur = windows()
+    placed, missing = 0, []
+
+    def match(e: dict, wins: list[Win]) -> Win | None:
+        same = [w for w in wins if w.hwnd == e.get("hwnd") and w.exe == e["exe"]]
+        cands = same or [w for w in wins if w.exe == e["exe"] and w.hwnd not in used]
+        if not cands:
+            return None
+        return max(cands, key=lambda w: difflib.SequenceMatcher(None, w.title, e["title"]).ratio())
+
+    for e in entries:
+        w = match(e, cur)
+        if w is None:
+            missing.append(e)
+            continue
+        used.add(w.hwnd)
+        placed += _apply_placement(w.hwnd, e)
+    opened, not_found = 0, []
+    if launch_missing:
+        started = []
+        for e in missing[:8]:
+            path = e.get("path", "")
+            if e["exe"] in _NO_RELAUNCH or not path or not Path(path).exists():
+                not_found.append(e["exe"])
+                continue
+            try:
+                os.startfile(path)
+                started.append(e)
+            except OSError:
+                not_found.append(e["exe"])
+        deadline = time.monotonic() + wait
+        while started and time.monotonic() < deadline:
+            time.sleep(0.5)
+            wins = [w for w in windows() if w.hwnd not in used]
+            for e in list(started):
+                w = match(e, wins)
+                if w is not None:
+                    time.sleep(0.4)  # let it finish opening, or it moves itself back
+                    used.add(w.hwnd)
+                    opened += _apply_placement(w.hwnd, e)
+                    started.remove(e)
+        not_found += [e["exe"] for e in started]
+    else:
+        not_found = [e["exe"] for e in missing]
+    return placed, opened, not_found
 
 
 def sleep_pc() -> None:

@@ -13,6 +13,13 @@ Built-in themes:
 - Doodle: pencil on paper, a sketched border and a scribbled line.
 - Newspaper: black and white newsprint, printed rules, halftone dots.
 - Modern: a dot-matrix meter.
+- Fire: light grey, a border of flickering flames, a waveform of flames
+  and a flame for the recording mark.
+- Ice: black with white lettering, a border of frost and ice crystals, an
+  icy wind for the waveform and a turning snowflake.
+
+The numbered click labels, the window list and the grid can wear a theme
+too (overlay.label_theme): the pill's, any other, or the classic yellow.
 
 Your own are made in Settings > Theme builder and kept in themes.json next
 to config.toml (this PC only). The pill and the Settings preview draw through
@@ -36,9 +43,9 @@ log = logging.getLogger(__name__)
 STORE = PROJECT_ROOT / "themes.json"
 
 WAVE_STYLES = ("bars", "capsules", "hairlines", "line", "zigzag", "prism", "dots", "dotgrid",
-               "glyphs", "scribble", "halftone")
-BORDERS = ("plain", "bevel", "ornate", "prism", "sketch", "rule")
-DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square")
+               "glyphs", "scribble", "halftone", "flames", "wind")
+BORDERS = ("plain", "bevel", "ornate", "prism", "sketch", "rule", "flame", "frost")
+DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square", "flame", "snowflake")
 
 
 @dataclass
@@ -48,7 +55,7 @@ class Theme:
     bg: str = "#1d1e22"
     text: str = "#ececee"
     edge: str = ""
-    #: plain | ornate (a double frame with diamonds) | sketch | rule (print rules)
+    #: The border (BORDERS): plain, ornate (a double frame with diamonds), flame...
     border: str = "plain"
     #: Corner rounding: 1 = a full pill, 0 = square corners.
     round: float = 1.0
@@ -107,11 +114,28 @@ SILVER = Theme(
     wave="#636366", dim="#c2c2c7", wave_style="hairlines", dot="circle",
     font="Segoe UI Variable Text", font_size=13, accent="#8e8e93",
 )
+FIRE = Theme(
+    name="Fire", bg="#e7e5e2", text="#3b1d10", edge="#ff6a13", border="flame", round=1.0,
+    wave="#ff6a13", dim="#cfc2b6", wave_style="flames", dot="flame", font="Bahnschrift",
+    font_size=13, accent="#e2510c",
+)
+ICE = Theme(
+    name="Ice", bg="#030507", text="#ffffff", edge="#bfeaff", border="frost", round=1.0,
+    wave="#e6f8ff", dim="#1b2b36", wave_style="wind", dot="snowflake",
+    font="Segoe UI Variable Display", font_size=13, accent="#a6e4ff",
+)
 #: The theme LocalFlow starts with (overlay.theme = "royal").
 DEFAULT = ROYAL
 BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "silver": SILVER, "smooth": SMOOTH,
-            "modern": MODERN,
+            "modern": MODERN, "fire": FIRE, "ice": ICE,
             "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER}
+
+
+#: The click labels' original look: yellow on near-black, readable over anything.
+CLASSIC_LABELS = Theme(name="Classic yellow", bg="#1d1e22", text="#ffd60a", edge="#ffd60a",
+                       round=0.0, wave="#ffd60a", accent="#ffd60a", font="Segoe UI")
+#: overlay.label_theme: "match" follows the pill, "yellow" is the original.
+LABEL_CHOICES = {"match": "Match the pill", "yellow": "Classic yellow"}
 
 
 def _from_dict(name: str, d: dict) -> Theme:
@@ -176,6 +200,16 @@ def resolve(name: str) -> Theme:
     return all_themes().get((name or "").lower(), DEFAULT)
 
 
+def label_theme(choice: str, pill_theme: Theme) -> Theme:
+    """The look of the click labels for overlay.label_theme."""
+    choice = (choice or "match").lower()
+    if choice == "match":
+        return pill_theme
+    if choice == "yellow":
+        return CLASSIC_LABELS
+    return resolve(choice)
+
+
 class Current:
     """The theme by name, re-read when themes.json changes (at most once a
     second: the pill asks every frame)."""
@@ -225,6 +259,10 @@ DOTS = {"llm": "#43b974", "rules": "#4c9aff"}
 GEMS = {"llm": "#e0115f", "rules": "#2f6bff", "raw": "#eaf6ff"}
 #: ...as stardust: gold, starlight blue, white.
 STARDUST = {"llm": "#f6cf5a", "rules": "#a9c8ff", "raw": "#ffffff"}
+#: ...as a flame: orange, a blue gas flame, yellow.
+FLAMES = {"llm": "#ff5a1f", "rules": "#2f7bff", "raw": "#f2b705"}
+#: ...as a snowflake: ice, violet ice, white.
+FROST = {"llm": "#8fe9ff", "rules": "#9d8cff", "raw": "#ffffff"}
 
 
 def hue(h: float, sat: float = 0.55, val: float = 1.0) -> str:
@@ -238,6 +276,10 @@ def dot_colour(theme: Theme, kind: str) -> str:
         return GEMS[kind]
     if theme.dot == "stardust":
         return STARDUST[kind]
+    if theme.dot == "flame":
+        return FLAMES[kind]
+    if theme.dot == "snowflake":
+        return FROST[kind]
     if kind == "raw":
         return theme.text
     if theme.mono:
@@ -309,6 +351,12 @@ def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, 
     if theme.border == "ornate":
         # Room above and below for the diamonds, so none is cut off.
         y0, y1 = y0 + 3.4 * s, y1 - 3.4 * s
+    if theme.border == "flame":
+        _flame_border(c, theme, x0, y0, x1, y1, r, s, t)
+        return
+    if theme.border == "frost":
+        _frost_border(c, theme, x0, y0, x1, y1, r, s, t)
+        return
     if theme.border == "sketch":
         # Paper, then two loose pencil passes round it, re-drawn now and then.
         rounded(c, x0 + 2 * s, y0 + 2 * s, x1 - 2 * s, y1 - 2 * s, r, theme.bg)
@@ -368,6 +416,168 @@ def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, 
             c.create_line(x0 + inset, y, x1 - inset, y, fill=edge, width=max(1.0, w))
 
 
+def _normals(pts):
+    """Each outline point with its tangent and outward normal (clockwise outline)."""
+    n = len(pts)
+    for i, (px, py) in enumerate(pts):
+        ax, ay = pts[i - 1]
+        bx, by = pts[(i + 1) % n]
+        tx, ty = bx - ax, by - ay
+        d = math.hypot(tx, ty) or 1.0
+        tx, ty = tx / d, ty / d
+        yield px, py, tx, ty, ty, -tx
+
+
+def _flame_border(c, theme: Theme, x0, y0, x1, y1, r, s, t) -> None:
+    """Tongues of flame licking outward all round the pill, taller along the
+    top (fire rises), never still; the body sits inside them."""
+    m = 6.4 * s
+    edge = theme.edge
+    pts = _outline_points(x0 + m, y0 + m, x1 - m, y1 - m, max(0.0, r - m), 6.5 * s)
+    layers = ((1.0, blend(edge, "#c81e00", 0.45)), (0.6, blend(edge, "#ffd060", 0.55)))
+    for scale, colour in layers:
+        for i, (px, py, tx, ty, nx, ny) in enumerate(_normals(pts)):
+            flick = 0.5 + 0.5 * math.sin(t * 7.3 + i * 1.7) * math.sin(t * 4.1 + i * 0.83)
+            up = 0.45 + 0.55 * max(0.0, -ny)
+            hgt = (m - 0.4 * s) * up * (0.4 + 0.6 * flick) * scale
+            bw = 4.6 * s * (0.7 + 0.3 * scale)
+            sway = math.sin(t * 5.2 + i * 2.3) * 1.1 * s
+            c.create_polygon(px - tx * bw, py - ty * bw, px + tx * bw, py + ty * bw,
+                             px + nx * hgt + tx * sway, py + ny * hgt + ty * sway,
+                             fill=colour, outline="")
+    e = max(1.0, 1.4 * s)
+    rounded(c, x0 + m, y0 + m, x1 - m, y1 - m, max(0.0, r - m), edge)
+    rounded(c, x0 + m + e, y0 + m + e, x1 - m - e, y1 - m - e, max(0.0, r - m - e), theme.bg)
+
+
+def _snowflake(c, cx: float, cy: float, size: float, colour: str, width: float,
+               turn: float = 0.0) -> None:
+    """Six arms, each with a pair of branches: the same all the way round."""
+    for k in range(6):
+        a = turn + k * math.pi / 3
+        ex, ey = cx + size * math.cos(a), cy + size * math.sin(a)
+        c.create_line(cx, cy, ex, ey, fill=colour, width=width, capstyle="round")
+        bx, by = cx + size * 0.55 * math.cos(a), cy + size * 0.55 * math.sin(a)
+        for side in (-1, 1):
+            b = a + side * math.radians(42)
+            c.create_line(bx, by, bx + size * 0.32 * math.cos(b), by + size * 0.32 * math.sin(b),
+                          fill=colour, width=width, capstyle="round")
+
+
+def _frost_border(c, theme: Theme, x0, y0, x1, y1, r, s, t) -> None:
+    """Ice: a rimed edge, icicles hanging inside it, frost spikes along the
+    bottom, and ice crystals set into the edge that glint in turn."""
+    m = 4.4 * s
+    edge = theme.edge
+    e = max(1.0, 1.3 * s)
+    bx0, by0, bx1, by1 = x0 + m, y0 + m, x1 - m, y1 - m
+    rr = max(0.0, r - m)
+    rounded(c, bx0, by0, bx1, by1, rr, edge)
+    rounded(c, bx0 + e, by0 + e, bx1 - e, by1 - e, max(0.0, rr - e), theme.bg)
+    g = 2.2 * s
+    pts = _outline_points(bx0 + e + g, by0 + e + g, bx1 - e - g, by1 - e - g,
+                          max(0.0, rr - e - g), 6 * s)
+    flat = [v for p in pts for v in p]
+    c.create_line(*flat, flat[0], flat[1], fill=blend(edge, theme.bg, 0.6),
+                  width=max(1.0, 0.7 * s))
+    rng = random.Random(7)  # frozen: the same icicles every frame
+    left, right = bx0 + rr, bx1 - rr
+    x = left + 4 * s
+    while x < right - 4 * s:
+        w = rng.uniform(1.0, 1.8) * s
+        top = by0 + e
+        c.create_polygon(x - w, top, x + w, top, x, top + rng.uniform(1.5, 4.5) * s,
+                         fill=blend(edge, theme.bg, 0.3), outline="")
+        bottom = by1 - e
+        c.create_polygon(x - w * 0.7, bottom, x + w * 0.7, bottom,
+                         x + rng.uniform(-0.8, 0.8) * s, bottom - rng.uniform(0.8, 2.4) * s,
+                         fill=blend(edge, theme.bg, 0.5), outline="")
+        x += rng.uniform(3.5, 7.0) * s
+    span = right - left
+    n = max(1, int(span / (55 * s)))
+    for k in range(n + 1):
+        cx = left + span * k / n
+        for k2, cy in enumerate((by0, by1)):
+            glint = 0.5 + 0.5 * math.sin(t * 2.4 + k * 1.9 + k2 * 2.8)
+            c.create_oval(cx - m * 0.8, cy - m * 0.8, cx + m * 0.8, cy + m * 0.8, fill=theme.bg,
+                          outline="")
+            _snowflake(c, cx, cy, m * 0.98, blend(edge, "#ffffff", 0.6 * glint),
+                       max(1.0, 0.8 * s), math.pi / 2)
+
+
+def marker(theme: Theme) -> str:
+    """The colour that outlines what a label clicks: it has to show up over
+    any window, so the theme's strongest colour."""
+    return theme.accent or theme.edge or theme.text
+
+
+def label_box(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, s: float,
+              text: str = "", font=None) -> None:
+    """A click label (or window chip, or grid number) in the theme's look:
+    its colours, its font and a small version of its border."""
+    edge = theme.edge or marker(theme)
+    h = y1 - y0
+    r = h / 2 * theme.round * (0.5 if theme.border in ("ornate", "rule") else 0.8)
+    if theme.border == "rule":
+        r = 0.0
+    w1 = max(1.0, 1.1 * s) if h < 40 * s else max(2.0, 3 * s)
+    if theme.border == "prism":
+        rounded(c, x0, y0, x1, y1, r, theme.bg)
+        pts = _outline_points(x0 + w1 / 2, y0 + w1 / 2, x1 - w1 / 2, y1 - w1 / 2,
+                              max(0.0, r - w1 / 2), 3 * s)
+        for i in range(len(pts)):
+            ax, ay = pts[i]
+            bx, by = pts[(i + 1) % len(pts)]
+            c.create_line(ax, ay, bx, by, fill=hue(i / len(pts), 0.45, 1.0), width=w1 * 1.3)
+    elif theme.border == "sketch":
+        rounded(c, x0, y0, x1, y1, r, theme.bg)
+        rng = random.Random(int(x0 * 7 + y0))
+        flat = []
+        for px, py in _outline_points(x0 + 1, y0 + 1, x1 - 1, y1 - 1, max(0.0, r - 1), 5 * s):
+            flat += [px + rng.uniform(-0.8, 0.8) * s, py + rng.uniform(-0.8, 0.8) * s]
+        c.create_line(*flat, flat[0], flat[1], fill=edge, width=w1, smooth=True)
+    elif theme.border == "bevel":
+        rounded(c, x0, y0, x1, y1, r, blend(theme.bg, "#000000", 0.25))
+        rounded(c, x0 + 1, y0 + 1, x1 - 1, y1 - 1, max(0.0, r - 1), edge)
+        k = 1 + w1 * 1.5
+        rounded(c, x0 + k, y0 + k, x1 - k, y1 - k, max(0.0, r - k), theme.bg)
+    else:
+        rounded(c, x0, y0, x1, y1, r, edge)
+        rounded(c, x0 + w1, y0 + w1, x1 - w1, y1 - w1, max(0.0, r - w1), theme.bg)
+    k = h / (17 * s)  # decorations grow with the box (a screen number is huge)
+    mid = (x0 + x1) / 2
+    if theme.border == "ornate":
+        # A diamond at each end, clear of the number.
+        for x in (x0 + w1 / 2, x1 - w1 / 2):
+            c.create_polygon(x, (y0 + y1) / 2 - 2.6 * s * k, x + 1.8 * s * k, (y0 + y1) / 2,
+                             x, (y0 + y1) / 2 + 2.6 * s * k, x - 1.8 * s * k, (y0 + y1) / 2,
+                             fill=edge, outline=theme.bg)
+    elif theme.border == "rule":
+        c.create_line(x0 + 2 * s * k, y1 - 2.2 * s * k, x1 - 2 * s * k, y1 - 2.2 * s * k,
+                      fill=edge, width=max(1.0, 1.4 * s * k))
+    elif theme.border == "flame":
+        # A few tongues of flame rising off the top edge.
+        n = max(2, int((x1 - x0) / (4.5 * s * k)))
+        for i in range(n):
+            cx = x0 + (x1 - x0) * (i + 0.5) / n
+            tall = (2.0 + 1.6 * ((i * 7) % 3) / 2) * s * k
+            for scale, col in ((1.0, blend(edge, "#c81e00", 0.4)), (0.55, blend(edge, "#ffd060", 0.5))):
+                bw = 2.2 * s * k * scale
+                c.create_polygon(cx - bw, y0 + w1, cx + bw, y0 + w1, cx, y0 + w1 - tall * scale - w1,
+                                 fill=col, outline="")
+    elif theme.border == "frost":
+        # Icicles hanging inside the top edge.
+        n = max(2, int((x1 - x0) / (5 * s * k)))
+        for i in range(n):
+            cx = x0 + (x1 - x0) * (i + 0.5) / n
+            c.create_polygon(cx - 1.1 * s * k, y0 + w1, cx + 1.1 * s * k, y0 + w1,
+                             cx, y0 + w1 + (1.0 + 0.6 * (i % 3)) * s * k,
+                             fill=blend(edge, theme.bg, 0.3), outline="")
+    if text:
+        c.create_text(mid, (y0 + y1) / 2 + (0.8 * s * k if theme.border == "frost" else 0),
+                      text=text, fill=theme.text, font=font)
+
+
 def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, t: float) -> None:
     """The pulsing "recording" mark, in the theme's style."""
     pulse = math.sin(t * 5)
@@ -376,6 +586,16 @@ def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, 
         return
     if theme.dot == "gem":
         _gem(c, cx, cy, s, colour, t)
+        return
+    if theme.dot == "flame":
+        _flame(c, cx, cy, s, colour, t)
+        return
+    if theme.dot == "snowflake":
+        glow = 0.5 + 0.5 * math.sin(t * 2.0)
+        r = (1.6 + 0.6 * glow) * s
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=blend(colour, "#ffffff", 0.5 * glow),
+                      outline="")
+        _snowflake(c, cx, cy, 7.2 * s, colour, max(1.2, 1.3 * s), t * 0.5)
         return
     if theme.dot == "cursor":
         if int(t * 2.5) % 2 == 0:  # a blinking block cursor
@@ -428,6 +648,19 @@ def _stardust(c, cx: float, cy: float, s: float, colour: str, t: float) -> None:
                       outline="")
 
 
+def _flame(c, cx: float, cy: float, s: float, colour: str, t: float) -> None:
+    """A candle flame: a teardrop with a hot core, its tip rising and falling
+    (it doesn't lean, so it stays symmetrical)."""
+    lift = (8.6 + 1.6 * math.sin(t * 6.1) * math.sin(t * 3.7 + 1)) * s
+    for scale, shade, drop in ((1.0, colour, 0.0), (0.55, blend(colour, "#fff6d0", 0.65), 2.4)):
+        y = cy + drop * s
+        w, lo, up = 5.4 * s * scale, 6.8 * s * scale, lift * scale
+        pts = [cx, y - up, cx + w * 0.55, y - up * 0.45, cx + w, y + 0.8 * s * scale,
+               cx + w * 0.7, y + lo * 0.8, cx, y + lo, cx - w * 0.7, y + lo * 0.8,
+               cx - w, y + 0.8 * s * scale, cx - w * 0.55, y - up * 0.45]
+        c.create_polygon(*pts, fill=shade, outline="", smooth=True)
+
+
 def _gem(c, cx: float, cy: float, s: float, colour: str, t: float) -> None:
     """A brilliant-cut gem seen from above: an octagon, its table, and
     facets that catch the light in turn, with flashes of rainbow fire."""
@@ -469,6 +702,49 @@ def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float
     step = (x1 - x0) / n
     style = theme.wave_style
     loud_now = any(level >= speech for level in levels[-6:])
+    if style == "flames":
+        # A row of flames, tall as the voice is loud, flickering, hot at the core.
+        base = mid + max_h / 2
+        for i, level in enumerate(levels):
+            lh = level_height(level)
+            cx = x0 + i * step + step / 2
+            hh = max(1.5 * s, lh * max_h * (0.85 + 0.15 * math.sin(t * 11 + i * 1.9)))
+            sway = math.sin(t * 8 + i * 1.3) * step * 0.22
+            bw = step * 0.62
+            if level >= speech:
+                layers = ((1.0, blend(theme.wave, "#c81e00", 0.4 * lh)),
+                          (0.55, blend(theme.wave, "#ffe08a", 0.6)))
+            else:
+                layers = ((1.0, theme.dim),)
+            for scale, colour in layers:
+                h2, w2 = hh * scale, bw * (0.55 + 0.45 * scale)
+                if h2 < 1.5 * s:
+                    continue
+                c.create_polygon(cx - w2, base, cx - w2 * 0.6, base - h2 * 0.45,
+                                 cx + sway * scale, base - h2, cx + w2 * 0.6, base - h2 * 0.45,
+                                 cx + w2, base, fill=colour, outline="", smooth=True)
+        return
+    if style == "wind":
+        # An icy wind: three streams blowing through, stirred as you speak,
+        # with snow carried along on it.
+        colour = theme.wave if loud_now else theme.dim
+        for k in range(3):
+            pts = []
+            for i, level in enumerate(levels):
+                a = level_height(level) * max_h * 0.32 * (1 - 0.3 * abs(k - 1))
+                pts += [x0 + i * step + step / 2,
+                        mid + (k - 1) * max_h * 0.2 + a * math.sin(i * 0.55 - t * 5 + k * 2.1)]
+            if len(pts) >= 4:
+                c.create_line(x0, mid + (k - 1) * max_h * 0.2, *pts, smooth=True, splinesteps=6,
+                              fill=colour if k == 1 else blend(colour, theme.bg, 0.45),
+                              width=max(1.0, (1.4 if k == 1 else 0.9) * s), capstyle="round")
+        span = x1 - x0
+        for j in range(7):
+            x = x1 - ((t * (30 + j * 3) * s + j * span / 7) % span)
+            y = mid + math.sin(t * 1.8 + j * 1.7) * max_h * 0.42
+            r = (0.7 + 0.25 * (j % 3)) * s
+            c.create_oval(x - r, y - r, x + r, y + r, fill=colour, outline="")
+        return
     if style in ("line", "zigzag", "scribble"):
         pts = []
         for i, level in enumerate(levels):

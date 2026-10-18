@@ -90,12 +90,6 @@ AMBER = "#e0a33a"
 PINK = "#e86fb0"
 #: Always-on command mode.
 TEAL = "#2ec4b6"
-#: Numbered click labels: dark text on yellow reads over any background.
-LABEL_BG = "#1d1e22"
-LABEL_TEXT = "#ffd60a"
-LABEL_EDGE = "#ffd60a"  # outline of what the number clicks
-#: Previous-sentence context in the live text.
-DIM_TEXT = "#8b8e98"
 
 FRAME_MS = 33
 
@@ -141,15 +135,6 @@ def _short_error(detail: str) -> str:
     if "could not be downloaded" in d:
         return "Speech model not downloaded"
     return detail or "Something went wrong"
-
-
-def _rounded(c, x0: float, y0: float, x1: float, y1: float, r: float) -> None:
-    """Filled rounded rectangle; r = half the height gives the classic pill."""
-    r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-    for ox, oy in ((x0, y0), (x1 - 2 * r, y0), (x0, y1 - 2 * r), (x1 - 2 * r, y1 - 2 * r)):
-        c.create_oval(ox, oy, ox + 2 * r, oy + 2 * r, fill=BG, outline=BG)
-    c.create_rectangle(x0 + r, y0, x1 - r, y1, fill=BG, outline=BG)
-    c.create_rectangle(x0, y0 + r, x1, y1 - r, fill=BG, outline=BG)
 
 
 def _wrap(tokens: list[tuple[str, str]], font, width: float) -> list:
@@ -446,9 +431,20 @@ class Overlay:
         )
         user32.ShowWindow(self.label_hwnd, SW_HIDE)
         self.label_win = win
-        self.label_font = ("Segoe UI Semibold", -int(12 * self.s))
+
+    def _label_look(self):
+        """The click labels' theme (overlay.label_theme) and a font maker."""
+        from . import themes
+
+        theme = themes.label_theme(self.cfg.label_theme, self._themes.get(self.cfg.theme))
+
+        def font(px: float) -> tuple:
+            return themes.font(theme, 1.0, bold=True, size=max(8, int(px)))
+        return theme, font
 
     def _draw_labels(self) -> None:
+        from . import themes
+
         self._labels_drawn = self._labels_version
         self.label_win.attributes("-alpha", self.cfg.label_opacity)
         labels = self._labels
@@ -457,6 +453,8 @@ class Overlay:
         if not labels:
             user32.ShowWindow(self.label_hwnd, SW_HIDE)
             return
+        theme, font = self._label_look()
+        mark = themes.marker(theme)
         pad = int(30 * self.s)
         x0 = min(r[0] for _, r in labels) - pad
         y0 = min(r[1] for _, r in labels) - pad
@@ -471,38 +469,32 @@ class Overlay:
             style = self._labels_style
             if style == "chip":
                 # A window's number from the list, solid, in its corner.
-                c.create_rectangle(left - x0, top - y0, right - x0, bottom - y0,
-                                   fill=TEAL, outline=BG, width=max(1, int(2 * s)))
-                c.create_text((left + right) / 2 - x0, (top + bottom) / 2 - y0, text=text,
-                              fill=BG, font=("Segoe UI Semibold", -int((bottom - top) * 0.62)))
+                themes.label_box(c, theme, left - x0, top - y0, right - x0, bottom - y0, s, text,
+                                 font(-(bottom - top) * 0.55))
                 continue
             if style == "grid":
                 # A cell: its outline, and its number in the middle.
                 c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
-                                   outline=LABEL_EDGE, width=max(1, int(2 * s)))
+                                   outline=mark, width=max(1, int(2 * s)))
                 size = max(14, min(int((bottom - top) * 0.28), int(56 * s)))
                 cx, cy = (left + right) / 2 - x0, (top + bottom) / 2 - y0
-                c.create_rectangle(cx - size * 0.75, cy - size * 0.62, cx + size * 0.75, cy + size * 0.62,
-                                   fill=LABEL_BG, outline=LABEL_EDGE)
-                c.create_text(cx, cy, text=text, fill=LABEL_TEXT, font=("Segoe UI Semibold", -size))
+                themes.label_box(c, theme, cx - size * 0.8, cy - size * 0.66, cx + size * 0.8,
+                                 cy + size * 0.66, s, text, font(-size))
                 continue
             if style == "big":
                 # A screen's number, big, in the middle of it.
-                c.create_rectangle(left - x0, top - y0, right - x0, bottom - y0,
-                                   fill=LABEL_BG, outline=LABEL_EDGE, width=max(2, int(3 * s)))
-                c.create_text((left + right) / 2 - x0, (top + bottom) / 2 - y0, text=text,
-                              fill=LABEL_TEXT, font=("Segoe UI Semibold", -int((bottom - top) * 0.6)))
+                themes.label_box(c, theme, left - x0, top - y0, right - x0, bottom - y0, s, text,
+                                 font(-(bottom - top) * 0.6))
                 continue
-            bw = int((9 + 7 * len(text)) * s)
+            bw = int((10 + 7 * len(text)) * s)
             # Top-left corner of the control, nudged inside it, so the label
             # sits on what it names without hiding all of it.
             x = left - x0 + int(2 * s)
             y = top - y0 + int(2 * s)
             # The control's own outline, so it's clear what the number clicks.
             c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
-                               outline=LABEL_EDGE, width=1)
-            c.create_rectangle(x, y, x + bw, y + bh, fill=LABEL_BG, outline=LABEL_EDGE)
-            c.create_text(x + bw / 2, y + bh / 2, text=text, fill=LABEL_TEXT, font=self.label_font)
+                               outline=mark, width=1)
+            themes.label_box(c, theme, x, y, x + bw, y + bh, s, text, font(-12 * s))
         if not user32.SetWindowPos(
             self.label_hwnd, HWND_TOPMOST, x0, y0, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW
         ):
@@ -532,6 +524,8 @@ class Overlay:
         self.list_win = win
 
     def _draw_list(self) -> None:
+        from . import themes
+
         self._list_drawn = self._list_version
         lines = self._list
         c = self.list_canvas
@@ -545,18 +539,24 @@ class Overlay:
         w = int(820 * s)
         h = head + row * len(lines) + pad
         c.config(width=w, height=h)
-        _rounded(c, 0, 0, w - 1, h - 1, 14 * s)
-        c.create_text(pad, pad, anchor="nw", fill=DIM_TEXT, font=("Segoe UI", -int(13 * s)),
+        theme, font = self._label_look()
+        # The panel in the theme's colours; the pill's own border at this size
+        # would crowd the rows, so the flourishes stay on the number chips.
+        plain = themes.with_changes(theme, border="plain" if theme.border not in ("bevel", "prism")
+                                    else theme.border)
+        themes.pill(c, plain, 0, 0, w - 1, h - 1, 14 * s, s)
+        text_font = themes.font(theme, s, size=13)
+        c.create_text(pad, pad, anchor="nw", fill=themes.blend(theme.text, theme.bg, 0.4),
+                      font=text_font,
                       text='Windows - say "switch to" and a number, or "close 3", "move 2 to the left"')
         for i, (n, text) in enumerate(lines):
             y = head + pad // 2 + i * row
-            chip = int(28 * s)
-            c.create_rectangle(pad, y, pad + chip, y + row - int(6 * s), fill=TEAL, outline=TEAL)
-            c.create_text(pad + chip / 2, y + (row - int(6 * s)) / 2, text=str(n), fill=BG,
-                          font=("Segoe UI Semibold", -int(13 * s)))
+            chip = int(30 * s)
+            themes.label_box(c, theme, pad, y, pad + chip, y + row - int(6 * s), s, str(n),
+                             font(-13 * s))
             label = text if len(text) <= 96 else text[:95] + "…"
             c.create_text(pad + chip + int(12 * s), y + (row - int(6 * s)) / 2, text=label,
-                          anchor="w", fill=TEXT, font=("Segoe UI", -int(13 * s)))
+                          anchor="w", fill=theme.text, font=text_font)
         area = _work_area()
         x = (area.left + area.right - w) // 2
         y = (area.top + area.bottom - h) // 2

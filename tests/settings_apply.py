@@ -140,11 +140,19 @@ for theme in list(themes.BUILT_IN.values()) + styles:
             themes.pill(canvas, theme, 0, 0, 250, 42, 21, 1.5, t)
             themes.recording_dot(canvas, theme, 22, 21, 1.5, themes.dot_colour(theme, "llm"), t)
             themes.wave(canvas, theme, themes.preview_levels(t), 38, 192, 21, 26, 1.5, 0.009, t)
+            for box in ((2, 2, 30, 27), (0, 0, 200, 120)):  # a click label, a screen number
+                themes.label_box(canvas, theme, *box, 1.5, "12", themes.font(theme, 1.5, True))
         except Exception as exc:
             errors.append(f"{theme.name}/{theme.wave_style}/{theme.border}/{theme.dot}: {exc}")
 root.destroy()
 expect(f"{len(styles) + len(themes.BUILT_IN)} themes and combinations draw without an error",
        not errors, "; ".join(errors[:3]))
+expect("click labels: 'match' follows the pill, 'yellow' is the original, or any theme",
+       themes.label_theme("match", themes.ICE) is themes.ICE
+       and themes.label_theme("yellow", themes.ICE) is themes.CLASSIC_LABELS
+       and themes.label_theme("classic", themes.ICE) is themes.CLASSIC
+       and not set(themes.LABEL_CHOICES) & set(themes.BUILT_IN)
+       and themes.label_theme("fire", themes.ICE) is themes.FIRE)
 expect("Royal is the default",
        themes.resolve("") is themes.ROYAL and themes.resolve("default") is themes.ROYAL)
 expect("the gem keeps the dot's three meanings apart",

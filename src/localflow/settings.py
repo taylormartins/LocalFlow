@@ -274,7 +274,37 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     op_scale.bind("<ButtonRelease-1>", op_done)
     op_scale.configure(command=lambda _v: op_shown.configure(text=f"{op.get():.0%}"))
 
-    card = _card(tab, "Click labels", '"Show labels" numbers: how solid they are.')
+    card = _card(tab, "Click labels", '"Show labels" numbers, the window list and the grid: '
+                 'their look, and how solid they are.')
+    looks = dict(themes.LABEL_CHOICES)
+    looks.update({k: t.name for k, t in themes.all_themes().items()})
+    by_name = {v: k for k, v in looks.items()}
+    row = _row(card, "Label look")
+    look_var, _ = _choice(row, list(looks.values()),
+                          looks.get(cfg.overlay.label_theme.lower(), looks["match"]),
+                          lambda name: _save("overlay", "label_theme", by_name[name]))
+    sample = tk.Canvas(card, width=300, height=58, bg=PANEL, highlightthickness=0)
+    sample.pack(anchor="w", pady=(6, 2))
+
+    def draw_sample():
+        """Two labels on pretend buttons and a window's number, as they'll look."""
+        try:
+            theme = themes.label_theme(by_name.get(look_var.get(), "match"),
+                                       themes.resolve(current.get()))
+            sample.delete("all")
+            mark = themes.marker(theme)
+            bold = themes.font(theme, 1.0, bold=True, size=12)
+            for i, (x, n) in enumerate(((8, "3"), (110, "12"))):
+                sample.create_rectangle(x, 12, x + 88, 44, fill="#f4f4f4" if i else "#2b2d33",
+                                        outline=mark)
+                themes.label_box(sample, theme, x + 2, 14, x + 2 + 10 + 7 * len(n), 31, 1.0, n, bold)
+            themes.label_box(sample, theme, 214, 8, 252, 46, 1.0, "7",
+                             themes.font(theme, 1.0, bold=True, size=21))
+        except Exception:
+            log.debug("label sample failed", exc_info=True)
+        sample.after(400, draw_sample)
+
+    draw_sample()
     row = _row(card, "Label opacity")
     var = tk.DoubleVar(value=cfg.overlay.label_opacity)
     scale = ttk.Scale(row, from_=0.3, to=1.0, variable=var, length=240)

@@ -47,7 +47,7 @@ LIVE_SETTINGS = {
     "sounds": ("enabled", "start", "stop", "paste", "response", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
                   "cancel_words", "exit_words"),
-    "overlay": ("theme", "opacity", "label_opacity"),
+    "overlay": ("theme", "opacity", "label_opacity", "label_theme"),
     "history": ("enabled",),
 }
 

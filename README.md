@@ -341,6 +341,9 @@ too. To live in command mode instead, make it the default (see
 | move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
+| arrange windows · tile windows · put my windows side by side | tiles every window that's open (not minimised) on each screen so all of them can be seen, each on its own screen; "undo" puts them all back |
+| save layout as *work* · save layout | remembers where every window is (and which app it is) under that name, or "default"; kept in `layouts.json`, this PC only |
+| layout *work* · restore layout *work* | puts every window back as saved, starting apps that aren't open and placing them as their windows appear; "undo" puts them back. **"list layouts"** and **"delete layout work"** |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
 | click *17* · double click *17* · right click *17* | clicks numbered item 17; the labels stay up, renumbered for whatever the click opened, until "hide labels" |
 | type into *12* hello there · fill in *12* with my name | types into numbered field 12 |
@@ -379,7 +382,11 @@ together.
 
 **Numbered click labels.** Say **"show labels"** and every button, link, tab
 and field in the window in front gets a small see-through number, with a thin
-outline showing exactly what it clicks (`overlay.label_opacity`, 0.7). Say **"click
+outline showing exactly what it clicks (`overlay.label_opacity`, 0.7). They wear
+the pill's theme (Royal's gold with diamonds, Fire's flames, Ice's icicles),
+or pick another in Settings > Appearance > Label look: any theme, or the
+original yellow (`overlay.label_theme`: "match", "yellow" or a theme's name).
+The window list and the grid follow it too. Say **"click
 17"** and that one is clicked, then the labels go away. "Show labels" again
 brings fresh ones. This reads the same accessibility tree screen readers use,
 so it works in browsers, Explorer, Office and most Windows apps. Some apps
@@ -597,12 +604,20 @@ tabs:
     scribbled-in dot, handwriting.
   - **Newspaper**: black and white newsprint, printed rules, halftone dots.
   - **Modern**: dark, with a dot-matrix meter.
+  - **Fire**: light grey inside a border of flickering flames, a waveform of
+    flames that rise as you speak, and a candle flame for the recording mark
+    (orange: LLM cleanup, a blue gas flame: algorithmic, yellow: raw).
+  - **Ice**: black with white lettering, a frosted border with icicles and
+    ice crystals that glint, an icy wind carrying snow for the waveform, and
+    a slowly turning snowflake (ice: LLM cleanup, violet: algorithmic,
+    white: raw).
 - **Theme builder**: make your own. Start from any theme and pick the
   background, text, outline, waveform and accent colours, the font (any font
   on your PC) and its size, the waveform (bars, capsules, hairlines, line,
-  zigzag, prism, dots, dot grid, glyphs, scribble, halftone), the border
-  (plain, bevel, ornate, prism, sketch, rule), the recording mark (circle, stardust, gem, cursor,
-  sketch, square) and how round the corners are.
+  zigzag, prism, dots, dot grid, glyphs, scribble, halftone, flames, wind),
+  the border (plain, bevel, ornate, prism, sketch, rule, flame, frost), the
+  recording mark (circle, stardust, gem, cursor, sketch, square, flame,
+  snowflake) and how round the corners are.
   The preview is drawn by the same code as the real pill. **Save and use**
   keeps it in `themes.json` (this PC only) and switches to it.
 - **Dictation**: cleanup and its model, Ollama's status and **Restart

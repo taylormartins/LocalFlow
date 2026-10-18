@@ -508,6 +508,19 @@ phrase (while dictating) is among them.
   command mode picks from it while it's up. Monitors are numbered left to
   right (`desktop.monitors`). `to_monitor` keeps the size and re-maximises;
   `place_*_of` takes the number as its slot.
+- **Arranging and layouts**: `desktop.arrange` tiles the non-minimised
+  windows per monitor with `desktop.grid` (rows ≈ √(n·h/w·1.2), short rows
+  get wider tiles), ordering by current position so left stays left, and
+  sets the *visible* frame (`DWMWA_EXTENDED_FRAME_BOUNDS`) so the invisible
+  resize borders leave no gaps. `desktop.snapshot` records each window's
+  exe, path, title and WINDOWPLACEMENT; `desktop.restore` matches saved
+  entries to open windows (same hwnd, else same exe and closest title, each
+  used once), starts missing programs from their path (not Store apps or
+  Explorer, at most 8) and places them as their windows appear (10 s).
+  Layouts live in `layouts.json` (gitignored: titles). `REARRANGES` commands
+  snapshot every window first, so undo restores them all without launching.
+  `restore_layout` / `delete_layout` are only commands when a saved name
+  matches (`resolvable`), so dictation like "layout of the house" stays text.
 - **Terminal paste warnings**: over 5 KiB (or several lines) Windows
   Terminal asks "Paste anyway?". After a paste of that size, and after the
   "paste" voice command, `desktop.confirm_terminal_paste` looks for that
@@ -581,10 +594,16 @@ phrase (while dictating) is among them.
   no near miss logged.
 - **Themes** (`themes.py`): a `Theme` is colours, font, `wave_style`,
   `border`, `dot`, `round` and `mono`. Built-ins: royal (default),
-  gemstone, smooth, modern, classic, matrix, doodle, newspaper; "default"
+  gemstone, silver, smooth, modern, fire, ice, classic, matrix, doodle,
+  newspaper; "default"
   and any unknown name (royal v1 was retired) resolve to royal. Recording
   marks keep their three colours per meaning (`GEMS`, `STARDUST`, or the
-  accent). Custom ones in `themes.json`. `pill`, `recording_dot`, `wave`,
+  accent; `FLAMES`, `FROST`). The flame and frost borders inset themselves
+  like ornate, drawing tongues / crystals in the margin. Click labels, window
+  chips, the grid and the window list draw through `themes.label_box` in
+  `themes.label_theme(overlay.label_theme, pill theme)`; `CLASSIC_LABELS` is
+  the original yellow ("yellow" - not "classic", which is a pill theme).
+  Custom ones in `themes.json`. `pill`, `recording_dot`, `wave`,
   `colour_for` and `dot_colour` draw both the overlay and the Settings
   preview. Everything stays inside the given box (the ornate border insets
   itself for its diamonds); the overlay window grows to fit two lines of live
