@@ -315,9 +315,12 @@ class Enroll:
         elif self.state == "live":
             self._draw_live()
         busy = any(t.checking for k in self.takes for t in self.takes[k])
-        if busy or self.state != "idle" or getattr(self, "_was_busy", False):
+        # The tick a check finishes on always redraws: when that tick fell
+        # inside the throttle, the last take said "checking..." until a click.
+        done = getattr(self, "_was_busy", False) and not busy
+        if busy or self.state != "idle" or done:
             now = time.monotonic()
-            if now - getattr(self, "_drawn", 0.0) > 0.25:  # canvases are not free
+            if done or now - getattr(self, "_drawn", 0.0) > 0.25:  # canvases are not free
                 self._drawn = now
                 self._refresh(redraw=self.state != "live")
         self._was_busy = busy

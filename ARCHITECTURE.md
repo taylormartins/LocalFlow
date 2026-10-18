@@ -629,6 +629,15 @@ phrase (while dictating) is among them.
   `themes.Current` (re-reads `themes.json` at most once a second) and remakes
   its Tk fonts when the family or size changes; labels are cut to fit by
   measured width, not by characters (script fonts are wide).
+- **App identity** (`tray.set_app_identity`, before the tray icon is made):
+  notifications were labelled "Python" (the process is pythonw.exe).
+  Registers `APP_ID` under HKCU\Software\Classes\AppUserModelId with
+  `APP_NAME` and `data/app.ico` (the golden wind, made on first run) and
+  sets it as the process's explicit AppUserModelID. Both names live in
+  `localflow/__init__.py`: a rename changes `APP_NAME` only.
+- **Phrase setup redraw** (`enroll._tick`): redraws are throttled to 4 a
+  second; the tick on which the last check finishes now always redraws
+  (it used to fall inside the throttle and say "checking..." until a click).
 - **Settings** (`settings.py`, `localflow settings`): its own process (Tk,
   ttk "clam" restyled black and gold), saving each change at once with
   `save_setting` / `themes.save_custom` / `Grammar.forget`.
