@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from . import APP_NAME
+from .platform import IS_MAC
 from . import config as config_mod
 
 
@@ -536,8 +537,20 @@ def _startup_shortcut_path() -> Path:
 
 
 def cmd_install_startup(args, cfg) -> int:
-    """Create (or remove) a Startup shortcut so the tray app runs at login."""
+    """Create (or remove) a Startup shortcut so the tray app runs at login
+    (on a Mac: a launchd agent)."""
     from .config import PROJECT_ROOT
+
+    if IS_MAC:
+        from .mac import startup
+
+        if args.remove:
+            print("Removed" if startup.remove() else "Not installed; nothing to remove.")
+            return 0
+        path = startup.install(PROJECT_ROOT)
+        print(f"Installed {path}: {APP_NAME} starts at login, and it's running now.")
+        print("To undo: uv run localflow install-startup --remove")
+        return 0
 
     link = _startup_shortcut_path()
 
@@ -728,6 +741,22 @@ def _claim_single_instance(wait: float = 8.0) -> bool:
     its way out.
     """
     global _instance_handle
+    if IS_MAC:
+        # A lock on a file: held exactly as long as this process lives.
+        import fcntl
+
+        from .config import PROJECT_ROOT
+
+        _instance_handle = open(PROJECT_ROOT / ".localflow.lock", "w")
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(_instance_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except OSError:
+                if time.monotonic() > deadline:
+                    return False
+                time.sleep(0.5)
     if os.name != "nt":
         return True
     import ctypes
@@ -786,6 +815,12 @@ def cmd_run(args, cfg) -> int:
     engine = Engine(cfg)
     hotkeys = HotkeyManager()
     stopping = threading.Event()
+    stopping_hooks: list = []  # also called on Quit (the Mac: end Tk's loop)
+
+    def on_quit() -> None:
+        stopping.set()
+        for hook in stopping_hooks:
+            hook()
     for binding in build_bindings(cfg, engine):
         hotkeys.bind(binding)
 
@@ -810,7 +845,7 @@ def cmd_run(args, cfg) -> int:
     camera = Watcher(cfg.camera)
     listener.camera = camera
     tray = Tray(
-        engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind, always_on=listener,
+        engine, on_quit=on_quit, sounds=cues, on_keys_changed=rebind, always_on=listener,
         health=health, camera=camera,
     )
 
@@ -837,6 +872,8 @@ def cmd_run(args, cfg) -> int:
         overlay = Overlay(engine, cfg.overlay, live=live)
         overlay.camera = camera
         overlay.start()
+    else:
+        overlay = None
 
     def boot() -> None:
         # Before the models load (that can take a minute on some PCs): say
@@ -882,7 +919,14 @@ def cmd_run(args, cfg) -> int:
 
     _watch_quit_file(tray)
     try:
-        tray.run()  # blocks on the main thread until Quit
+        if IS_MAC and overlay is not None:
+            # Tk and the menu-bar icon both need the Mac's main thread: the
+            # icon joins Tk's loop, which runs until Quit.
+            stopping_hooks.append(overlay.quit)
+            tray.run(detached=True)
+            overlay.run_here()
+        else:
+            tray.run()  # blocks on the main thread until Quit
     except KeyboardInterrupt:
         pass
     finally:

@@ -1,11 +1,15 @@
-"""Put text into whatever window currently has focus (Windows)."""
+"""Put text into whatever window currently has focus: the clipboard, then
+Ctrl+V (Windows) or Cmd+V (Mac)."""
 
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import time
 
 from .config import InjectConfig
+from .platform import IS_MAC
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +32,15 @@ def _clipboard_retry(fn, attempts: int = 8, delay: float = 0.02):
     raise InjectError(f"clipboard unavailable: {last}")
 
 
+def _mac_env() -> dict[str, str]:
+    """pbcopy / pbpaste read and write UTF-8 only with a UTF-8 locale."""
+    return {**os.environ, "LANG": os.environ.get("LANG") or "en_US.UTF-8"}
+
+
 def get_clipboard_text() -> str | None:
+    if IS_MAC:
+        out = subprocess.run(["pbpaste"], capture_output=True, env=_mac_env(), timeout=5)
+        return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
     import win32clipboard as cb
     import win32con
 
@@ -45,6 +57,11 @@ def get_clipboard_text() -> str | None:
 
 
 def set_clipboard_text(text: str) -> None:
+    if IS_MAC:
+        done = subprocess.run(["pbcopy"], input=text.encode("utf-8"), env=_mac_env(), timeout=5)
+        if done.returncode != 0:
+            raise InjectError("pbcopy failed")
+        return
     import win32clipboard as cb
     import win32con
 
@@ -59,6 +76,10 @@ def set_clipboard_text(text: str) -> None:
     _clipboard_retry(_write)
 
 
+#: Mac terminals, by bundle ID.
+MAC_TERMINALS = {"com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
+                 "com.mitchellh.ghostty", "io.alacritty", "net.kovidgoyal.kitty",
+                 "com.github.wez.wezterm", "co.zeit.hyper"}
 #: Programs whose windows are terminals (file names, lower case, no .exe).
 TERMINALS = {"windowsterminal", "wt", "cmd", "powershell", "pwsh", "conhost", "openconsole",
              "alacritty", "wezterm-gui", "mintty", "tabby", "hyper", "warp"}
@@ -66,6 +87,14 @@ TERMINALS = {"windowsterminal", "wt", "cmd", "powershell", "pwsh", "conhost", "o
 
 def _program() -> str:
     """The program in front, for the log (never its window title)."""
+    if IS_MAC:
+        try:
+            from .mac.window import frontmost
+
+            app = frontmost()
+            return str(app.localizedName() or "?").lower() if app is not None else "?"
+        except Exception:
+            return "?"
     try:
         from pathlib import Path
 
@@ -79,6 +108,14 @@ def _program() -> str:
 def in_terminal() -> bool:
     """Is the window in front a terminal? A window a PowerShell script
     opened (WinForms, WPF) belongs to powershell.exe but isn't one."""
+    if IS_MAC:
+        try:
+            from .mac.window import frontmost
+
+            app = frontmost()
+            return app is not None and str(app.bundleIdentifier() or "") in MAC_TERMINALS
+        except Exception:
+            return False
     try:
         import ctypes
         from pathlib import Path
@@ -156,12 +193,12 @@ class Injector:
         time.sleep(self.cfg.paste_delay)
 
         kb = self.keyboard
-        with kb.pressed(Key.ctrl):
+        with kb.pressed(Key.cmd if IS_MAC else Key.ctrl):
             kb.press("v")
             kb.release("v")
         # Windows Terminal asks before pasting over 5 KiB (or several lines,
         # if they weren't joined): dictating it was the yes.
-        if len(text.encode("utf-8")) > 4000 or "\n" in text:
+        if not IS_MAC and (len(text.encode("utf-8")) > 4000 or "\n" in text):
             from .desktop import confirm_terminal_paste
 
             confirm_terminal_paste()

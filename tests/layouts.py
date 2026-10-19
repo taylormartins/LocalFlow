@@ -69,88 +69,91 @@ for style in desktop.STYLES:
                                       for l, t, r, b in tiles):
             expect(f"{style} with {n} windows: {n} tiles on screen", False, str(tiles))
 
-print("window chips (show windows)")
-from ctypes import wintypes  # noqa: E402
+if sys.platform != "win32":
+    print("window chips, moving and swapping: Windows window control (skipped here)")
+else:
+    print("window chips (show windows)")
+    from localflow.platform import wintypes  # noqa: E402
 
-real = {k: getattr(desktop, k) for k in ("window_rect", "monitors", "monitor_of")}
-rects = {1: (100, 100, 900, 700), 2: (100, 100, 900, 700),  # stacked at one spot
-         3: (-8, -8, 1928, 1048),  # maximised: its corner is just off screen
-         4: (1000, 200, 1600, 800)}  # behind window 3: chipped all the same
-desktop.window_rect = lambda h: rects[h]
-desktop.monitors = lambda: [(1, wintypes.RECT(0, 0, 1920, 1080), wintypes.RECT(0, 0, 1920, 1040))]
-desktop.monitor_of = lambda h, mons=None: 1
-real_iconic = desktop.user32.IsIconic
-desktop.user32.IsIconic = lambda h: False
-chips = dict(desktop.window_chips([desktop.Win(h, "t", "x", "") for h in rects]))
-desktop.user32.IsIconic = real_iconic
-for k, v in real.items():
-    setattr(desktop, k, v)
-expect("every window gets a chip, covered or not", sorted(chips) == [1, 2, 3, 4], str(chips))
-boxes = list(chips.values())
-expect("...no two chips on top of each other",
-       not any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-               for i, a in enumerate(boxes) for b in boxes[i + 1:]), str(chips))
-expect("...all on screen", all(b[0] >= 0 and b[1] >= 0 and b[2] <= 1920 and b[3] <= 1040
-                               for b in boxes), str(chips))
+    real = {k: getattr(desktop, k) for k in ("window_rect", "monitors", "monitor_of")}
+    rects = {1: (100, 100, 900, 700), 2: (100, 100, 900, 700),  # stacked at one spot
+             3: (-8, -8, 1928, 1048),  # maximised: its corner is just off screen
+             4: (1000, 200, 1600, 800)}  # behind window 3: chipped all the same
+    desktop.window_rect = lambda h: rects[h]
+    desktop.monitors = lambda: [(1, wintypes.RECT(0, 0, 1920, 1080), wintypes.RECT(0, 0, 1920, 1040))]
+    desktop.monitor_of = lambda h, mons=None: 1
+    real_iconic = desktop.user32.IsIconic
+    desktop.user32.IsIconic = lambda h: False
+    chips = dict(desktop.window_chips([desktop.Win(h, "t", "x", "") for h in rects]))
+    desktop.user32.IsIconic = real_iconic
+    for k, v in real.items():
+        setattr(desktop, k, v)
+    expect("every window gets a chip, covered or not", sorted(chips) == [1, 2, 3, 4], str(chips))
+    boxes = list(chips.values())
+    expect("...no two chips on top of each other",
+           not any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+                   for i, a in enumerate(boxes) for b in boxes[i + 1:]), str(chips))
+    expect("...all on screen", all(b[0] >= 0 and b[1] >= 0 and b[2] <= 1920 and b[3] <= 1040
+                                   for b in boxes), str(chips))
 
-print("windows that fight back (move_windows, modelled)")
-real = {k: getattr(desktop, k) for k in ("window_rect", "_borders", "_exe_name")}
-real_swp = desktop.user32.SetWindowPos
-rects = {}
-models = {
-    "obeys": lambda x, y, w, h: (x, y, x + w, y + h),
-    "shifts itself 300 px": lambda x, y, w, h: (x + 300, y, x + 300 + w, y + h),
-    "scales positions 1.5x (the WinForms window)": lambda x, y, w, h: (
-        round(x * 1.5), round(y * 1.5), round(x * 1.5) + w, round(y * 1.5) + h),
-    "has a minimum size": lambda x, y, w, h: (x, y, x + max(w, 980), y + max(h, 820)),
-}
-names = list(models)
-desktop.window_rect = lambda h: rects[h]
-desktop._borders = lambda h: (0, 0, 0, 0)
-desktop._exe_name = lambda h: names[h]
-desktop.user32.SetWindowPos = lambda h, after, x, y, w, hh, flags: rects.__setitem__(
-    h, models[names[h]](x, y, w, hh))
-target = (1200, 300, 600, 400)
-placed = desktop.move_windows([(i, target) for i in range(len(names))], settle=0.0)
-for i, name in enumerate(names):
-    l, t = rects[i][:2]
-    expect(f"{name}: ends where it was put", abs(l - 1200) <= 6 and abs(t - 300) <= 6,
-           str(rects[i]))
-expect("...all counted as placed", placed == len(names), str(placed))
-for k, v in real.items():
-    setattr(desktop, k, v)
-desktop.user32.SetWindowPos = real_swp
+    print("windows that fight back (move_windows, modelled)")
+    real = {k: getattr(desktop, k) for k in ("window_rect", "_borders", "_exe_name")}
+    real_swp = desktop.user32.SetWindowPos
+    rects = {}
+    models = {
+        "obeys": lambda x, y, w, h: (x, y, x + w, y + h),
+        "shifts itself 300 px": lambda x, y, w, h: (x + 300, y, x + 300 + w, y + h),
+        "scales positions 1.5x (the WinForms window)": lambda x, y, w, h: (
+            round(x * 1.5), round(y * 1.5), round(x * 1.5) + w, round(y * 1.5) + h),
+        "has a minimum size": lambda x, y, w, h: (x, y, x + max(w, 980), y + max(h, 820)),
+    }
+    names = list(models)
+    desktop.window_rect = lambda h: rects[h]
+    desktop._borders = lambda h: (0, 0, 0, 0)
+    desktop._exe_name = lambda h: names[h]
+    desktop.user32.SetWindowPos = lambda h, after, x, y, w, hh, flags: rects.__setitem__(
+        h, models[names[h]](x, y, w, hh))
+    target = (1200, 300, 600, 400)
+    placed = desktop.move_windows([(i, target) for i in range(len(names))], settle=0.0)
+    for i, name in enumerate(names):
+        l, t = rects[i][:2]
+        expect(f"{name}: ends where it was put", abs(l - 1200) <= 6 and abs(t - 300) <= 6,
+               str(rects[i]))
+    expect("...all counted as placed", placed == len(names), str(placed))
+    for k, v in real.items():
+        setattr(desktop, k, v)
+    desktop.user32.SetWindowPos = real_swp
 
-print("swapping two windows (modelled)")
-real = {k: getattr(desktop, k) for k in ("window_rect", "_borders", "monitors", "monitor_of")}
-real_u = {k: getattr(desktop.user32, k) for k in ("SetWindowPos", "IsZoomed", "IsIconic",
-                                                  "ShowWindow")}
-rects = {1: (0, 0, 800, 600), 2: (1000, 100, 1600, 500), 3: (2000, 0, 2800, 600)}
-zoomed = {1: False, 2: False, 3: True}
-shown = []
-desktop.window_rect = lambda h: rects[h]
-desktop._borders = lambda h: (0, 0, 0, 0)
-desktop.monitors = lambda: [(1, wintypes.RECT(0, 0, 1920, 1080), wintypes.RECT(0, 0, 1920, 1040)),
-                            (2, wintypes.RECT(1920, 0, 3840, 1080),
-                             wintypes.RECT(1920, 0, 3840, 1040))]
-desktop.monitor_of = lambda h, mons=None: 1 if rects[h][0] < 1920 else 2
-desktop.user32.SetWindowPos = lambda h, after, x, y, w, hh, f: rects.__setitem__(h, (x, y, x + w, y + hh))
-desktop.user32.IsZoomed = lambda h: zoomed.get(h, False)
-desktop.user32.IsIconic = lambda h: False
-desktop.user32.ShowWindow = lambda h, how: shown.append((h, how))
-desktop.swap_windows(1, 2)
-expect("two windows trade places and sizes",
-       rects[1] == (1000, 100, 1600, 500) and rects[2] == (0, 0, 800, 600), str(rects))
-shown.clear()
-desktop.swap_windows(2, 3)  # 3 is maximised on screen 2
-expect("a maximised one: the other takes its screen, maximised; it takes the other's spot",
-       rects[3] == (0, 0, 800, 600) and (2, desktop.SW_MAXIMIZE) in shown
-       and rects[2][0] >= 1920, f"{rects} {shown}")
-for k, v in real.items():
-    setattr(desktop, k, v)
-for k, v in real_u.items():
-    setattr(desktop.user32, k, v)
-expect("swapping can be undone", "swap" in commands.REARRANGES)
+    print("swapping two windows (modelled)")
+    real = {k: getattr(desktop, k) for k in ("window_rect", "_borders", "monitors", "monitor_of")}
+    real_u = {k: getattr(desktop.user32, k) for k in ("SetWindowPos", "IsZoomed", "IsIconic",
+                                                      "ShowWindow")}
+    rects = {1: (0, 0, 800, 600), 2: (1000, 100, 1600, 500), 3: (2000, 0, 2800, 600)}
+    zoomed = {1: False, 2: False, 3: True}
+    shown = []
+    desktop.window_rect = lambda h: rects[h]
+    desktop._borders = lambda h: (0, 0, 0, 0)
+    desktop.monitors = lambda: [(1, wintypes.RECT(0, 0, 1920, 1080), wintypes.RECT(0, 0, 1920, 1040)),
+                                (2, wintypes.RECT(1920, 0, 3840, 1080),
+                                 wintypes.RECT(1920, 0, 3840, 1040))]
+    desktop.monitor_of = lambda h, mons=None: 1 if rects[h][0] < 1920 else 2
+    desktop.user32.SetWindowPos = lambda h, after, x, y, w, hh, f: rects.__setitem__(h, (x, y, x + w, y + hh))
+    desktop.user32.IsZoomed = lambda h: zoomed.get(h, False)
+    desktop.user32.IsIconic = lambda h: False
+    desktop.user32.ShowWindow = lambda h, how: shown.append((h, how))
+    desktop.swap_windows(1, 2)
+    expect("two windows trade places and sizes",
+           rects[1] == (1000, 100, 1600, 500) and rects[2] == (0, 0, 800, 600), str(rects))
+    shown.clear()
+    desktop.swap_windows(2, 3)  # 3 is maximised on screen 2
+    expect("a maximised one: the other takes its screen, maximised; it takes the other's spot",
+           rects[3] == (0, 0, 800, 600) and (2, desktop.SW_MAXIMIZE) in shown
+           and rects[2][0] >= 1920, f"{rects} {shown}")
+    for k, v in real.items():
+        setattr(desktop, k, v)
+    for k, v in real_u.items():
+        setattr(desktop.user32, k, v)
+    expect("swapping can be undone", "swap" in commands.REARRANGES)
 
 print("phrases")
 g = Grammar()  # no learned phrases

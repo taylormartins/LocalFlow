@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import logging
+import sys
 import threading
 import wave
 from collections.abc import Callable
@@ -161,14 +162,32 @@ def _duration(data: bytes) -> float:
         return 0.3  # unreadable custom file: assume a short cue
 
 
+def _play_mac(data: bytes) -> None:
+    """The WAV bytes through sounddevice (macOS has no winsound)."""
+    import io
+    import wave
+
+    import sounddevice as sd
+
+    with wave.open(io.BytesIO(data)) as w:
+        frames = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        frames = frames.reshape(-1, w.getnchannels())
+        rate = w.getframerate()
+    sd.play(frames, rate)
+    sd.wait()
+
+
 def play(data: bytes | None) -> None:
     if not data:
         return
 
     def run() -> None:
-        import winsound
-
         try:
+            if sys.platform == "darwin":
+                _play_mac(data)
+                return
+            import winsound
+
             winsound.PlaySound(data, winsound.SND_MEMORY | winsound.SND_NODEFAULT)
         except Exception as exc:
             # Was debug-only, so "I heard no sounds" left nothing to go on.

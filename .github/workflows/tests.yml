@@ -1,0 +1,54 @@
+name: tests
+
+# The no-window suites on a real Mac and a real Windows machine, on every
+# push: proves the code imports and the logic holds on both. Screens,
+# keyboards and permission prompts still need a person (see HANDOFF.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync --no-dev --inexact
+      - name: Every module imports
+        run: |
+          uv run python - <<'EOF'
+          import importlib, pkgutil, sys
+          import localflow
+          mods = [m.name for m in pkgutil.walk_packages(localflow.__path__, "localflow.")]
+          if sys.platform != "darwin":
+              mods = [m for m in mods if not m.startswith("localflow.mac")]
+          bad = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+              except Exception as exc:
+                  bad.append(f"{m}: {exc!r}")
+          print(f"{len(mods) - len(bad)} of {len(mods)} modules import")
+          if bad:
+              print("\n".join(bad))
+              sys.exit(1)
+          EOF
+      - name: Suites (no windows, no models)
+        run: |
+          failed=0
+          for t in learning quick_mode edit_commands live_stop command_phrases \
+                   enroll_redraw ollama_health layouts camera_mode settings_apply; do
+            echo "== $t"
+            if ! uv run python tests/$t.py; then failed=1; fi
+          done
+          exit $failed

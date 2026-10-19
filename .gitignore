@@ -46,3 +46,7 @@ update.result
 .updated
 .installed
 .quit
+
+# Mac: the single-instance lock and launchd's error log
+.localflow.lock
+launchd.log

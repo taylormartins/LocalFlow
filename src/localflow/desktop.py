@@ -24,7 +24,7 @@ import os
 import re
 import threading
 import time
-from ctypes import wintypes
+from .platform import IS_MAC, dll, winfunctype, wintypes
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,11 +32,11 @@ from .hotkey import OWN_INPUT
 
 log = logging.getLogger(__name__)
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-dwmapi = ctypes.WinDLL("dwmapi")
+user32 = dll("user32")
+kernel32 = dll("kernel32")
+dwmapi = dll("dwmapi", use_last_error=False)
 
-WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+WNDENUMPROC = winfunctype(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
@@ -410,7 +410,7 @@ def hide_help() -> None:
 
 # -- monitors, numbered left to right ---------------------------------------------------
 
-MONITORENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+MONITORENUMPROC = winfunctype(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
                                      ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
 
 
@@ -1243,3 +1243,7 @@ def activate_control(c: Control) -> None:
             continue
     left, top, right, bottom = c.rect
     click_at((left + right) // 2, (top + bottom) // 2)
+
+
+if IS_MAC:  # the Mac's versions of the functions above (see localflow.platform)
+    from .mac.desktop import *  # noqa: E402,F401,F403

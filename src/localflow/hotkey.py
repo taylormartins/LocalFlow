@@ -1,4 +1,4 @@
-"""Global push-to-talk hotkeys (Windows).
+"""Global push-to-talk hotkeys (Windows and Mac).
 
 Two pynput constraints shape this module:
 
@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 
 from pynput import keyboard
 
+from .platform import IS_MAC
+
 log = logging.getLogger(__name__)
 
 WM_KEYDOWN = 0x0100
@@ -43,6 +45,20 @@ VK_NORMALISE = {
 }
 
 MODIFIER_VKS = frozenset({16, 17, 18, 91})
+#: The Mac's dictation key: Right Option, kept apart from Option (18) so the
+#: left one still types accents, and not a modifier here, so holding it alone
+#: records (push-to-talk).
+VK_RIGHT_OPTION = 0xA5
+#: pynput key names -> the Windows virtual-key codes this module works in. On
+#: a Mac pynput gives names (its own key codes differ from Windows').
+MAC_VKS = {
+    "alt": 18, "alt_l": 18, "alt_r": VK_RIGHT_OPTION, "alt_gr": VK_RIGHT_OPTION,
+    "cmd": 91, "cmd_l": 91, "cmd_r": 91, "ctrl": 17, "ctrl_l": 17, "ctrl_r": 17,
+    "shift": 16, "shift_l": 16, "shift_r": 16, "caps_lock": 20, "esc": 27, "space": 32,
+    "enter": 13, "tab": 9, "backspace": 8, "delete": 46, "up": 38, "down": 40,
+    "left": 37, "right": 39, "home": 36, "end": 35, "page_up": 33, "page_down": 34,
+    **{f"f{n}": 0x6F + n for n in range(1, 21)},
+}
 VK_LWIN = 91
 
 #: Unassigned virtual key. Tapped while a Win-key chord is held so Windows sees
@@ -70,6 +86,12 @@ def key_vk(key) -> int | None:
     char with no vk, so letters and digits map to their ASCII code, which is what
     Windows uses for those virtual keys.
     """
+    if IS_MAC:
+        name = getattr(key, "name", None)
+        if name in MAC_VKS:
+            return MAC_VKS[name]
+        char = getattr(key, "char", None)
+        return ord(char.upper()) if char and len(char) == 1 and char.isalnum() else None
     inner = getattr(key, "value", key)
     vk = getattr(inner, "vk", None)
     if vk is None:
@@ -98,6 +120,12 @@ KEY_PRESETS: dict[str, tuple[str, str]] = {
     "Scroll Lock": ("<scroll_lock>", "<shift>+<scroll_lock>"),
     "Pause/Break": ("<pause>", "<shift>+<pause>"),
 }
+if IS_MAC:  # Caps Lock toggles in hardware on a Mac, and there's no Scroll Lock
+    KEY_PRESETS = {
+        "Right Option": ("<alt_r>", "<shift>+<alt_r>"),
+        "Ctrl+Cmd": ("<ctrl>+<cmd>", "<ctrl>+<cmd>+<shift>"),
+        "F5": ("<f5>", "<f6>"),
+    }
 
 VK_CAPITAL = 0x14
 #: dwExtraInfo stamped on keys LocalFlow injects itself, so the hook lets them
@@ -107,6 +135,8 @@ OWN_INPUT = 0x4C46  # "LF"
 
 
 def _tap(vk: int) -> None:
+    if IS_MAC:
+        return  # only needed for Windows' Start menu and Caps Lock tricks
     import ctypes
 
     user32 = ctypes.windll.user32
@@ -119,6 +149,8 @@ def _tap_mask_key() -> None:
 
 
 def caps_lock_on() -> bool:
+    if IS_MAC:
+        return False  # not a dictation key on a Mac: nothing gets stuck
     import ctypes
 
     return bool(ctypes.windll.user32.GetKeyState(VK_CAPITAL) & 1)
@@ -324,6 +356,17 @@ class HotkeyManager:
             return
         self._worker = threading.Thread(target=self._drain, daemon=True, name="localflow-hotkey")
         self._worker.start()
+        if IS_MAC:
+            # No low-level filter on a Mac: pynput's callbacks drive the same
+            # state machine. Keys aren't suppressed (Right Option on its own
+            # types nothing anyway).
+            self._listener = keyboard.Listener(
+                on_press=lambda key: self._mac_key(key, True),
+                on_release=lambda key: self._mac_key(key, False))
+            self._listener.start()
+            self._listener.wait()
+            log.info("hotkeys active: %s", ", ".join(b.spec for b in self._bindings))
+            return
         # on_press/on_release are deliberately no-ops; _filter drives everything.
         self._listener = keyboard.Listener(
             on_press=lambda key: None,
@@ -333,6 +376,15 @@ class HotkeyManager:
         self._listener.start()
         self._listener.wait()
         log.info("hotkeys active: %s", ", ".join(b.spec for b in self._bindings))
+
+    def _mac_key(self, key, down: bool) -> None:
+        vk = key_vk(key)
+        if vk is None:
+            return
+        if down:
+            self._handle_down(vk)
+        else:
+            self._handle_up(vk)
 
     def stop(self) -> None:
         if self._listener is not None:

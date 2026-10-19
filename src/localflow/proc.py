@@ -23,8 +23,11 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def gui_python() -> tuple[str, dict[str, str]]:
-    """(pythonw.exe to run, environment) for a windowless LocalFlow process."""
+    """(pythonw.exe to run, environment) for a windowless LocalFlow process.
+    On a Mac there's no console to hide: the venv's own python."""
     env = dict(os.environ)
+    if sys.platform != "win32":
+        return sys.executable, env
     launcher = PROJECT_ROOT / ".venv" / "Scripts" / "pythonw.exe"
     base = Path(getattr(sys, "_base_executable", sys.executable)).with_name("pythonw.exe")
     if base.exists() and launcher.exists():

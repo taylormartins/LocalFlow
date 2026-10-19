@@ -294,7 +294,7 @@ class Watcher:
         ensure_model()
         cams = {}
         for index in parse_cameras(self.cfg.cameras):
-            cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+            cap = cv2.VideoCapture(index, _CAPTURE_API(cv2))
             if not cap.isOpened():
                 log.warning("camera: camera %d didn't open", index)
                 continue
@@ -463,3 +463,10 @@ def calibrate(cfg) -> str:
             LOCK.unlink()
         except OSError:
             pass
+
+
+def _CAPTURE_API(cv2) -> int:  # noqa: N802
+    """DirectShow on Windows (opens fastest), AVFoundation on a Mac."""
+    import sys
+
+    return cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_DSHOW

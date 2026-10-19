@@ -10,6 +10,7 @@ from PIL import Image
 
 from . import APP_NAME
 from .engine import Engine, State
+from .platform import IS_MAC
 
 log = logging.getLogger(__name__)
 
@@ -496,7 +497,14 @@ class Tray:
                             "the tray icon may disappear for a minute.")
             log_file = PROJECT_ROOT / "update.log"
             start_size = log_file.stat().st_size if log_file.exists() else 0
-            launch_detached_powershell(PROJECT_ROOT / "update.ps1")
+            if IS_MAC:
+                import subprocess
+
+                subprocess.Popen(["bash", str(PROJECT_ROOT / "update.sh")],
+                                 cwd=str(PROJECT_ROOT), start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                launch_detached_powershell(PROJECT_ROOT / "update.ps1")
             self.updates.latest = latest or self.updates.latest
             deadline = time.monotonic() + 30 * 60
             last_change, last_size, step = time.monotonic(), start_size, ""
@@ -765,11 +773,17 @@ class Tray:
         except Exception:
             log.debug("notification failed", exc_info=True)
 
-    def run(self) -> None:
-        """Blocking; must be called from the main thread on Windows."""
+    def run(self, detached: bool = False) -> None:
+        """Blocking; must be called from the main thread on Windows.
+        ``detached``: set the icon up and return; another loop on the main
+        thread runs it (the Mac, where Tk's loop is the one: both want the
+        main thread there)."""
         threading.Thread(target=self._watch_caps, daemon=True, name="localflow-caps").start()
         self.updates.start()
-        self.icon.run()
+        if detached:
+            self.icon.run_detached()
+        else:
+            self.icon.run()
 
     def _watch_caps(self) -> None:
         """pystray builds the menu ahead of time, not on right-click, so the

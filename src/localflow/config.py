@@ -5,6 +5,8 @@ from __future__ import annotations
 import secrets
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
+
+from .platform import IS_MAC
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +38,9 @@ class AudioConfig:
 @dataclass
 class WhisperConfig:
     model: str = "large-v3-turbo"
-    device: str = "cuda"
-    compute_type: str = "float16"
+    #: No CUDA on a Mac: the CPU with int8 (fast on Apple silicon).
+    device: str = "cpu" if IS_MAC else "cuda"
+    compute_type: str = "int8" if IS_MAC else "float16"
     #: "" enables autodetection, which costs a little latency and can misfire on
     #: short clips. Pin it unless you actually dictate in several languages.
     language: str = "en"
@@ -104,8 +107,9 @@ class HotkeyConfig:
     #: pynput key names. Combos use angle brackets, e.g. "<ctrl>+<alt>+d".
     #: Each may also be a list of specs that share one on/off switch.
     #: Modifier-only chords ("<ctrl>+<cmd>") fire on a clean tap, on release.
-    dictate: str | list[str] = "<f9>"
-    dictate_raw: str | list[str] = "<f10>"
+    #: (On a Mac: hold Right Option; with Shift for raw.)
+    dictate: str | list[str] = "<alt_r>" if IS_MAC else "<f9>"
+    dictate_raw: str | list[str] = "<shift>+<alt_r>" if IS_MAC else "<f10>"
     #: "hold" = press and hold to record (push-to-talk).
     #: "toggle" = tap to start, tap to stop.
     mode: str = "hold"

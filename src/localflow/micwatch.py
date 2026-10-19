@@ -66,9 +66,25 @@ def _enumerator():
     return e
 
 
+def _mac_default() -> str:
+    """The default input's name, as PortAudio sees it (a Mac has no
+    IMMDeviceEnumerator; the listener's own reopen refreshes PortAudio)."""
+    try:
+        import sounddevice as sd
+
+        info = sd.query_devices(kind="input")
+        return str(info.get("name", ""))
+    except Exception:
+        return ""
+
+
 def default_input_id() -> str:
     """Windows' default recording device right now ("" if there is none or it
     can't be told)."""
+    import sys
+
+    if sys.platform == "darwin":
+        return _mac_default()
     try:
         dev = _enumerator().GetDefaultAudioEndpoint(E_CAPTURE, E_CONSOLE)
         ptr = dev.GetId()

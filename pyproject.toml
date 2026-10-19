@@ -1,25 +1,27 @@
 [project]
 name = "localflow"
 version = "1.29.0"
-description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
+description = "Golden Flow: free, private voice control and dictation for Windows and macOS. Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Taylor Martins" }]
 requires-python = ">=3.12"
 dependencies = [
-    "comtypes>=1.4",
+    "comtypes>=1.4; sys_platform == 'win32'",
     "fastapi[standard]>=0.141.1",
     "faster-whisper>=1.2.1",
     "httpx>=0.28.1",
     "numpy>=2.5.1",
-    "nvidia-cublas-cu12>=12.9.2.10",
-    "nvidia-cudnn-cu12>=9,<10",
+    "nvidia-cublas-cu12>=12.9.2.10; sys_platform == 'win32' or sys_platform == 'linux'",
+    "nvidia-cudnn-cu12>=9,<10; sys_platform == 'win32' or sys_platform == 'linux'",
     "pillow>=12.3.0",
     "pynput>=1.8.2",
     "pystray>=0.19.5",
     "python-multipart>=0.0.32",
-    "pywin32>=312",
+    "pyobjc-framework-cocoa>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-quartz>=10; sys_platform == 'darwin'",
+    "pywin32>=312; sys_platform == 'win32'",
     "sounddevice>=0.5.5",
     "soxr>=1.1.0",
     "truststore>=0.10",

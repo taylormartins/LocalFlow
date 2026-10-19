@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -133,6 +134,9 @@ class OllamaHealth:
             return
         self.restarting = True
         try:
+            if sys.platform == "darwin":
+                self._restart_mac()
+                return
             app, server = _ollama_paths()
             for name in ("ollama app.exe", "ollama.exe"):
                 subprocess.run(["taskkill", "/f", "/im", name], capture_output=True,
@@ -158,6 +162,30 @@ class OllamaHealth:
             self.cleaner.warmup()
         finally:
             self.restarting = False
+
+    def _restart_mac(self) -> None:
+        """The Mac's Ollama: the app if it's installed, else `ollama serve`."""
+        import shutil
+
+        subprocess.run(["pkill", "-x", "Ollama"], capture_output=True)
+        subprocess.run(["pkill", "-f", "ollama serve"], capture_output=True)
+        time.sleep(1.0)
+        if Path("/Applications/Ollama.app").exists():
+            subprocess.Popen(["open", "-a", "Ollama"])
+        elif shutil.which("ollama"):
+            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        else:
+            log.warning("ollama: can't find it to start it")
+        log.info("ollama: restarted")
+        for _ in range(30):
+            time.sleep(1.0)
+            try:
+                self.cleaner._client.get("/api/tags", timeout=1.0).raise_for_status()
+                break
+            except Exception:
+                pass
+        self.cleaner.warmup()
         self.check()
 
 

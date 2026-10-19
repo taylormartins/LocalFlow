@@ -17,13 +17,13 @@ from __future__ import annotations
 import ctypes
 import logging
 import time
-from ctypes import wintypes
+from .platform import IS_MAC, dll, wintypes
 from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+user32 = dll("user32")
+kernel32 = dll("kernel32")
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
@@ -136,3 +136,7 @@ def _refocus(t: Target) -> None:
             user32.SetFocus(t.focus)
         finally:
             user32.AttachThreadInput(me, thread, False)
+
+
+if IS_MAC:  # the Mac's versions (see localflow.platform)
+    from .mac.window import Target, activate, alive, current  # noqa: E402,F401,F811

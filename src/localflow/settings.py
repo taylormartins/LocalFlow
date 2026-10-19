@@ -378,7 +378,7 @@ def _camera(nb, cfg: Config) -> None:
             try:
                 time.sleep(1.5)  # LocalFlow lets go of its cameras
                 for i in range(6):
-                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    cap = cv2.VideoCapture(i, _CAPTURE_API(cv2))
                     if cap.isOpened() and cap.read()[0]:
                         ok.append(str(i))
                     cap.release()
@@ -1152,3 +1152,10 @@ def main(cfg: Config) -> int:
     log.info("settings window open (%s)", CONFIG_PATH.name)
     root.mainloop()
     return 0
+
+
+def _CAPTURE_API(cv2) -> int:  # noqa: N802
+    """DirectShow on Windows (opens fastest), AVFoundation on a Mac."""
+    import sys
+
+    return cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_DSHOW

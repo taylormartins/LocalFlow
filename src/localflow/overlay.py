@@ -26,59 +26,20 @@ polls them on a ~30 fps timer.
 
 from __future__ import annotations
 
-import ctypes
 import logging
 import math
 import threading
 import time
 from collections import deque
-from ctypes import wintypes
 
+from . import layers
 from .config import OverlayConfig
 from .engine import Engine, State
+from .layers import KEY
+from .platform import IS_MAC
 
 log = logging.getLogger(__name__)
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
-
-# Declared explicitly: ctypes' default int marshalling truncates handles and
-# turns HWND_TOPMOST (-1) into 0xFFFFFFFF on x64, and SetWindowPos then fails
-# silently - the pill never appears.
-user32.GetForegroundWindow.restype = wintypes.HWND
-user32.GetParent.argtypes = [wintypes.HWND]
-user32.GetParent.restype = wintypes.HWND
-user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
-user32.MonitorFromWindow.restype = wintypes.HMONITOR
-user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.c_void_p]
-user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.LONG]
-user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-user32.SetWindowPos.argtypes = [
-    wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT
-]
-user32.SetWindowPos.restype = wintypes.BOOL
-user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
-user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
-
-GWL_EXSTYLE = -20
-WS_EX_TOPMOST = 0x00000008
-WS_EX_TRANSPARENT = 0x00000020
-WS_EX_TOOLWINDOW = 0x00000080
-WS_EX_LAYERED = 0x00080000
-WS_EX_NOACTIVATE = 0x08000000
-SW_HIDE = 0
-HWND_TOPMOST = -1
-SWP_NOSIZE = 0x0001
-SWP_NOACTIVATE = 0x0010
-SWP_SHOWWINDOW = 0x0040
-MONITOR_DEFAULTTONEAREST = 2
-#: Per-monitor-v2. Set on the overlay thread only, so the rest of the process
-#: (pystray, hotkeys) keeps the DPI behaviour it was written against.
-DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
-
-#: Colour key made fully transparent, giving the pill its rounded ends. Tk does
-#: not antialias, so no edge pixels blend with it and there is no fringe.
-KEY = "#010203"
 BG = "#1d1e22"
 TEXT = "#ececee"
 DIM = "#4b4d55"
@@ -104,22 +65,10 @@ def GLYPH_FONT(s: float) -> tuple:  # noqa: N802
 BARS = 28
 
 
-class MONITORINFO(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", wintypes.DWORD),
-        ("rcMonitor", wintypes.RECT),
-        ("rcWork", wintypes.RECT),
-        ("dwFlags", wintypes.DWORD),
-    ]
-
-
-def _work_area() -> wintypes.RECT:
-    """Work area (screen minus taskbar) of the monitor holding the active window."""
-    monitor = user32.MonitorFromWindow(user32.GetForegroundWindow(), MONITOR_DEFAULTTONEAREST)
-    info = MONITORINFO()
-    info.cbSize = ctypes.sizeof(MONITORINFO)
-    user32.GetMonitorInfoW(monitor, ctypes.byref(info))
-    return info.rcWork
+def _work_area():
+    """Work area (screen minus taskbar or menu bar) of the screen holding the
+    active window."""
+    return layers.work_area()
 
 
 def _short_error(detail: str) -> str:
@@ -285,8 +234,18 @@ class Overlay:
     # -- Tk side -----------------------------------------------------------
 
     def start(self) -> None:
-        threading.Thread(target=self._run, daemon=True, name="localflow-overlay").start()
         threading.Thread(target=self._poll_llm, daemon=True, name="localflow-llm-check").start()
+        if IS_MAC:
+            return  # Tk must run on the main thread on a Mac: the app calls run_here()
+        threading.Thread(target=self._run, daemon=True, name="localflow-overlay").start()
+
+    def run_here(self) -> None:
+        """Run the overlay on this thread until quit() (the Mac's main thread)."""
+        self._run()
+
+    def quit(self) -> None:
+        """End run_here()'s loop (from any thread: the Tk thread acts on it)."""
+        self._quit_asked = True
 
     def _poll_llm(self) -> None:
         """Keep _llm_ready fresh. A 1.5s-timeout GET; never on the Tk thread."""
@@ -311,12 +270,7 @@ class Overlay:
     def _run_tk(self) -> None:
         import tkinter as tk
 
-        try:
-            user32.SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-            scale = user32.GetDpiForSystem() / 96
-        except (AttributeError, OSError):
-            scale = 1.0
-        self.s = s = scale
+        self.s = s = layers.scale()
         self.w, self.h = int(250 * s), int(42 * s)
         # Room under the waveform for two lines of live text. The window is
         # always this tall (transparent where unused); the pill grows upward.
@@ -325,8 +279,7 @@ class Overlay:
 
         root = tk.Tk()
         root.overrideredirect(True)
-        root.configure(bg=KEY)
-        root.attributes("-transparentcolor", KEY)
+        layers.transparent(root)
         root.attributes("-alpha", 1.0)
         root.attributes("-topmost", True)
         # Park it off-screen for its one Tk-driven map, then take over show/hide.
@@ -335,14 +288,7 @@ class Overlay:
         self.canvas.pack()
         root.update()
 
-        self.hwnd = user32.GetParent(root.winfo_id())
-        ex = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.hwnd,
-            GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.hwnd, SW_HIDE)
+        self.hwnd = layers.prepare(root)
         self.visible = False
         self.font = ("Segoe UI", -int(13 * s))
         self.font_bold = ("Segoe UI Semibold", -int(13 * s))
@@ -368,15 +314,12 @@ class Overlay:
         area = _work_area()
         x = (area.left + area.right - self.w) // 2
         y = area.bottom - self.H - int(self.cfg.margin * self.s)
-        if not user32.SetWindowPos(
-            self.hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
-        ):
-            log.warning("overlay SetWindowPos failed (error %d)", ctypes.get_last_error())
+        layers.show(self.hwnd, x, y)
         self.visible = True
 
     def _hide(self) -> None:
         if self.visible:
-            user32.ShowWindow(self.hwnd, SW_HIDE)
+            layers.hide(self.hwnd)
             self.visible = False
             self.levels.extend([0.0] * BARS)
 
@@ -430,21 +373,14 @@ class Overlay:
         once (like the pill) and moved over the target window when needed."""
         win = tk.Toplevel(self.root)
         win.overrideredirect(True)
-        win.configure(bg=KEY)
-        win.attributes("-transparentcolor", KEY)
+        layers.transparent(win)
         win.attributes("-alpha", self.cfg.label_opacity)  # see what's under them
         win.attributes("-topmost", True)
         win.geometry("10x10+-32000+-32000")
         self.label_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
         self.label_canvas.pack(fill="both", expand=True)
         win.update()
-        self.label_hwnd = user32.GetParent(win.winfo_id())
-        ex = user32.GetWindowLongW(self.label_hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.label_hwnd, GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.label_hwnd, SW_HIDE)
+        self.label_hwnd = layers.prepare(win)
         self.label_win = win
 
     def _label_look(self):
@@ -468,7 +404,7 @@ class Overlay:
         c = self.label_canvas
         c.delete("all")
         if not labels:
-            user32.ShowWindow(self.label_hwnd, SW_HIDE)
+            layers.hide(self.label_hwnd)
             return
         theme, font = self._label_look()
         mark = themes.marker(theme)
@@ -519,10 +455,7 @@ class Overlay:
             c.create_rectangle(left - x0, top - y0, right - x0 - 1, bottom - y0 - 1,
                                outline=mark, width=1)
             themes.label_box(c, theme, x, y, x + bw, y + bh, s, text, number_font)
-        if not user32.SetWindowPos(
-            self.label_hwnd, HWND_TOPMOST, x0, y0, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW
-        ):
-            log.warning("label layer SetWindowPos failed (error %d)", ctypes.get_last_error())
+        layers.show(self.label_hwnd, x0, y0, w, h)
 
     # -- the window list ----------------------------------------------------
 
@@ -530,21 +463,14 @@ class Overlay:
         """Like the labels: click-through, never focused, made once."""
         win = tk.Toplevel(self.root)
         win.overrideredirect(True)
-        win.configure(bg=KEY)
-        win.attributes("-transparentcolor", KEY)
+        layers.transparent(win)
         win.attributes("-alpha", 0.98)  # solid: text behind it made it hard to read
         win.attributes("-topmost", True)
         win.geometry("10x10+-32000+-32000")
         self.list_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
         self.list_canvas.pack(fill="both", expand=True)
         win.update()
-        self.list_hwnd = user32.GetParent(win.winfo_id())
-        ex = user32.GetWindowLongW(self.list_hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.list_hwnd, GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.list_hwnd, SW_HIDE)
+        self.list_hwnd = layers.prepare(win)
         self.list_win = win
 
     def _draw_list(self) -> None:
@@ -555,7 +481,7 @@ class Overlay:
         c = self.list_canvas
         c.delete("all")
         if not lines:
-            user32.ShowWindow(self.list_hwnd, SW_HIDE)
+            layers.hide(self.list_hwnd)
             return
         s = self.s
         row, pad = int(30 * s), int(18 * s)
@@ -584,33 +510,24 @@ class Overlay:
         area = _work_area()
         x = (area.left + area.right - w) // 2
         y = (area.top + area.bottom - h) // 2
-        user32.SetWindowPos(self.list_hwnd, HWND_TOPMOST, x, y, w, h,
-                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        layers.show(self.list_hwnd, x, y, w, h)
         # The window chips go above the list: a window whose corner is under
         # the list still shows its number.
-        if user32.IsWindowVisible(self.label_hwnd):
-            user32.SetWindowPos(self.label_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                                SWP_NOACTIVATE | 0x0001 | 0x0002)  # NOSIZE | NOMOVE
+        if layers.visible(self.label_hwnd):
+            layers.raise_(self.label_hwnd)
 
     def _make_help_layer(self, tk) -> None:
         """The command sheet: see-through, click-through, never focused."""
         win = tk.Toplevel(self.root)
         win.overrideredirect(True)
-        win.configure(bg=KEY)
-        win.attributes("-transparentcolor", KEY)
+        layers.transparent(win)
         win.attributes("-alpha", 0.86)  # see through it, still read it
         win.attributes("-topmost", True)
         win.geometry("10x10+-32000+-32000")
         self.help_canvas = tk.Canvas(win, width=10, height=10, bg=KEY, highlightthickness=0)
         self.help_canvas.pack(fill="both", expand=True)
         win.update()
-        self.help_hwnd = user32.GetParent(win.winfo_id())
-        ex = user32.GetWindowLongW(self.help_hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.help_hwnd, GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.help_hwnd, SW_HIDE)
+        self.help_hwnd = layers.prepare(win)
         self.help_win = win
 
     def _draw_help(self) -> None:
@@ -625,7 +542,7 @@ class Overlay:
         c = self.help_canvas
         c.delete("all")
         if not sections:
-            user32.ShowWindow(self.help_hwnd, SW_HIDE)
+            layers.hide(self.help_hwnd)
             return
         s = self.s
         theme = self._themes.get(self.cfg.theme)
@@ -694,8 +611,7 @@ class Overlay:
             x += w + gap
         left = max(area.left + int(16 * s), area.right - W - int(20 * s))
         top = area.top + max(int(16 * s), (area.bottom - area.top - H) // 2)
-        user32.SetWindowPos(self.help_hwnd, HWND_TOPMOST, left, top, W, H,
-                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        layers.show(self.help_hwnd, left, top, W, H)
 
     # -- the camera pill ------------------------------------------------------
 
@@ -703,21 +619,14 @@ class Overlay:
         """Camera mode's own small pill: an eye, and the screen being looked at."""
         win = tk.Toplevel(self.root)
         win.overrideredirect(True)
-        win.configure(bg=KEY)
-        win.attributes("-transparentcolor", KEY)
+        layers.transparent(win)
         win.attributes("-topmost", True)
         w, h = int(CAM_W * self.s), int(CAM_H * self.s)
         win.geometry(f"{w}x{h}+-32000+-32000")
         self.cam_canvas = tk.Canvas(win, width=w, height=h, bg=KEY, highlightthickness=0)
         self.cam_canvas.pack(fill="both", expand=True)
         win.update()
-        self.cam_hwnd = user32.GetParent(win.winfo_id())
-        ex = user32.GetWindowLongW(self.cam_hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.cam_hwnd, GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.cam_hwnd, SW_HIDE)
+        self.cam_hwnd = layers.prepare(win)
 
     def _draw_cam(self) -> None:
         """Redrawn only when something changes: on/off, looking, which screen, theme."""
@@ -732,7 +641,7 @@ class Overlay:
             return
         self._cam_key = state
         if not on:
-            user32.ShowWindow(self.cam_hwnd, SW_HIDE)
+            layers.hide(self.cam_hwnd)
             return
         _, looking, screen, error, _ = state
         theme = self._themes.get(self.cfg.theme)
@@ -767,7 +676,7 @@ class Overlay:
         work = mons[n - 1][2] if 1 <= n <= len(mons) else _work_area()
         x = work.right - w - int(16 * s)
         y = work.bottom - h - int(int(self.cfg.margin) * s)
-        user32.SetWindowPos(self.cam_hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        layers.show(self.cam_hwnd, x, y, w, h)
 
     # -- the paste effect ----------------------------------------------------
 
@@ -775,21 +684,14 @@ class Overlay:
         """Click-through, never focused: where the theme's paste burst plays."""
         win = tk.Toplevel(self.root)
         win.overrideredirect(True)
-        win.configure(bg=KEY)
-        win.attributes("-transparentcolor", KEY)
+        layers.transparent(win)
         win.attributes("-topmost", True)
         size = int(FX_SIZE * self.s)
         win.geometry(f"{size}x{size}+-32000+-32000")
         self.fx_canvas = tk.Canvas(win, width=size, height=size, bg=KEY, highlightthickness=0)
         self.fx_canvas.pack(fill="both", expand=True)
         win.update()
-        self.fx_hwnd = user32.GetParent(win.winfo_id())
-        ex = user32.GetWindowLongW(self.fx_hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            self.fx_hwnd, GWL_EXSTYLE,
-            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        )
-        user32.ShowWindow(self.fx_hwnd, SW_HIDE)
+        self.fx_hwnd = layers.prepare(win)
         self.fx_win = win
 
     def _draw_fx(self) -> None:
@@ -801,14 +703,13 @@ class Overlay:
         c.delete("all")
         if p >= 1.0:
             self._fx = None
-            user32.ShowWindow(self.fx_hwnd, SW_HIDE)
+            layers.hide(self.fx_hwnd)
             return
         size = int(FX_SIZE * self.s)
         theme = self._themes.get(self.cfg.theme)
         themes.paste_burst(c, theme, size / 2, size / 2, self.s, p)
         self.fx_win.attributes("-alpha", max(0.05, 1.0 - p ** 2))
-        user32.SetWindowPos(self.fx_hwnd, HWND_TOPMOST, x - size // 2, y - size // 2, size, size,
-                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        layers.show(self.fx_hwnd, x - size // 2, y - size // 2, size, size)
 
     def _theme_fonts(self, theme) -> None:
         """Tk fonts for the theme's family and size (remade when it changes)."""
@@ -865,6 +766,9 @@ class Overlay:
             self._labels_version += 1
 
     def _tick(self) -> None:
+        if getattr(self, "_quit_asked", False):
+            self.root.quit()
+            return
         self._restyle()
         try:
             self._draw_cam()

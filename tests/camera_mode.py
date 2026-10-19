@@ -155,9 +155,11 @@ drawn = []  # what the pill's window was told: shown at a spot, or hidden
 root = tk.Tk()
 root.withdraw()
 shown.cam_canvas = tk.Canvas(root, width=200, height=40)
-real_show, real_pos = overlay.user32.ShowWindow, overlay.user32.SetWindowPos
-overlay.user32.ShowWindow = lambda h, how: drawn.append(("hide" if how == 0 else "show", None))
-overlay.user32.SetWindowPos = lambda h, after, x, y, w, hh, flags: drawn.append(("at", (x, y)))
+from localflow import layers  # noqa: E402
+
+real_show, real_hide = layers.show, layers.hide
+layers.hide = lambda h: drawn.append(("hide", None))
+layers.show = lambda h, x, y, w=None, hh=None: drawn.append(("at", (x, y))) or True
 
 
 class Cam:
@@ -190,7 +192,7 @@ shown.camera.running = False
 drawn.clear()
 shown._draw_cam()
 expect("camera off: the pill hides", drawn == [("hide", None)], str(drawn))
-overlay.user32.ShowWindow, overlay.user32.SetWindowPos = real_show, real_pos
+layers.show, layers.hide = real_show, real_hide
 root.destroy()
 
 print("the face model (no camera opened)")

@@ -80,6 +80,10 @@ def set_app_identity() -> None:
     Windows names a tray balloon after the process's app ID; registering one
     (per user, no admin) with a display name and an icon does it. Must run
     before the first window or tray icon is made."""
+    import sys
+
+    if sys.platform != "win32":
+        return  # a Mac names the app after its process; nothing to register
     import ctypes
     import winreg
 
