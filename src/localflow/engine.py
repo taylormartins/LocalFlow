@@ -255,6 +255,17 @@ class Engine:
     def feed(self, block: np.ndarray) -> None:
         self.recorder.feed(block)
 
+    def _paste_effect(self) -> None:
+        """The theme's burst where the text went (overlay.paste_effect)."""
+        if not getattr(self.cfg.overlay, "paste_effect", False):
+            return
+        try:
+            from . import desktop
+
+            desktop.paste_effect()
+        except Exception:
+            log.debug("paste effect failed", exc_info=True)
+
     def discard(self) -> bool:
         """Throw away the dictation being transcribed: it won't be pasted
         ("cancel" after the stop phrase). True if one was on its way."""
@@ -346,7 +357,8 @@ class Engine:
         if inject:
             self._set_state(State.INJECTING, result.text[:60])
             try:
-                self.in_target(target, lambda: (self.injector.send(result.text), after()))
+                self.in_target(target, lambda: (self.injector.send(result.text),
+                                                self._paste_effect(), after()))
             except Exception as exc:
                 log.error("injection failed: %s", exc)
                 if target is not None:

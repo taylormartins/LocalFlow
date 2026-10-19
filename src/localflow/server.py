@@ -26,7 +26,9 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 def create_app(engine: Engine) -> FastAPI:
     cfg = engine.cfg.server
-    app = FastAPI(title="LocalFlow", docs_url=None, redoc_url=None)
+    from . import APP_NAME
+
+    app = FastAPI(title=APP_NAME, docs_url=None, redoc_url=None)
 
     def require_token(
         authorization: str | None = Header(default=None),

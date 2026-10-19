@@ -127,6 +127,72 @@ lis._mode_until = 0
 lis.ingest(np.zeros(1600, np.float32))
 expect("...looking away: it times out", not lis.commanding)
 
+print("by voice")
+switched = []
+commands.camera_switch = lambda on: switched.append(on) or ("Camera mode on" if on else "off")
+g = commands.Grammar()
+for said, want in (("camera on", True), ("turn the camera off", False), ("start watching", True),
+                   ("stop the camera", False)):
+    p = g.parse(said.split())
+    if p is not None:
+        p.command.action(p.arg, commands.Ctx())
+    expect(f"'{said}'", switched and switched[-1] is want, str(switched))
+expect("on the command sheet", any(t == "Camera" for t, _ in commands.help_sections()))
+
+print("the camera pill (overlay, no window)")
+from localflow import overlay  # noqa: E402
+
+
+import tkinter as tk  # noqa: E402
+
+from localflow import themes as _themes  # noqa: E402
+
+shown = overlay.Overlay.__new__(overlay.Overlay)
+shown.cfg, shown._themes, shown.s = cfg.overlay, _themes.Current(), 1.0
+shown._cam_key, shown.cam_hwnd = None, 0
+drawn = []  # what the pill's window was told: shown at a spot, or hidden
+
+root = tk.Tk()
+root.withdraw()
+shown.cam_canvas = tk.Canvas(root, width=200, height=40)
+real_show, real_pos = overlay.user32.ShowWindow, overlay.user32.SetWindowPos
+overlay.user32.ShowWindow = lambda h, how: drawn.append(("hide" if how == 0 else "show", None))
+overlay.user32.SetWindowPos = lambda h, after, x, y, w, hh, flags: drawn.append(("at", (x, y)))
+
+
+class Cam:
+    running, error = True, ""
+    cfg = cfg.camera
+
+    def __init__(self):
+        self.attention = Attention()
+
+    def looking(self):
+        return self.attention.looking
+
+
+shown.camera = Cam()
+shown.camera.attention.looking, shown.camera.attention.screen = True, 1
+shown._draw_cam()
+texts = [shown.cam_canvas.itemcget(i, "text") for i in shown.cam_canvas.find_all()
+         if shown.cam_canvas.type(i) == "text"]
+expect("camera on, looking at screen 1: the pill says so", "Screen 1" in texts and
+       any(k == "at" for k, _ in drawn), f"{texts} {drawn}")
+drawn.clear()
+shown._draw_cam()
+expect("...and isn't redrawn while nothing changes", not drawn, str(drawn))
+shown.camera.attention.looking, shown.camera.attention.screen = False, None
+shown._draw_cam()
+texts = [shown.cam_canvas.itemcget(i, "text") for i in shown.cam_canvas.find_all()
+         if shown.cam_canvas.type(i) == "text"]
+expect("looking away: it says so", "Looking away" in texts, str(texts))
+shown.camera.running = False
+drawn.clear()
+shown._draw_cam()
+expect("camera off: the pill hides", drawn == [("hide", None)], str(drawn))
+overlay.user32.ShowWindow, overlay.user32.SetWindowPos = real_show, real_pos
+root.destroy()
+
 print("the face model (no camera opened)")
 why = camera.available()
 if why:

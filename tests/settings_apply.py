@@ -140,6 +140,8 @@ for theme in list(themes.BUILT_IN.values()) + styles:
             themes.pill(canvas, theme, 0, 0, 250, 42, 21, 1.5, t)
             themes.recording_dot(canvas, theme, 22, 21, 1.5, themes.dot_colour(theme, "llm"), t)
             themes.wave(canvas, theme, themes.preview_levels(t), 38, 192, 21, 26, 1.5, 0.009, t)
+            for q in (0.0, 0.3, 0.7, 0.99):  # the paste effect
+                themes.paste_burst(canvas, theme, 75, 75, 1.5, q)
             for box in ((2, 2, 30, 27), (0, 0, 200, 120)):  # a click label, a screen number
                 themes.label_box(canvas, theme, *box, 1.5, "12", themes.font(theme, 1.5, True))
         except Exception as exc:

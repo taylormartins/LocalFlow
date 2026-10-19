@@ -993,6 +993,73 @@ def work_area(hwnd: int) -> wintypes.RECT:
     return info.rcWork
 
 
+# -- where the text went (the paste effect) -------------------------------------
+
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT)]
+
+
+UIA_TEXT2 = 10024  # TextPattern2: has the caret's range
+
+
+def caret_point() -> tuple[int, int] | None:
+    """Where the text cursor is now, on screen: Windows' caret (classic
+    apps), else UI Automation's caret range (browsers, Electron, modern
+    apps), else the middle of the focused control, else the window's."""
+    per_monitor_dpi()
+    fg = user32.GetForegroundWindow()
+    if not fg:
+        return None
+    info = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+    tid = user32.GetWindowThreadProcessId(fg, None)
+    if user32.GetGUIThreadInfo(tid, ctypes.byref(info)) and info.hwndCaret:
+        rc = info.rcCaret
+        if rc.bottom > rc.top:
+            pt = wintypes.POINT(rc.left, (rc.top + rc.bottom) // 2)
+            user32.ClientToScreen(info.hwndCaret, ctypes.byref(pt))
+            return pt.x, pt.y
+    try:
+        uia, UIA = _automation()
+        el = uia.GetFocusedElement()
+        try:
+            pattern = el.GetCurrentPatternAs(UIA_TEXT2, UIA.IUIAutomationTextPattern2._iid_)
+            if pattern:
+                rng = pattern.QueryInterface(UIA.IUIAutomationTextPattern2).GetCaretRange()[1]
+                rects = list(rng.GetBoundingRectangles() or [])
+                if len(rects) >= 4 and rects[3] > 0:
+                    return int(rects[0] + rects[2]), int(rects[1] + rects[3] / 2)
+        except Exception:
+            pass
+        r = el.CurrentBoundingRectangle
+        if r.right > r.left and r.bottom > r.top:
+            return (r.left + r.right) // 2, (r.top + r.bottom) // 2
+    except Exception:
+        log.debug("no caret from UI Automation", exc_info=True)
+    left, top, right, bottom = window_rect(fg)
+    return (left + right) // 2, (top + bottom) // 2
+
+
+#: Set by the overlay: effect_sink((x, y)) plays the theme's paste effect there.
+effect_sink = None
+
+
+def paste_effect() -> None:
+    """The theme's little burst where the text just went, if the overlay is up."""
+    if effect_sink is None:
+        return
+    try:
+        point = caret_point()
+    except Exception:
+        log.debug("caret lookup failed", exc_info=True)
+        return
+    if point is not None:
+        effect_sink(point)
+
+
 # -- terminal paste warnings ---------------------------------------------------
 
 #: The button on Windows Terminal's "paste more than 5 KiB" and "paste

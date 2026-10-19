@@ -1,4 +1,4 @@
-"""The app's icon: a golden wind. Three gusts, each ending in a curl.
+"""The app's icon: a golden crown lifted by the golden wind.
 
 Drawn with Pillow at 4x and scaled down, so it stays smooth at tray size.
 A small dot in the corner shows what LocalFlow is doing (none when idle); a
@@ -33,23 +33,38 @@ def _gust(d: ImageDraw.ImageDraw, x0: float, x1: float, y: float, r: float, up: 
     d.ellipse((x0 - h, y - h, x0 + h, y + h), fill=colour)
 
 
-GUSTS = [  # (start x, end x, y, curl radius, curls up?)
-    (34, 150, 92, 26, True),
-    (16, 196, 140, 28, True),
-    (48, 136, 188, 24, False),
-]
+RUBY = (214, 36, 72, 255)
+#: The crown: band corners and its three points (left, middle, right).
+CROWN = [(46, 150), (30, 62), (84, 106), (128, 34), (172, 106), (226, 62), (210, 150)]
+TIPS = [(30, 62), (128, 34), (226, 62)]
+#: The wind that carries it: two swooshes curving up under the crown
+#: (ellipse box, start and end angle; Pillow measures clockwise from 3 o'clock).
+SWOOSH = [((6, 70, 250, 238), 18, 150), ((40, 120, 226, 250), 30, 128)]
 
 
 def golden_wind(dot: tuple[int, int, int] | None = None, ring: bool = False,
                 size: int = 64) -> Image.Image:
+    """The emblem: a golden crown lifted by the golden wind (taking command
+    of the computer). The name is kept: everything that draws the icon
+    calls this."""
     img = Image.new("RGBA", (BIG, BIG), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     # A dark edge first, so the gold reads on a light taskbar too.
-    for colour, width in ((SHADOW, 30), (GOLD, 20)):
-        for g in GUSTS:
-            _gust(d, *g, colour=colour, width=width)
-    for x0, x1, y, r, up in GUSTS:  # a highlight along each gust
-        d.line((x0 + 8, y - 4, x1 - 6, y - 4), fill=GOLD_LIGHT, width=5)
+    d.polygon(CROWN, fill=SHADOW, outline=SHADOW, width=12)
+    for x, y in TIPS:
+        d.ellipse((x - 22, y - 22, x + 22, y + 22), fill=SHADOW)
+    d.rectangle((40, 146, 216, 186), fill=SHADOW)
+    for box, start, end in SWOOSH:
+        d.arc(box, start, end, fill=SHADOW, width=30)
+    # Gold: the wind first, so the crown sits in front of it.
+    for k, (box, start, end) in enumerate(SWOOSH):
+        d.arc(box, start, end, fill=GOLD if k == 0 else GOLD_LIGHT, width=20)
+    d.polygon(CROWN, fill=GOLD, outline=SHADOW, width=6)
+    for x, y in TIPS:
+        d.ellipse((x - 14, y - 14, x + 14, y + 14), fill=GOLD_LIGHT)
+    d.rectangle((46, 150, 210, 182), fill=GOLD, outline=SHADOW, width=5)
+    d.line((52, 156, 204, 156), fill=GOLD_LIGHT, width=5)  # light on the band
+    d.polygon([(128, 150), (140, 166), (128, 182), (116, 166)], fill=RUBY)  # a jewel
     if dot is not None:
         cx, cy, r = 206, 206, 40
         if ring:
@@ -72,7 +87,7 @@ def set_app_identity() -> None:
     from .config import PROJECT_ROOT
 
     try:
-        ico = PROJECT_ROOT / "data" / "app.ico"
+        ico = PROJECT_ROOT / "data" / "app-crown.ico"  # renamed when the art changes
         if not ico.exists():
             ico.parent.mkdir(parents=True, exist_ok=True)
             golden_wind(size=256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])

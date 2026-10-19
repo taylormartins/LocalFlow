@@ -309,7 +309,7 @@ def _camera(nb, cfg: Config) -> None:
     from .proc import NO_WINDOW, run_localflow
 
     tab = _scroller(nb, "Camera")
-    card = _card(tab, "Camera mode", "Part one of camera control: LocalFlow knows whether you're "
+    card = _card(tab, "Camera mode", "Part one of camera control: it knows whether you're "
                  "looking at your screens, and which one. Frames are read, turned into a "
                  "direction and dropped: nothing is recorded or saved but the calibration. "
                  "Off by default; also in the tray menu. The plan for the rest (gestures, "
@@ -546,6 +546,9 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
         _save("overlay", "opacity", round(op.get(), 2))
 
     op_scale.bind("<ButtonRelease-1>", op_done)
+    _check(card, "Paste effect: a little burst in the theme's style where pasted text lands "
+           "(flames, sparkles, ice, a ripple)", cfg.overlay.paste_effect,
+           lambda v: _save("overlay", "paste_effect", v))
     op_scale.configure(command=lambda _v: op_shown.configure(text=f"{op.get():.0%}"))
 
     card = _card(tab, "Click labels", '"Show labels" numbers, the window list and the grid: '
@@ -875,7 +878,7 @@ def _listening(nb, cfg: Config) -> None:
     from tkinter import ttk
 
     tab = _scroller(nb, "Listening")
-    card = _card(tab, "Default mode", "Where LocalFlow waits: for the start phrase, or in "
+    card = _card(tab, "Default mode", "Where it waits: for the start phrase, or in "
                  'command mode. Also by voice: "change default mode".')
     var = tk.StringVar(value=cfg.always_on.default_mode)
     for value, text in (("dictation", "Dictation: wait for the start phrase"),
@@ -1065,7 +1068,19 @@ def main(cfg: Config) -> int:
     _style(root)
     head = ttk.Frame(root, padding=(18, 14, 18, 4))
     head.pack(fill="x")
-    ttk.Label(head, text="LocalFlow", style="Title.TLabel").pack(side="left")
+    from . import APP_NAME
+
+    try:  # the crown beside the name
+        from PIL import ImageTk
+
+        from .icon import golden_wind
+
+        head._crown = ImageTk.PhotoImage(golden_wind(size=40))
+        ttk.Label(head, image=head._crown, style="Title.TLabel").pack(side="left",
+                                                                       padx=(0, 8))
+    except Exception:
+        log.debug("crown failed", exc_info=True)
+    ttk.Label(head, text=APP_NAME, style="Title.TLabel").pack(side="left")
     ttk.Label(head, text="   Settings  ·  changes apply at once", style="Sub.TLabel").pack(
         side="left", pady=(8, 0))
     nb = ttk.Notebook(root)

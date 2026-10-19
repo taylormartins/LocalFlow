@@ -800,6 +800,27 @@ def undo_step(p: Parsed, ctx: Ctx, before_fg: int, after_fg: int, target: int, s
     return None
 
 
+#: Set by the app: camera_switch(on) -> what happened ("Camera mode on").
+camera_switch: Callable[[bool], str] | None = None
+
+
+def _camera(on: bool) -> Callable[[str, Ctx], str]:
+    def run(arg: str, ctx: Ctx) -> str:
+        if camera_switch is None:
+            raise CommandError("camera mode isn't available here")
+        return camera_switch(on)
+    return run
+
+
+def _calibrate_camera(arg: str, ctx: Ctx) -> str:
+    """Look at a dot on each screen (its own process; the windows take focus)."""
+    from .proc import run_localflow
+
+    threading.Thread(target=run_localflow, args=("camera-calibrate",), daemon=True,
+                     name="localflow-calibrate").start()
+    return "Calibrating - look at each dot"
+
+
 def _undo_command(arg: str, ctx: Ctx) -> str:
     if not _undo:
         raise CommandError("no command to undo")
@@ -918,6 +939,11 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("scratch that", "delete the text just pasted", ("scratch",)),
         ("show history", "every dictation, searchable", ("history",)),
     ]),
+    ("Camera", [
+        ("camera on  ·  camera off", "know which screen you're looking at",
+         ("camera_on", "camera_off")),
+        ("calibrate camera", "look at a dot on each screen", ("calibrate_camera",)),
+    ]),
     ("Command mode", [
         ("exit  ·  done  ·  your stop phrase", "leave command mode", ()),
         ("dictation mode  ·  switch mode", "dictate, then come back here", ()),
@@ -975,7 +1001,7 @@ COMMANDS: list[Command] = [
     Command("new_line", ["new line", "next line", "line break"], _keys("shift+enter", "New line"),
             "new line without sending (Shift+Enter)", keys=True),
     Command("scratch", ["scratch that", "delete that", "strike that"], _scratch,
-            "delete the text LocalFlow just pasted", keys=True),
+            "delete the text just pasted", keys=True),
     Command("tab", ["[press] tab"], _keys("tab", "Tab"), "press Tab", keys=True),
     Command("shift_tab", ["[press] shift tab"], _keys("shift+tab", "Shift+Tab"),
             "press Shift+Tab", keys=True),
@@ -1199,6 +1225,15 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
     # "show command" and "show help" would otherwise be "switch to" a window
     # called that (and "command" is the terminal); "community" is how the
     # small model heard "commands" in a real attempt.
+    Command("camera_on", ["camera [mode] on", "turn on [the] camera [mode]",
+                          "turn [the] camera [mode] on", "start [the] camera", "start watching"],
+            _camera(True), "camera mode on: know which screen you're looking at"),
+    Command("camera_off", ["camera [mode] off", "turn off [the] camera [mode]",
+                           "turn [the] camera [mode] off", "stop [the] camera", "stop watching"],
+            _camera(False), "camera mode off"),
+    Command("calibrate_camera", ["calibrate [the] camera", "camera calibration",
+                                 "calibrate [the] (eyes|gaze|eye tracking)"],
+            _calibrate_camera, "camera mode: look at a dot on each screen in turn"),
     Command("help", ["what can i say", "help", "[show|open] [me] [the] help",
                      "show [me] [the] (commands|command|community|command list|command sheet)",
                      "(list|see) [the|my] commands", "(commands|command) list",

@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="LocalFlow">
+<meta name="apple-mobile-web-app-title" content="Golden Flow">
 <meta name="theme-color" content="#0d1117">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-180.png">
-<title>LocalFlow</title>
+<title>Golden Flow</title>
 <style>
   :root {
     --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d1d9e0;
@@ -92,7 +92,7 @@
 </head>
 <body>
 <header>
-  <h1><span class="dot" id="dot"></span>LocalFlow</h1>
+  <h1><span class="dot" id="dot"></span>Golden Flow</h1>
   <button class="iconbtn" id="settingsBtn" aria-label="Settings">&#9881;</button>
 </header>
 
@@ -166,7 +166,7 @@ async function health() {
     setStatus(`ready · ${j.whisper_model} on ${j.whisper_device}${j.cleanup_enabled ? ' · cleanup on' : ''}`);
   } catch (e) {
     dot.className = 'dot err';
-    setStatus('cannot reach PC — is LocalFlow running?', true);
+    setStatus('cannot reach PC — is Golden Flow running?', true);
   }
 }
 

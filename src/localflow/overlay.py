@@ -92,6 +92,10 @@ PINK = "#e86fb0"
 TEAL = "#2ec4b6"
 
 FRAME_MS = 33
+#: Camera mode's pill (px at 100%).
+CAM_W, CAM_H = 170, 30
+#: The paste effect: its square's side (px at 100%) and how long it plays.
+FX_SIZE, FX_SECONDS = 150, 0.8
 
 
 def GLYPH_FONT(s: float) -> tuple:  # noqa: N802
@@ -192,6 +196,11 @@ class Overlay:
         desktop.label_sink = self.set_labels
         desktop.list_sink = self.set_list
         desktop.help_sink = self.set_help
+        desktop.effect_sink = self.set_effect
+        self._fx: tuple | None = None  # (x, y, started) of the paste effect playing
+        #: camera.Watcher, set by the app: its pill shows while camera mode is on.
+        self.camera = None
+        self._cam_key = None
         self._help: list = []
         self._help_version = 0
         self._help_drawn = 0
@@ -207,6 +216,10 @@ class Overlay:
         """The window list: [(number, "text"), ...]; [] hides it."""
         self._list = list(lines)
         self._list_version += 1
+
+    def set_effect(self, point: tuple[int, int]) -> None:
+        """Play the theme's paste effect at a screen point (any thread)."""
+        self._fx = (int(point[0]), int(point[1]), time.monotonic())
 
     def set_help(self, sections: list) -> None:
         """The command sheet: [(section, [(say, does), ...]), ...]; [] hides it."""
@@ -342,6 +355,8 @@ class Overlay:
         self._make_label_layer(tk)
         self._make_list_layer(tk)
         self._make_help_layer(tk)
+        self._make_fx_layer(tk)
+        self._make_cam_layer(tk)
         log.info("overlay ready")
 
         root.after(FRAME_MS, self._tick)
@@ -682,6 +697,119 @@ class Overlay:
         user32.SetWindowPos(self.help_hwnd, HWND_TOPMOST, left, top, W, H,
                             SWP_NOACTIVATE | SWP_SHOWWINDOW)
 
+    # -- the camera pill ------------------------------------------------------
+
+    def _make_cam_layer(self, tk) -> None:
+        """Camera mode's own small pill: an eye, and the screen being looked at."""
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=KEY)
+        win.attributes("-transparentcolor", KEY)
+        win.attributes("-topmost", True)
+        w, h = int(CAM_W * self.s), int(CAM_H * self.s)
+        win.geometry(f"{w}x{h}+-32000+-32000")
+        self.cam_canvas = tk.Canvas(win, width=w, height=h, bg=KEY, highlightthickness=0)
+        self.cam_canvas.pack(fill="both", expand=True)
+        win.update()
+        self.cam_hwnd = user32.GetParent(win.winfo_id())
+        ex = user32.GetWindowLongW(self.cam_hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(
+            self.cam_hwnd, GWL_EXSTYLE,
+            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        )
+        user32.ShowWindow(self.cam_hwnd, SW_HIDE)
+
+    def _draw_cam(self) -> None:
+        """Redrawn only when something changes: on/off, looking, which screen, theme."""
+        from . import desktop, themes
+        from .camera import parse_cameras
+
+        cam = self.camera
+        on = bool(cam is not None and cam.running)
+        state = (on, on and cam.looking(), on and cam.attention.screen, on and cam.error,
+                 getattr(self, "_style_key", None) if on else None)
+        if state == self._cam_key:
+            return
+        self._cam_key = state
+        if not on:
+            user32.ShowWindow(self.cam_hwnd, SW_HIDE)
+            return
+        _, looking, screen, error, _ = state
+        theme = self._themes.get(self.cfg.theme)
+        s = self.s
+        w, h = int(CAM_W * s), int(CAM_H * s)
+        c = self.cam_canvas
+        c.delete("all")
+        plain = themes.with_changes(theme, border="plain" if theme.border in ("ornate", "flame",
+                                                                              "frost") else theme.border)
+        themes.pill(c, plain, 0, 0, w - 1, h - 1, h / 2, s)
+        accent = theme.accent or theme.text
+        ex, ey = 20 * s, h / 2  # the eye: open while you look, shut when you don't
+        if looking:
+            c.create_polygon(ex - 11 * s, ey, ex, ey - 7 * s, ex + 11 * s, ey, ex, ey + 7 * s,
+                             fill="", outline=accent, width=max(1.0, 1.6 * s), smooth=True)
+            c.create_oval(ex - 3.6 * s, ey - 3.6 * s, ex + 3.6 * s, ey + 3.6 * s, fill=accent,
+                          outline="")
+        else:
+            c.create_arc(ex - 11 * s, ey - 8 * s, ex + 11 * s, ey + 6 * s, start=200, extent=140,
+                         style="arc", outline=themes.blend(accent, theme.bg, 0.4),
+                         width=max(1.0, 1.6 * s))
+        text = (f"Camera: {error}" if error else
+                f"Screen {screen}" if looking and screen else
+                "Looking" if looking else "Looking away")
+        c.create_text(36 * s, ey, text=text[:26], anchor="w",
+                      fill=theme.text if looking else themes.blend(theme.text, theme.bg, 0.4),
+                      font=themes.font(theme, s, size=max(11, theme.font_size - 2)))
+        # On the screen being looked at (else the first camera's), bottom right.
+        mons = desktop.monitors()
+        mount = next(iter(parse_cameras(cam.cfg.cameras).values()), 1)
+        n = screen if looking and screen and 1 <= screen <= len(mons) else mount
+        work = mons[n - 1][2] if 1 <= n <= len(mons) else _work_area()
+        x = work.right - w - int(16 * s)
+        y = work.bottom - h - int(int(self.cfg.margin) * s)
+        user32.SetWindowPos(self.cam_hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
+
+    # -- the paste effect ----------------------------------------------------
+
+    def _make_fx_layer(self, tk) -> None:
+        """Click-through, never focused: where the theme's paste burst plays."""
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=KEY)
+        win.attributes("-transparentcolor", KEY)
+        win.attributes("-topmost", True)
+        size = int(FX_SIZE * self.s)
+        win.geometry(f"{size}x{size}+-32000+-32000")
+        self.fx_canvas = tk.Canvas(win, width=size, height=size, bg=KEY, highlightthickness=0)
+        self.fx_canvas.pack(fill="both", expand=True)
+        win.update()
+        self.fx_hwnd = user32.GetParent(win.winfo_id())
+        ex = user32.GetWindowLongW(self.fx_hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(
+            self.fx_hwnd, GWL_EXSTYLE,
+            ex | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        )
+        user32.ShowWindow(self.fx_hwnd, SW_HIDE)
+        self.fx_win = win
+
+    def _draw_fx(self) -> None:
+        from . import themes
+
+        x, y, started = self._fx
+        p = (time.monotonic() - started) / FX_SECONDS  # 0 .. 1
+        c = self.fx_canvas
+        c.delete("all")
+        if p >= 1.0:
+            self._fx = None
+            user32.ShowWindow(self.fx_hwnd, SW_HIDE)
+            return
+        size = int(FX_SIZE * self.s)
+        theme = self._themes.get(self.cfg.theme)
+        themes.paste_burst(c, theme, size / 2, size / 2, self.s, p)
+        self.fx_win.attributes("-alpha", max(0.05, 1.0 - p ** 2))
+        user32.SetWindowPos(self.fx_hwnd, HWND_TOPMOST, x - size // 2, y - size // 2, size, size,
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW)
+
     def _theme_fonts(self, theme) -> None:
         """Tk fonts for the theme's family and size (remade when it changes)."""
         if self._fonts_for == (theme.font, theme.font_size):
@@ -738,6 +866,16 @@ class Overlay:
 
     def _tick(self) -> None:
         self._restyle()
+        try:
+            self._draw_cam()
+        except Exception:
+            log.debug("camera pill failed", exc_info=True)
+        if self._fx is not None:
+            try:
+                self._draw_fx()
+            except Exception:
+                self._fx = None
+                log.debug("paste effect failed", exc_info=True)
         if self._help_version != self._help_drawn:
             try:
                 self._draw_help()

@@ -1,4 +1,4 @@
-# LocalFlow configuration TEMPLATE.
+# Golden Flow (localflow) configuration TEMPLATE.
 #
 # install.ps1 copies this to config.toml on first run (or: copy it yourself).
 # config.toml is gitignored: it is yours, and may hold your server token.
@@ -162,11 +162,26 @@ command_window = 5.0       # a command after a dictation counts this long after 
 command_mode_seconds = 30.0  # command mode ends after this long without a command
 command_llm = true         # command mode asks the cleanup LLM (if in use) about
                            # requests the built-in commands don't cover
+do_words = ["do"]          # "<start phrase> do enter": one command, no command mode
+quick = false              # quick mode: "<start> continue send" in one breath
+quick_stop = ["over"]      # quick mode's end word (last word before a pause)
+quick_send = ["send"]      # ...and the one that also presses Enter
+code_words = []            # quick mode shorthand, "word = command": ["go = submit"]
 
 [always_on.commands]
 # Extra spellings for voice commands, added to the built-in ones (names and
 # built-ins in commands.py). Example:
 # submit = ["fire away"]
+
+[camera]
+# Camera mode, part one: which screen you're looking at (Settings > Camera).
+# Needs camera support: uv sync --no-dev --inexact --extra camera. Frames are
+# read, turned into a direction and dropped; only the calibration is saved.
+enabled = false
+cameras = ["0:1"]          # camera:screen it sits on, e.g. ["0:1", "1:2"]
+gate_start = true          # the start phrase counts only while you look at a screen
+hold_commands = true       # command mode stays open while you look at a screen
+fps = 10.0
 
 [history]
 # Every dictation is saved to history.jsonl (this PC only) for tray >
@@ -186,3 +201,4 @@ terms = [
 # Literal spoken -> written fixes applied last, after cleanup.
 [vocabulary.replacements]
 "local flow" = "LocalFlow"
+"golden flow" = "Golden Flow"

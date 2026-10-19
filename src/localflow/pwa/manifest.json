@@ -1,6 +1,6 @@
 {
-  "name": "LocalFlow",
-  "short_name": "LocalFlow",
+  "name": "Golden Flow",
+  "short_name": "Golden Flow",
   "description": "Push-to-talk dictation powered by your own PC.",
   "start_url": "/",
   "scope": "/",

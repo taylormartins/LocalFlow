@@ -581,6 +581,66 @@ def label_box(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, s: fl
                       text=text, fill=theme.text, font=font)
 
 
+def paste_burst(c, theme: Theme, cx: float, cy: float, s: float, p: float) -> None:
+    """Where pasted text landed: a short burst in the theme's style, at
+    progress ``p`` (0 .. 1). Fire: flames leap up. Ice: crystals fly out.
+    Royal (stardust): gold sparkles. Gemstone: rainbow glints. Anything
+    else: a ripple in its accent."""
+    ease = 1 - (1 - p) ** 3
+    accent = theme.accent or theme.edge or theme.text
+    if theme.dot == "flame" or theme.border == "flame":
+        rng = random.Random(7)
+        for k in range(9):
+            dx = (k - 4) * 7 * s + rng.uniform(-3, 3) * s
+            rise = (18 + rng.uniform(0, 34)) * s * ease
+            h = (22 + rng.uniform(0, 16)) * s * (1 - p * 0.7)
+            w = (6 + rng.uniform(0, 4)) * s * (1 - p * 0.5)
+            base = cy + 6 * s - rise * 0.4
+            sway = math.sin(p * 9 + k) * 3 * s
+            for scale, col in ((1.0, blend(accent, "#c81e00", 0.35)), (0.55, "#ffd060")):
+                c.create_polygon(cx + dx - w * scale, base, cx + dx + sway, base - h * scale - rise * 0.6,
+                                 cx + dx + w * scale, base, fill=col, outline="", smooth=True)
+        for k in range(6):  # embers
+            a = rng.uniform(math.pi * 1.15, math.pi * 1.85)
+            r = (20 + 50 * ease) * s
+            ex, ey = cx + math.cos(a) * r, cy + math.sin(a) * r
+            c.create_oval(ex - 1.6 * s, ey - 1.6 * s, ex + 1.6 * s, ey + 1.6 * s, fill="#ffb347",
+                          outline="")
+        return
+    if theme.dot == "snowflake" or theme.border == "frost":
+        r = (10 + 52 * ease) * s
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=blend(theme.edge or "#bfeaff",
+                                                                    "#ffffff", 0.3),
+                      width=max(1.0, 2.2 * s * (1 - p)))
+        for k in range(6):
+            a = k * math.pi / 3 + p * 0.8
+            fx, fy = cx + math.cos(a) * r * 0.8, cy + math.sin(a) * r * 0.8
+            _snowflake(c, fx, fy, (10 - 3 * p) * s, "#e6f8ff", max(1.0, 1.3 * s), a)
+        _snowflake(c, cx, cy, (14 - 8 * p) * s, "#ffffff", max(1.2, 1.6 * s), p)
+        return
+    if theme.dot in ("stardust", "gem"):
+        rng = random.Random(3)
+        for k in range(10):
+            a = k * 2 * math.pi / 10 + rng.uniform(-0.2, 0.2)
+            r = (8 + rng.uniform(30, 60) * ease) * s
+            size = (5 + rng.uniform(0, 6)) * s * (1 - p * 0.6) * (0.7 + 0.3 * math.sin(p * 12 + k))
+            col = hue(k / 10 + p * 0.3, 0.5, 1.0) if theme.dot == "gem" else \
+                blend(STARDUST["llm"], "#ffffff", rng.uniform(0, 0.6))
+            _star(c, cx + math.cos(a) * r, cy + math.sin(a) * r, max(0.5, size), col)
+        _star(c, cx, cy, (16 - 12 * p) * s, "#ffffff" if theme.dot == "gem" else STARDUST["llm"])
+        return
+    for k, lag in enumerate((0.0, 0.25)):  # the default: a ripple, like a tap
+        q = max(0.0, min(1.0, (p - lag) / (1 - lag)))
+        if q <= 0:
+            continue
+        r = (6 + 56 * (1 - (1 - q) ** 2)) * s
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=accent,
+                      width=max(1.0, (3.0 - 1.2 * k) * s * (1 - q)))
+    if p < 0.3:
+        r = 6 * s * (1 - p / 0.3)
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=accent, outline="")
+
+
 def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, t: float) -> None:
     """The pulsing "recording" mark, in the theme's style."""
     pulse = math.sin(t * 5)

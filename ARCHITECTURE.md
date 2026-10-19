@@ -1,4 +1,8 @@
-# LocalFlow — architecture and handover notes
+# Golden Flow (localflow) — architecture notes
+
+> New here? Read [HANDOFF.md](HANDOFF.md) first: what exists, how to run,
+> test and release it, and the rules this project follows. This file is the
+> deep dive: how each part works and the traps that cost real time.
 
 For whoever maintains this next. The README covers using it; this covers how it
 works, why it is built this way, and the traps that cost real debugging time.
@@ -735,8 +739,33 @@ phrase (while dictating) is among them.
 
 ## Testing
 
-There is no unit-test suite. These are integration scripts that need a GPU,
-Ollama, and (for one) a keyboard — which is where all the real bugs lived.
+There is no pytest suite: each file in `tests/` is a script that prints
+pass/FAIL lines and ends "all passed" or "N FAILED". Most new ones need no
+GPU, model or window. **Those that open windows or press keys (marked GUI)
+must only run while nobody is using the PC** (and not mid-dictation: voice
+isn't keyboard input, so an idle check alone isn't enough).
+
+No windows, no models (run any time):
+
+```powershell
+uv run python tests/learning.py         # command mode: learning, modes, grid, do word, sounds
+uv run python tests/quick_mode.py       # quick mode, the do word, input buffering
+uv run python tests/settings_apply.py   # settings apply live; 843 theme combos draw; labels
+uv run python tests/layouts.py          # tiling maths, arrangement styles, layouts, chips
+uv run python tests/camera_mode.py      # camera geometry, decisions, pill (no camera opened)
+uv run python tests/live_stop.py        # the stop phrase from the live preview
+uv run python tests/edit_commands.py    # edit by voice (keys and LLM faked)
+uv run python tests/enroll_redraw.py    # phrase setup redraw
+uv run python tests/ollama_health.py    # the Ollama watchdog (faked)
+uv run python tests/command_phrases.py  # how phrases from real logs parse
+```
+
+CPU-heavy, no windows: `tests/always_on.py` (TTS voices through the real
+listener, a few minutes). GUI, only when the PC is idle:
+`tests/desktop_commands.py`, `tests/paste_target.py`,
+`tests/terminal_paste.py`, `tests/hotkeys.py`, `tests/layouts.py --live`.
+
+Older integration scripts (GPU / Ollama):
 
 ```powershell
 uv run localflow check                      # GPU, mic, Ollama, hotkeys, server

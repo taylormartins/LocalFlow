@@ -1,18 +1,33 @@
 # Camera mode: design notes
 
-**Status:** part one, attention gating (section 1 below), is built:
-`camera.py`, Settings ▸ Camera, `tests/camera_mode.py`. It uses head pose
-plus iris position from MediaPipe's face landmarker, a per-camera,
-per-screen calibration (nearest calibrated direction), and a camera-to-
-screen mapping (`camera.cameras`, "0:1"). The rest is still a plan.
+**Status (2026-10-18):**
+
+| Part | State |
+|---|---|
+| 1. Attention gating: which screen you're looking at; the start phrase gated; command mode held | **Built** (`camera.py`, Settings ▸ Camera, `tests/camera_mode.py`) |
+| Camera pill: an eye and "Screen N" on the screen you're looking at | **Built** (`overlay._draw_cam`) |
+| "camera on / off", "calibrate camera" by voice (and on the command sheet) | **Built** |
+| Everything else below | Plan |
+
+Built so far: head pose plus iris position from MediaPipe's face
+landmarker, a per-camera, per-screen calibration (nearest calibrated
+direction), and a camera-to-screen mapping (`camera.cameras`, "0:1"). It
+has not yet been tried against a real face at the time of writing: the
+first real calibration will show how well one webcam separates screens.
 
 Voice runs the PC today. The next step is the rest of the body: where you
 look, what your hands do, and a way to stop everything instantly. This is
-the plan for adding a webcam (and, later, an eye tracker) as a second input,
-written so it can be built in small, separately useful steps. Nothing here
-exists yet.
+the plan for adding webcams (and, later, an eye tracker) as a second input,
+written so it can be built in small, separately useful steps.
 
-## Principles (the same as the rest of LocalFlow)
+Why both: voice is strong at intent, vocabulary and state changes ("close
+this", "open the terminal") and weak at spatial targeting, gating and fast
+interrupts (speech-to-text plus parsing is 300-1500 ms). Vision is the
+reverse: landmark models on the CPU give presence, direction and hand
+shape in a few milliseconds a frame, with no audio latency. Each covers the
+other's blind spots.
+
+## Principles (the same as the rest of Golden Flow)
 
 - **Local only.** Frames are processed in memory and dropped. Nothing is
   recorded or saved to disk, sent anywhere, or kept beyond the last second.
@@ -48,6 +63,19 @@ Only act while you're looking at the screen.
   - Optional: dictation pauses while you look away.
 - Hysteresis: about 300 ms to switch on, about 1 s to switch off, so a
   glance doesn't toggle it.
+- **Several screens.** One camera sees head turns, but two screens to the
+  same side are hard to tell apart by gaze alone. A camera on each screen
+  you use solves it: whichever camera you face most squarely, after
+  calibration, names the screen. `camera.cameras` maps each camera to the
+  screen it sits on.
+- **Presence** (next): nobody at the desk for N minutes pauses media and
+  locks the PC (optional); sitting back down wakes the screen and says
+  what happened while you were away. A face appearing is a better "I'm
+  back" than moving the mouse.
+- The long-term promise: no wake word at all. While you're looking at a
+  screen, speech can be heard as a command or dictation directly; looking
+  away (at a person, a phone) gates it off. That needs a very reliable
+  gaze signal first, so the start phrase stays until it has one.
 
 ### 2. Spatial window addressing
 
@@ -82,13 +110,17 @@ The one feature that has to be both instant and unmissable.
   recognition is busy or confused. That's the point of them.
 - They're logged ("kill gesture"), with a sound, so a false trigger is
   visible and can be tuned.
+- **"Shh" (a finger to the lips)**: mute the mic at once and, once it
+  exists, stop speech output; pause media. The face and hand landmarks
+  together make it unambiguous (index fingertip at the mouth).
 
 ### 4. Continuous controls (where voice is clumsy)
 
 "Scroll down a bit... more... more" is slow. Hands do amounts well.
 
 - MediaPipe Hand Landmarker: 21 points a hand, ~5-8 ms on the CPU.
-- **Pinch and slide**: thumb-index pinch arms a slider; moving the pinched
+- **Pinch and slide** (vertical: volume, brightness, a window's opacity;
+  horizontal: scrub a video or a track): thumb-index pinch arms a slider; moving the pinched
   hand up and down scrolls (or sets the volume or brightness) in proportion;
   releasing ends it. The pinch is the "clutch", so a moving hand alone does
   nothing.
@@ -130,6 +162,39 @@ word was said*.
 - Dwell-to-click is deliberately *not* planned as a default (the "Midas
   touch" problem: everything you look at gets clicked). The voice word or a
   pinch confirms.
+
+### 7. Micro-gestures (discrete, quick, unambiguous)
+
+Short poses checked with simple geometry on the 21 hand landmarks (angles
+and distances, normalised by hand size). Each has to be held briefly
+(about 300 ms) and be clearly different from resting hands, typing or
+reaching for the mouse.
+
+| Gesture | How it's recognised | What it does |
+|---|---|---|
+| Thumbs up / down | thumb tip above / below the wrist, other fingers curled | "yes" / "no" to a waiting confirmation (an LLM plan that sends something, "go to sleep") |
+| Swipe left / right | hand centre moves fast sideways (dx over a threshold within ~300 ms) | back / forward, or the previous / next virtual desktop |
+| Peace sign | index and middle out, ring and pinky curled | mute / unmute the mic, or toggle command mode |
+| Fist | every fingertip near the palm | show the desktop / minimise all |
+| Flick away | back of the hand, fingers flicked outward | dismiss a notification, hide the labels or the command sheet |
+| Two L-shapes | both hands, thumb and index at right angles | frame a region: screenshot it, or put a window there |
+
+### Design rules (from building and from a second opinion)
+
+- **No "gorilla arm".** Nothing should need a hand held up for long:
+  gestures are short triggers (under 2 s) or can be made with an elbow or
+  wrist resting on the desk. Continuous controls use a pinch as a clutch so
+  the hand can rest between moves.
+- **Look back in time for pointing.** People point slightly before and
+  while saying "this". When "this" is transcribed, take where the hand or
+  gaze was 200-400 ms before the word's start, from the ring buffer.
+- **Keep the vision stack small and local.** Landmark models (MediaPipe;
+  YOLO-pose or small ONNX models if needed) at 15-30 fps on the CPU, and
+  geometry rules, not a vision LLM on every frame.
+- **Escalate only on request.** A single high-resolution frame goes to a
+  vision-capable LLM only when asked ("what is this?" while pointing at
+  something on the desk), and only to a local model unless the user
+  chooses otherwise.
 
 ## How it fits the code
 
@@ -179,14 +244,18 @@ camera thread (OpenCV capture, 640x480 @ 30 fps)
 
 ## Build order
 
-1. **Kill switch** (cover the lens): no models, biggest safety value,
-   smallest change.
-2. **Attention gating** for the start phrase and command mode.
+1. ~~**Attention gating** for the start phrase and command mode.~~ Built,
+   with the camera pill and voice on/off.
+2. **Kill switch** (cover the lens) and the open-palm stop: no extra
+   model, biggest safety value. Next.
 3. **Pinch-slide scrolling and volume**, then **tilt zoom**.
 4. **Spatial addressing and "that"/"this"** (gaze plus voice fusion).
 5. **Pointing** at windows and monitors.
 6. **Eye tracker support** (`GazeSource`), then gaze-and-say clicking of
    buttons.
+
+7. **Micro-gestures** (thumbs up/down for confirmations first: it fits the
+   "yes" prompts that exist today), then presence and auto-lock.
 
 ## Open questions
 

@@ -8,6 +8,7 @@ import time
 
 from PIL import Image
 
+from . import APP_NAME
 from .engine import Engine, State
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,8 @@ LIVE_SETTINGS = {
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
                   "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words",
                   "code_words"),
-    "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size"),
+    "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size",
+                "paste_effect"),
     "history": ("enabled",),
     "camera": ("enabled", "cameras", "gate_start", "hold_commands", "fps"),
 }
@@ -149,7 +151,7 @@ class Tray:
         self.icon = pystray.Icon(
             "localflow",
             icon=_icon(STATE_COLOURS[State.IDLE]),
-            title="LocalFlow - starting",
+            title=f"{APP_NAME} - starting",
             menu=pystray.Menu(
                 pystray.MenuItem("Copy last transcript", self._copy_last),
                 pystray.MenuItem("Dictation history...", lambda icon, item: open_history()),
@@ -302,19 +304,29 @@ class Tray:
 
     def _toggle_camera(self, icon, item) -> None:
         """Camera mode on or off (and saved)."""
+        if self.camera is not None:
+            self.set_camera(not self.camera.running)
+            icon.update_menu()
+
+    def set_camera(self, on: bool) -> str:
+        """Camera mode on or off, saved: the tray, Settings and "camera on"."""
         from .config import save_setting
 
-        cam = self.camera
-        if cam is None:
-            return
-        on = not cam.running
+        if self.camera is None:
+            return "No camera mode here"
         self.engine.cfg.camera.enabled = on
         try:
             save_setting("camera", "enabled", on)
         except OSError as exc:
             log.warning("could not save camera mode: %s", exc)
         self._camera_changed()
-        icon.update_menu()
+        try:
+            self.icon.update_menu()
+        except Exception:
+            pass
+        if on and self.camera.error:
+            return f"Camera: {self.camera.error}"
+        return "Camera mode on" if on else "Camera mode off"
 
     def _camera_changed(self) -> None:
         cam = self.camera
@@ -454,8 +466,8 @@ class Tray:
     def _new_version(self, latest: str) -> None:
         from .updates import current
 
-        self.engine.notice(f"LocalFlow {latest} is out - tray > Update", "info", 10)
-        self.notify(f"LocalFlow {latest} is available (you have {current()}). "
+        self.engine.notice(f"{APP_NAME} {latest} is out - tray > Update", "info", 10)
+        self.notify(f"{APP_NAME} {latest} is available (you have {current()}). "
                     "Right-click the tray icon > Update to get it.")
         self.icon.update_menu()
 
@@ -480,7 +492,7 @@ class Tray:
             if self.updates.update_available or install_incomplete():
                 target = latest if self.updates.update_available else current()
                 self.engine.notice(f"Updating to {target}…", "info", 600)
-                self.notify(f"Updating to LocalFlow {target}. It restarts when it's done; "
+                self.notify(f"Updating to {APP_NAME} {target}. It restarts when it's done; "
                             "the tray icon may disappear for a minute.")
             log_file = PROJECT_ROOT / "update.log"
             start_size = log_file.stat().st_size if log_file.exists() else 0
@@ -505,13 +517,13 @@ class Tray:
                         where = step or "starting"
                         self.engine.notice(f"Update stuck? ({where})", "error", 30)
                         self.notify(f"The update hasn't moved for 5 minutes (at: {where}). "
-                                    "It may still finish; update.log in the LocalFlow folder "
+                                    f"It may still finish; update.log in the {APP_NAME} folder "
                                     "shows what it's doing. You can try Update again.")
                         break
                     continue
                 if code == "3":
-                    self.engine.notice(f"Up to date: LocalFlow {current()}", "ok", 8)
-                    self.notify(f"You're on the latest version, LocalFlow {current()}.")
+                    self.engine.notice(f"Up to date: {APP_NAME} {current()}", "ok", 8)
+                    self.notify(f"You're on the latest version, {APP_NAME} {current()}.")
                 elif code == "1":
                     self.engine.notice("Update failed - see update.log", "error", 12)
                     self.notify(f"Update failed: {msg} (details in update.log)")
@@ -682,7 +694,7 @@ class Tray:
         try:
             self.icon.icon = _icon(colour, ring=(state == State.RECORDING))
             label = state.value if not detail else f"{state.value} - {detail}"
-            self.icon.title = f"LocalFlow: {label}"[:127]
+            self.icon.title = f"{APP_NAME}: {label}"[:127]
         except Exception:
             log.debug("tray update failed", exc_info=True)
 
@@ -708,7 +720,7 @@ class Tray:
                     return
                 elapsed = int(time.monotonic() - started)
                 try:
-                    self.icon.title = f"LocalFlow: recording {elapsed // 60}:{elapsed % 60:02d}"
+                    self.icon.title = f"{APP_NAME}: recording {elapsed // 60}:{elapsed % 60:02d}"
                 except Exception:
                     return
                 time.sleep(1.0)

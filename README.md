@@ -1,8 +1,14 @@
-# LocalFlow
+# ♛ Golden Flow
 
-Free, private dictation for Windows. Tap **Caps Lock**, speak, tap it again, and
-your words appear in whatever app you're typing in, cleaned up and punctuated,
-with the "um"s and false starts removed.
+*(Formerly LocalFlow. The code, the folder, the commands and the scheduled
+tasks are still called `localflow`; only the name you see changed.)*
+
+Free, private voice control for Windows. Dictate into any app, run the
+computer by voice (windows, tabs, clicks by number, layouts, edits), and,
+optionally, let your webcams tell which screen you're looking at. Tap
+**Caps Lock**, speak, tap it again, and your words appear in whatever app
+you're typing in, cleaned up and punctuated, with the "um"s and false starts
+removed. Or say your start phrase and just talk.
 
 Everything runs on your own PC. Whisper turns speech into text; an optional
 local LLM (via [Ollama](https://ollama.com)) tidies it up, or a built-in
@@ -16,8 +22,18 @@ your machine, there is no account, and nothing costs money.
   Wednesday." Spoken "comma", "new paragraph" and so on are applied.
 - **No GPU or LLM required**: it falls back to CPU transcription and
   algorithmic cleanup, so it runs on an ordinary laptop.
+- **Voice control**: command mode runs the PC: switch, arrange and save window
+  layouts, number everything clickable and click by number, edit text, and
+  "do show commands" for a sheet of everything you can say. A click tells you
+  each command was heard.
+- **Themes**: Royal (the default), Gemstone, Fire, Ice and more, for the pill,
+  the click labels, the command sheet and a little burst where text lands.
+- **Camera mode** (optional): webcams know which screen you're looking at, so
+  the TV can't start a dictation. The plan for gestures and gaze is in
+  [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md).
 - **Extras**: rewrite in a character or emotional tone, pick sound cues, and
   dictate from your phone.
+- **Picking this up as a developer?** Start with [HANDOFF.md](HANDOFF.md).
 
 Measured on an RTX 4070 Ti with `large-v3-turbo`: 21 s of speech → 1.7 s
 transcription + 0.6 s LLM cleanup, about 12× realtime.
@@ -622,7 +638,10 @@ tabs:
   size and opacity, and **Preview theme**: one window with everything in the
   theme (the pill, click labels on a pretend app, window numbers, the window
   list, the command sheet, the grid). A theme change also restyles the
-  command sheet, window list and labels already on screen. The themes:
+  command sheet, window list and labels already on screen. **Paste effect**:
+  a little burst where pasted text lands, so you can see where it went
+  (flames for Fire, sparkles for Royal, rainbow glints for Gemstone, ice
+  for Ice, a ripple for the rest; `overlay.paste_effect`). The themes:
   - **Royal** (the default): black and gold, a framed border with diamond
     ornaments, a straight-line waveform, Palatino lettering, and stardust for
     the recording mark: a star with a ring of sparkles, each twinkling in its
@@ -1032,7 +1051,10 @@ Then:
   (`camera.gate_start`).
 - Command mode doesn't time out while you're looking at a screen
   (`camera.hold_commands`).
-- The tray shows which screen you're looking at.
+- A small pill with an eye sits on the screen you're looking at ("Screen
+  2"), and shuts its eye when you look away. The tray says the same.
+- By voice: **"camera on"**, **"camera off"**, **"calibrate camera"** (they're
+  on the command sheet).
 
 Frames are read, turned into a head-and-eye direction and dropped; nothing
 is recorded. Only the calibration (directions, no pictures) is saved, in

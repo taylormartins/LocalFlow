@@ -10,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import APP_NAME
 from . import config as config_mod
 
 
@@ -578,7 +579,7 @@ def cmd_install_startup(args, cfg) -> int:
     shortcut.TargetPath = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
     shortcut.Arguments = f'"{launcher}"'
     shortcut.WorkingDirectory = str(PROJECT_ROOT)
-    shortcut.Description = "LocalFlow dictation (tray app)"
+    shortcut.Description = f"{APP_NAME}: voice control and dictation (tray app)"
     if icon and Path(icon).exists():
         shortcut.IconLocation = str(icon)
     shortcut.save()
@@ -682,11 +683,11 @@ def _update_outcome() -> tuple[str, str] | None:
     marker = root / ".updated"
     if install_incomplete():
         marker.unlink(missing_ok=True)
-        return "error", (f"LocalFlow {current()} isn't fully installed (still {installed()}) - "
+        return "error", (f"{APP_NAME} {current()} isn't fully installed (still {installed()}) - "
                          "tray > Finish installing")
     if marker.exists():
         marker.unlink(missing_ok=True)
-        return "ok", f"Updated to LocalFlow {current()}"
+        return "ok", f"Updated to {APP_NAME} {current()}"
     result = root / "update.result"
     try:
         if time.time() - result.stat().st_mtime < 15 * 60:
@@ -815,10 +816,13 @@ def cmd_run(args, cfg) -> int:
 
     def ollama_changed(status: str, msg: str) -> None:
         engine.notice(msg, "ok" if status == "ok" else "error", 10)
-        tray.notify(msg, "LocalFlow")
+        tray.notify(msg)
         tray.icon.update_menu()
 
     health.on_change = ollama_changed
+    from . import commands as commands_mod
+
+    commands_mod.camera_switch = tray.set_camera  # "camera on" / "camera off"
     tray.watch_settings()
 
     if cfg.overlay.enabled:
@@ -830,7 +834,9 @@ def cmd_run(args, cfg) -> int:
 
             live = LivePreview(engine, cfg.overlay)
             listener.watch_live(live)
-        Overlay(engine, cfg.overlay, live=live).start()
+        overlay = Overlay(engine, cfg.overlay, live=live)
+        overlay.camera = camera
+        overlay.start()
 
     def boot() -> None:
         # Before the models load (that can take a minute on some PCs): say
@@ -840,7 +846,7 @@ def cmd_run(args, cfg) -> int:
             kind, msg = outcome
             time.sleep(2.0)  # the overlay's window comes up first
             engine.notice(msg, kind, 12)
-            tray.notify(msg + (" - see update.log" if kind == "error" else ""), "LocalFlow")
+            tray.notify(msg + (" - see update.log" if kind == "error" else ""))
         engine.warmup()
         health.start()
         if cfg.camera.enabled:
@@ -855,14 +861,14 @@ def cmd_run(args, cfg) -> int:
         hint = _hint(cfg)
         updated = _version_change()
         if updated and not outcome:
-            hint = f"Updated to LocalFlow {updated}. {hint}"
+            hint = f"Updated to {APP_NAME} {updated}. {hint}"
         if cfg.always_on.enabled and listener.ready:
             try:
                 listener.start()
                 hint += f'. Always-on: say "{listener.detector.phrases.start.text}"'
             except Exception as exc:
                 logging.getLogger("localflow.always_on").error("always-on failed: %s", exc)
-        tray.notify(hint, "LocalFlow ready")
+        tray.notify(hint, f"{APP_NAME} ready")
 
     threading.Thread(target=boot, daemon=True, name="localflow-boot").start()
 
