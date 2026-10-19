@@ -456,7 +456,7 @@ def to_monitor(hwnd: int, n: int) -> None:
     h = min(b - t, work.bottom - work.top)
     x = work.left + (work.right - work.left - w) // 2
     y = work.top + (work.bottom - work.top - h) // 2
-    user32.SetWindowPos(hwnd, 0, x, y, w, h, 0x0004 | 0x0010)
+    move_windows([(hwnd, (x, y, w, h))])
     if zoomed:
         time.sleep(0.1)
         user32.ShowWindow(hwnd, SW_MAXIMIZE)
@@ -683,8 +683,8 @@ def place(hwnd: int, where: str, monitor: int = 0) -> None:
     else:
         a = work_area(hwnd)
     w, h = a.right - a.left, a.bottom - a.top
-    user32.SetWindowPos(hwnd, 0, a.left + int(w * fl), a.top + int(h * ft),
-                        int(w * (fr - fl)), int(h * (fb - ft)), 0x0004 | 0x0010)
+    move_windows([(hwnd, (a.left + int(w * fl), a.top + int(h * ft), int(w * (fr - fl)),
+                          int(h * (fb - ft))))], visible=True)
 
 
 def center(hwnd: int) -> None:
@@ -699,7 +699,7 @@ def center(hwnd: int) -> None:
     w, h = min(w, area.right - area.left), min(h, area.bottom - area.top)
     x = area.left + (area.right - area.left - w) // 2
     y = area.top + (area.bottom - area.top - h) // 2
-    user32.SetWindowPos(hwnd, 0, x, y, w, h, 0x0004 | 0x0010)  # NOZORDER | NOACTIVATE
+    move_windows([(hwnd, (x, y, w, h))])
 
 
 class _MONITORINFO(ctypes.Structure):
@@ -734,13 +734,20 @@ def get_placement(hwnd: int) -> tuple[WINDOWPLACEMENT, tuple[int, int, int, int]
     return wp, window_rect(hwnd)
 
 
-def set_placement(hwnd: int, saved) -> bool:
+def set_placement(hwnd: int, saved, later: list | None = None) -> bool:
+    """Put a window back as get_placement saw it. ``later``: collect the
+    exact-spot moves there (for one move_windows over many windows) instead
+    of making them now."""
     if not saved or not user32.IsWindow(hwnd):
         return False
     wp, (l, t, r, b) = saved
     user32.SetWindowPlacement(hwnd, ctypes.byref(wp))
     if wp.showCmd == 1:  # SW_SHOWNORMAL: the exact spot, not just the normal rect
-        user32.SetWindowPos(hwnd, 0, l, t, r - l, b - t, 0x0004 | 0x0010)
+        move = (hwnd, (l, t, r - l, b - t))
+        if later is None:
+            move_windows([move])
+        else:
+            later.append(move)
     return True
 
 
@@ -749,17 +756,113 @@ def set_placement(hwnd: int, saved) -> bool:
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 
 
-def _set_visible(hwnd: int, x: int, y: int, w: int, h: int) -> None:
-    """Put a window's visible frame at x, y, w, h. Windows 10 and 11 frames
-    have invisible resize borders, so tiling by the window rect leaves gaps."""
+def _borders(hwnd: int) -> tuple[int, int, int, int]:
+    """The invisible resize borders round a window (left, top, right, bottom).
+    Windows 10 and 11 frames have them, so tiling by the window rect leaves gaps."""
     l, t, r, b = window_rect(hwnd)
     vis = wintypes.RECT()
     if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(vis),
                                     ctypes.sizeof(vis)) == 0:
-        dl, dt, dr, db = vis.left - l, vis.top - t, r - vis.right, b - vis.bottom
-    else:
-        dl = dt = dr = db = 0
-    user32.SetWindowPos(hwnd, 0, x - dl, y - dt, w + dl + dr, h + dt + db, 0x0004 | 0x0010)
+        return vis.left - l, vis.top - t, r - vis.right, b - vis.bottom
+    return 0, 0, 0, 0
+
+
+#: Close enough, in pixels, for a window to count as where it was put.
+PLACED = 6
+
+
+def move_windows(moves: list[tuple[int, tuple[int, int, int, int]]], visible: bool = False,
+                 settle: float = 0.25, tries: int = 3) -> int:
+    """Put each window at (x, y, w, h) and make sure it got there. Returns
+    how many did.
+
+    Some apps move or resize themselves after being moved: a WinForms window
+    on a desk of 100 / 150 / 125 % screens landed 1.5x further along (on
+    another screen) and kept a minimum size; others react to a new screen's
+    scaling. So: move them all, wait ``settle`` s, check each, and move the
+    ones that are off again. The first correction adds the error; later
+    ones use the slope between the last two tries (asked vs. got), which
+    lands a window that scales positions in one more step. A window that
+    won't shrink below its minimum still gets its corner put right.
+    ``visible``: the rects are visible frames (tiling)."""
+    state: dict[int, dict] = {}
+    for hwnd, (x, y, w, h) in moves:
+        dl, dt, dr, db = _borders(hwnd) if visible else (0, 0, 0, 0)
+        target = (x - dl, y - dt, w + dl + dr, h + dt + db)
+        state[hwnd] = {"target": target, "asked": target, "prev": None}
+        user32.SetWindowPos(hwnd, 0, *target, 0x0004 | 0x0010)
+    for _ in range(tries):
+        time.sleep(settle)
+        off = 0
+        for hwnd, st in state.items():
+            l, t, _r, _b = window_rect(hwnd)
+            tx, ty, tw, th = st["target"]
+            if abs(tx - l) <= PLACED and abs(ty - t) <= PLACED:
+                continue
+            ax, ay = st["asked"][:2]
+            nx, ny = ax + (tx - l), ay + (ty - t)  # first correction: add the error
+            if st["prev"] is not None:  # then: the slope between the last two tries
+                (px, py), (gx, gy) = st["prev"]
+                for axis, (a_now, a_prev, g_now, g_prev, want) in enumerate(
+                        ((ax, px, l, gx, tx), (ay, py, t, gy, ty))):
+                    if a_now != a_prev:
+                        slope = (g_now - g_prev) / (a_now - a_prev)
+                        if 0.3 <= slope <= 4.0:
+                            v = round(a_now + (want - g_now) / slope)
+                            nx, ny = (v, ny) if axis == 0 else (nx, v)
+            st["prev"] = ((ax, ay), (l, t))
+            st["asked"] = (nx, ny, tw, th)
+            user32.SetWindowPos(hwnd, 0, nx, ny, tw, th, 0x0004 | 0x0010)
+            off += 1
+        if not off:
+            break
+    placed = 0
+    for hwnd, st in state.items():
+        l, t, _r, _b = window_rect(hwnd)
+        if abs(st["target"][0] - l) <= PLACED and abs(st["target"][1] - t) <= PLACED:
+            placed += 1
+        else:
+            log.info("a window wouldn't stay where it was put (%s)", _exe_name(hwnd))
+    return placed
+
+
+def swap_windows(h1: int, h2: int) -> None:
+    """Trade two windows' places and sizes (their visible frames). A
+    maximised one stays maximised, on the other's screen."""
+    def frame(h: int) -> tuple[int, int, int, int]:
+        l, t, r, b = window_rect(h)
+        dl, dt, dr, db = _borders(h)
+        return l + dl, t + dt, r - l - dl - dr, b - t - dt - db
+
+    zoomed = {h: bool(user32.IsZoomed(h)) for h in (h1, h2)}
+    for h in (h1, h2):
+        if zoomed[h] or user32.IsIconic(h):
+            user32.ShowWindow(h, SW_RESTORE)
+    if any(zoomed.values()):
+        time.sleep(0.15)
+    mons = monitors()
+
+    def spot(h: int) -> tuple[int, int, int, int]:
+        """Where h is: its frame, or for a maximised one its screen's work area."""
+        if zoomed[h]:
+            n = monitor_of(h, mons)
+            a = mons[n - 1][2] if 1 <= n <= len(mons) else work_area(h)
+            return a.left, a.top, a.right - a.left, a.bottom - a.top
+        return frame(h)
+
+    s1, s2 = spot(h1), spot(h2)
+    move_windows([(h1, s2), (h2, s1)], visible=True)
+    if zoomed[h2]:
+        user32.ShowWindow(h1, SW_MAXIMIZE)
+    if zoomed[h1]:
+        user32.ShowWindow(h2, SW_MAXIMIZE)
+
+
+def _exe_name(hwnd: int) -> str:
+    from pathlib import Path as _P
+
+    path = _exe_path(hwnd)
+    return _P(path).stem.lower() if path else "?"
 
 
 #: Arrangement styles: "equal" (the default: tiles as equal as can be, each
@@ -840,6 +943,7 @@ def arrange(wins: list[Win] | None = None, style: str = "equal", monitor: int = 
     for w in wins:  # front to back, so a group's first window is its front one
         by_screen.setdefault(monitor_of(w.hwnd, mons), []).append(w)
     done = 0
+    moves: list[tuple[int, tuple[int, int, int, int]]] = []
     for n, group in by_screen.items():
         if not 1 <= n <= len(mons) or (monitor and n != monitor):
             continue
@@ -865,10 +969,12 @@ def arrange(wins: list[Win] | None = None, style: str = "equal", monitor: int = 
         for w, (l, t, r, b) in zip(ordered, tiles):
             if user32.IsZoomed(w.hwnd):
                 user32.ShowWindow(w.hwnd, SW_RESTORE)
-            _set_visible(w.hwnd, l, t, r - l, b - t)
-            if style == "cascade":
-                user32.SetWindowPos(w.hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # to the top
+            moves.append((w.hwnd, (l, t, r - l, b - t)))
             done += 1
+    move_windows(moves, visible=True)
+    if style == "cascade":
+        for hwnd, _ in moves:  # in order, so the front window ends on top
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
     return done
 
 
@@ -884,13 +990,13 @@ def _placement_dict(hwnd: int) -> dict | None:
             "normal": [n.left, n.top, n.right, n.bottom], "rect": list(rect)}
 
 
-def _apply_placement(hwnd: int, d: dict) -> bool:
+def _apply_placement(hwnd: int, d: dict, later: list | None = None) -> bool:
     wp = WINDOWPLACEMENT(length=ctypes.sizeof(WINDOWPLACEMENT))
     wp.flags, wp.showCmd = d["flags"], d["show"]
     wp.ptMinPosition = wintypes.POINT(*d["min"])
     wp.ptMaxPosition = wintypes.POINT(*d["max"])
     wp.rcNormalPosition = wintypes.RECT(*d["normal"])
-    return set_placement(hwnd, (wp, tuple(d["rect"])))
+    return set_placement(hwnd, (wp, tuple(d["rect"])), later)
 
 
 def snapshot() -> list[dict]:
@@ -928,13 +1034,15 @@ def restore(entries: list[dict], launch_missing: bool = True,
             return None
         return max(cands, key=lambda w: difflib.SequenceMatcher(None, w.title, e["title"]).ratio())
 
+    later: list = []
     for e in entries:
         w = match(e, cur)
         if w is None:
             missing.append(e)
             continue
         used.add(w.hwnd)
-        placed += _apply_placement(w.hwnd, e)
+        placed += _apply_placement(w.hwnd, e, later)
+    move_windows(later)  # all at once, then checked
     opened, not_found = 0, []
     if launch_missing:
         started = []

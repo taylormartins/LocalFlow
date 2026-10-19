@@ -243,6 +243,79 @@ expect("a command that can't go on runs at once", ran == ["scroll_down"], str(ra
 lis.leave_commands()
 lis._do = real_do
 
+caught = []
+print("getting into command mode")
+lis.leave_commands()
+a = 6000 * RATE
+dictating(a)
+lis._dict_heard = False
+lis._early_words = []
+lis.ring.end = a + 3 * RATE
+lis._handle(a, a + RATE, SILENCE, words("take"))
+expect("'<start> take'... not yet", not lis.commanding)
+lis._handle(a + int(1.2 * RATE), a + 2 * RATE, SILENCE, words("commands"))
+expect("...'commands' after a pause: command mode (split phrases used to be pasted as text)",
+       lis.commanding, str(lis._early_words))
+lis.leave_commands()
+lis.dictating = False
+engine.recorder.stop()
+switched = []
+real2 = Listener(engine, cfg, inject=False)
+real2.enter_commands = lambda: switched.append(True)
+real2.dictating = True
+caught.clear()
+engine.finish_external = lambda keep, transform=None, inject=True, done=None: caught.append(transform)
+real2.finish(keep=100)
+out = caught[-1]("Command mode.")
+import time as _time  # noqa: E402
+
+_time.sleep(0.8)
+expect("a dictation that was only 'Command mode.': nothing pasted, command mode instead",
+       out == "" and switched, f"{out!r} {switched}")
+expect("...a real sentence is left alone",
+       caught[-1]("Command mode is great for windows.") == "Command mode is great for windows.")
+
+print("a screen named without its number")
+ran = []
+lis._do = lambda p, after_dictation=False, confirmed=False: ran.append(str(p))
+lis.commanding = True
+asked = []
+lis._ask_llm = lambda request: asked.append(request)
+lis._finish_request("arrange windows in rows on monitor")
+expect("...asks which screen, and doesn't ask the LLM (it guessed screen 1 once)",
+       lis._need_number is not None and not asked and not ran, f"{asked} {ran}")
+now = lis.ring.end  # a second later, well inside the 8 s to answer
+lis._command_burst(now, now + RATE, words("three"), SILENCE, 0.0)
+expect("...'three': done on screen 3", ran == ["arrange_rows(3)"], str(ran))
+lis.leave_commands()
+lis._do = real_do
+
+import json as _json  # noqa: E402
+
+
+class _Reply:
+    status_code = 200
+
+    def __init__(self, steps):
+        self.steps = steps
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"message": {"content": _json.dumps({"steps": self.steps})}}
+
+
+class _Client:
+    def post(self, *a, **k):
+        return _Reply([{"command": "arrange_rows", "arg": ""}, {"command": "to_monitor", "arg": "1"}])
+
+
+got = [str(x) for x in commands.plan_with_llm(_Client(), "m", "arrange windows in rows on monitor")]
+expect("the LLM can't add a screen nobody said", got == ["arrange_rows"], str(got))
+got = [str(x) for x in commands.plan_with_llm(_Client(), "m", "rows and put it on monitor one")]
+expect("...a screen that was said stays", got == ["arrange_rows", "to_monitor(1)"], str(got))
+
 print("the end word comes off the text if the cut left it")
 caught = []
 real = Listener(engine, cfg, inject=False)

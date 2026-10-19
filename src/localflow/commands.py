@@ -573,6 +573,28 @@ def _paste_again(arg: str, ctx: Ctx) -> str:
 
 # -- arranging windows and saved layouts -----------------------------------------
 
+def _two_windows(arg: str) -> tuple[desktop.Win, desktop.Win]:
+    """ "2 and 4", "chrome with the terminal" -> the two windows."""
+    parts = re.split(r"\s+(?:and|with|for)\s+", arg.strip(), maxsplit=1)
+    if len(parts) != 2:
+        raise CommandError('say which two: "swap 2 and 4"')
+    found = []
+    for part in parts:
+        w, score = desktop.find_window(part)
+        if w is None or score < NAME_ACCEPT:
+            raise CommandError(f"no window called {part}")
+        found.append(w)
+    if found[0].hwnd == found[1].hwnd:
+        raise CommandError("that's the same window twice")
+    return found[0], found[1]
+
+
+def _swap(arg: str, ctx: Ctx) -> str:
+    a, b = _two_windows(arg)
+    desktop.swap_windows(a.hwnd, b.hwnd)
+    return f"Swapped {_shown(a)} and {_shown(b)}"
+
+
 #: Which style "next arrangement" shows next.
 _next_style = [0]
 STYLE_NAMES = {"equal": "evenly", "main": "around the front window", "columns": "in columns",
@@ -697,7 +719,7 @@ MOVES = {"center", "next_monitor", "previous_monitor", "maximize", "minimize", "
          "place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
          "place_left", "place_right", "place_top", "place_bottom"}
 #: Commands that move many windows: undone by putting every one back.
-REARRANGES = {"arrange", "arrange_columns", "arrange_rows", "arrange_grid", "arrange_main",
+REARRANGES = {"swap", "arrange", "arrange_columns", "arrange_rows", "arrange_grid", "arrange_main",
               "arrange_cascade", "arrange_next", "restore_layout"}
 #: Commands undone by pressing other keys in the same window.
 INVERSE_KEYS = {
@@ -895,6 +917,8 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("show monitors", "each screen's number", ("show_monitors",)),
         ("arrange windows  ·  ... on monitor 3", "every window tiled evenly on its screen",
          ("arrange",)),
+        ("swap 2 and 4  ·  swap Chrome with Spotify", "trade two windows' places",
+         ("swap",)),
         ("arrange windows in columns  ·  in rows  ·  in a grid", "",
          ("arrange_columns", "arrange_rows", "arrange_grid")),
         ("main window  ·  cascade windows  ·  next arrangement",
@@ -1145,6 +1169,11 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
                         "(arrange|tile|organize|organise) [all] [the|my] windows (on|of) [the] (monitor|screen|display) [number] {name}",
                         "spread out [all] [the|my] windows", "even out [the|my] windows"],
             _arrange, "tile every window evenly on its own screen (or screen N) so all can be seen"),
+    Command("swap", ["(swap|trade|exchange) [the] [places of] [positions of] [window|windows] {text}",
+                     "switch [the] (places|positions) of [window|windows] {text}",
+                     "switch (window|windows) {text}"],
+            _swap, "trade two windows' places and sizes: 'swap 2 and 4' (numbers from "
+            "show windows), 'swap chrome with spotify'", text_slot=True),
     Command("arrange_columns", ["(arrange|tile|put|stack) [all] [the|my] windows (in|into) columns",
                                 "(arrange|tile|put|stack) [all] [the|my] windows (in|into) columns (on|of) [the] (monitor|screen|display) [number] {name}",
                                 "(put|lay out) [all] [the|my] windows side by side",
@@ -1784,6 +1813,12 @@ def resolvable(p: Parsed) -> bool:
         return score >= NAME_ACCEPT
     if name in ("restore_layout", "delete_layout"):
         return find_layout(p.arg) is not None
+    if name == "swap":
+        try:
+            _two_windows(p.arg)
+        except CommandError:
+            return False
+        return True
     if name == "open":
         _, a = desktop.find_app(p.arg)
         _, w = desktop.find_window(p.arg)
@@ -1869,8 +1904,19 @@ def plan_with_llm(client, model: str, request: str, timeout: float = 30.0,
                                               ("switch", "open", "click", "type")):
             log.info("commands: LLM step %r dropped", step.get("command"))
             continue
+        if _screen_arg(c) and arg and number(arg) not in _numbers(normalise(request)):
+            # A screen the request never named: it once added "to monitor 1" to
+            # "arrange windows in rows on monitor" (the 3 lost) and a window jumped.
+            log.info("commands: LLM step %r dropped (a screen that wasn't said)", c.name)
+            continue
         out.append(Parsed(c, arg if takes_arg else "", 1.0))
     return out
+
+
+def _screen_arg(c: Command) -> bool:
+    """The command's slot is a screen's number ("to monitor 3", "... of monitor 2")."""
+    return c.name == "to_monitor" or c.name.endswith("_of") or any(
+        "(monitor|screen|display) [number] {name}" in pat for pat in c.patterns)
 
 
 # -- running them ------------------------------------------------------------

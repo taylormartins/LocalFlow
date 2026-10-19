@@ -539,6 +539,28 @@ phrase (while dictating) is among them.
   (mostly merged with their links by `label_targets`). First look at a
   window (`_woken`) queries twice 0.5 s apart: Chromium builds the page's
   tree only when asked (22 elements on the first query, 71 on the next).
+- **Moving windows** (`desktop.move_windows`): every move (arrange, swap,
+  layouts, place, centre, to monitor) moves all its windows, waits 0.25 s,
+  checks each, and moves the ones that are off again: the first correction
+  adds the error, later ones use the slope between the last two tries
+  (asked vs got). A WinForms (system-DPI-aware) window on a desk of 100 /
+  150 / 125 % screens landed 1.5x further along, on another screen, and has
+  a minimum size; that was "windows jumping between screens" and "one
+  window wouldn't arrange". Windows at their minimum size still get their
+  corner. tests/layouts.py models obeying, self-shifting, 1.5x-scaling and
+  minimum-size windows.
+- **Swap** (`swap_windows`): trade two windows' visible frames; a maximised
+  one is restored, takes the other's place, and the other is maximised on
+  its screen. In REARRANGES, so undo puts both back.
+- **Getting into command mode**: the first 4 s after the start phrase are
+  checked across bursts (`_early_words`), so "command ... mode" split by a
+  pause counts; and a short dictation whose final text is only a mode word
+  switches instead of pasting (in `finish`'s transform, using the dictation
+  model's text). "listen command mode" was being pasted as "Command mode."
+- **A screen without its number** ("... on monitor" with the 3 lost): asks
+  "Which screen?" (`_need_number`, 8 s) instead of the LLM, and LLM steps
+  that target a screen the request never named are dropped (it once added
+  "to monitor 1").
 - **Window chips**: every non-minimised listed window, at its corner
   (clamped to its screen), moved right when two would overlap; covered
   windows are no longer skipped. `_draw_list` re-raises the label layer so

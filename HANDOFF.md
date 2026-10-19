@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18, at v1.27.0; updated for v1.28.0.
+Written 2026-10-18, at v1.27.0; updated for v1.29.0.
 
 ---
 
@@ -195,6 +195,11 @@ or user phrases in that language.
   the ring buffer. `_consumed` stops a phrase being used twice. Commands
   after the stop phrase are held until the text is pasted (`BUFFER`), and
   the window opens where the phrase ended, not when it was noticed.
+- **Moving other apps' windows**: never trust one SetWindowPos. Apps
+  rescale and reposition themselves (system-DPI-aware WinForms on mixed
+  scaling) or have minimum sizes; use `desktop.move_windows`, which checks
+  and corrects. Test moves against models (tests/layouts.py), not the
+  user's windows: a "no-op" move of a real window during debugging moved it.
 - **Windows and DPI**: every overlay layer is a no-activate, click-through
   Tk Toplevel; Win32 calls need argtypes; UI Automation coordinates need
   `per_monitor_dpi()` on the calling thread.
@@ -219,6 +224,7 @@ or user phrases in that language.
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
+| 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |
 | 1.28 | Command mode hears with the dictation model; commands wait for "on monitor N"; your own words for every phrase group and command; PortAudio restart fix. |
 
 ## Ideas not built yet (the user wants these pitched)

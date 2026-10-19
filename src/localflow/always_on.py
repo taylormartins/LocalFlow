@@ -174,6 +174,10 @@ class Listener:
         self._oneshot = False
         #: camera.Watcher (camera mode), or None.
         self.camera = None
+        #: Words said in the first seconds after the start phrase (see _handle).
+        self._early_words: list[str] = []
+        #: A request that named a screen without its number: (request, deadline).
+        self._need_number: tuple[str, int] | None = None
         self.runner = Runner(self._command_done)
         # Command mode.
         self.commanding = False
@@ -599,16 +603,23 @@ class Listener:
             return
 
         after = max(fresh, (self._dict_start - a) / RATE)
-        if not self._dict_heard:
-            # The first thing said after the start phrase, after a pause: a
-            # command on its own ("...Marigold. Switch to Chrome.") means
-            # command mode, not a dictation.
+        if not self._dict_heard or self._early_words:
+            # What's said in the first 4 s after the start phrase: a command
+            # on its own ("...Marigold. Switch to Chrome.") means command
+            # mode, not a dictation. Taken across bursts, so "command... mode"
+            # split by a pause still counts (it was being pasted as text).
             new = [w for w in words if w.start >= after - 0.05]
             if new:
                 self._dict_heard = True
-                if (a + int(new[0].start * RATE) - self._dict_start < 4 * RATE
-                        and self._command_instead(a, new)):
-                    return
+                if a + int(new[0].start * RATE) - self._dict_start < 4 * RATE:
+                    if self._command_instead(a, new, before=self._early_words):
+                        self._early_words = []
+                        return
+                    self._early_words += [w.text for w in new]
+                    if len(self._early_words) > 6:
+                        self._early_words = []  # talking: a dictation after all
+                else:
+                    self._early_words = []
         hit = self.detector.check("stop", words, clip, after=after)
         prev, self._prev_burst = self._prev_burst, (a, b, words)
         if hit is None and prev is not None and 0 <= a - prev[1] < JOIN * RATE:
@@ -807,6 +818,7 @@ class Listener:
                 return
             self._dict_start = begin
             self._dict_heard = False
+            self._early_words = []
             self._prev_burst = None
             self._consumed = max(self._consumed, a + int(hit.end * RATE))
             self._last_speech = self.ring.end
@@ -885,6 +897,13 @@ class Listener:
 
         def transform(raw: str) -> str:
             text = strip_phrases(raw, start, stop)
+            said = trim(normalise(text))
+            if said and len(said) <= 4 and self.grammar.is_one(said, self.grammar.enter):
+                # The whole dictation was "command mode" (the listening model
+                # missed it): the dictation model heard it, so switch.
+                log.info("always-on: the dictation was just a mode word - command mode instead")
+                threading.Timer(0.6, self.enter_commands).start()
+                return ""
             tokens = text.split()
             n = len(drop.split())
             if drop and len(tokens) >= n and normalise(" ".join(tokens[-n:])) == drop.split():
@@ -1023,7 +1042,7 @@ class Listener:
             return True
         return not exact and w in DO_HEARD
 
-    def _command_instead(self, a: int, words) -> bool:
+    def _command_instead(self, a: int, words, before: list[str] | None = None) -> bool:
         """Right after the start phrase: is this a command rather than the
         start of a dictation? Only if it's a command in full whose target
         exists, so "open the file and check it" is still dictated.
@@ -1032,7 +1051,7 @@ class Listener:
         "do" alone opens command mode for the next command only. A misheard
         do ("to", "undo") counts only when a command follows it.
         """
-        texts = [w.text for w in words]
+        texts = list(before or []) + [w.text for w in words]
         oneshot = bool(texts) and self._is_do(texts[0])
         if (not oneshot and len(texts) > 1 and self._is_do(texts[0], exact=False)
                 and self.grammar.parse(texts[1:]) is not None):
@@ -1311,6 +1330,15 @@ class Listener:
             if a < deadline:
                 return  # an answer that wasn't the word: cancelled, nothing else
             # Too late: just a new request.
+        if self._need_number is not None:
+            request, deadline = self._need_number
+            self._need_number = None
+            n = desktop_number(" ".join(texts))
+            if n is not None and a < deadline:
+                p = self.grammar.parse(f"{request} {n}".split())
+                if p is not None:
+                    self._take(p, f"{request} {n}")
+                    return
         if self.grammar.is_one(texts, self.grammar.enter):
             self._show("Command mode - say a command")
             return
@@ -1415,8 +1443,20 @@ class Listener:
         p = self.grammar.parse(request.split())
         if p is not None and (self._usable(p) or not self._llm_on()):
             self._take(p, request)
+        elif self._names_a_screen(request):
+            # "...on monitor" with the number lost: ask, don't let the LLM
+            # guess (it once added "move it to monitor 1" and a window jumped).
+            self._need_number = (request, self.ring.end + 8 * RATE)
+            self._response_cue()
+            self._show("Which screen? Say its number")
         else:
             self._ask_llm(request)
+
+    def _names_a_screen(self, request: str) -> bool:
+        """A request that would be a command with a screen's number on the end."""
+        p = self.grammar.parse((request + " 1").split())
+        return p is not None and p.arg == "1" and any(
+            "(monitor|screen|display)" in pat for pat in p.command.patterns)
 
     def _llm_on(self) -> bool:
         cleaner = self.engine.cleaner

@@ -408,6 +408,7 @@ too. To live in command mode instead, make it the default (see
 | move it to the next / previous monitor | moves the window to another screen |
 | arrange windows · tile windows · arrange windows on monitor 3 | tiles every window that's open (not minimised) on each screen, or one screen, so all can be seen: as equal as can be, each tile shaped like a window (three on a portrait screen stack; three on a wide one sit side by side). "undo" puts them all back |
 | arrange windows in columns · in rows · in a grid · main window · cascade windows | other styles: side by side, stacked, a grid, the front window big with the rest beside it, overlapping. **"next arrangement"** (or "shuffle my windows") tries the next style each time; all take "on monitor N" |
+| swap 2 and 4 · switch windows 4 and 2 · swap Chrome with Spotify | the two windows trade places and sizes (numbers from "show windows"); a maximised one stays maximised on the other's screen; "undo" swaps them back |
 | save layout as *work* · save layout | remembers where every window is (and which app it is) under that name, or "default"; kept in `layouts.json`, this PC only |
 | layout *work* · restore layout *work* | puts every window back as saved, starting apps that aren't open and placing them as their windows appear; "undo" puts them back. **"list layouts"** and **"delete layout work"** |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
