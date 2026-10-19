@@ -808,6 +808,9 @@ def cmd_run(args, cfg) -> int:
             "another LocalFlow tray app is already running in this session; exiting"
         )
         return 0
+    from .platform import tk_first
+
+    tk_first()  # a Mac: Tk before pystray touches AppKit (see platform.tk_first)
     from .engine import Engine
     from .hotkey import VK_CAPITAL, HotkeyManager, caps_lock_off
     from .tray import Tray

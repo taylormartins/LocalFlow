@@ -13,7 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from localflow import commands, config, themes
+from localflow.platform import tk_first
+
+tk_first()  # a Mac: Tk must start before the tray's pystray touches AppKit
+from localflow import commands, config, themes  # noqa: E402
 from localflow.config import Config, save_setting
 from localflow.engine import Engine
 from localflow.tray import Tray
@@ -138,7 +141,7 @@ tray.always_on = None
 print("every theme draws")
 import tkinter as tk  # noqa: E402
 
-root = tk.Tk()
+root = tk_first() or tk.Tk()
 root.withdraw()
 canvas = tk.Canvas(root, width=300, height=120)
 errors = []

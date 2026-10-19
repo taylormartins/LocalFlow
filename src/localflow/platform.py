@@ -45,6 +45,28 @@ def winfunctype(*types):
     return (ctypes.WINFUNCTYPE if IS_WIN else ctypes.CFUNCTYPE)(*types)
 
 
+_tk_root = None
+
+
+def tk_first():
+    """On a Mac, create Tk's root before anything touches AppKit, and return it.
+
+    Tk installs its own NSApplication subclass when it starts. If pystray
+    (or PyObjC) gets NSApplication first, Tk later calls its own methods on
+    a plain NSApplication and the process dies ("NSApplication
+    macOSVersion: unrecognized selector"). The overlay then reuses this root.
+    Elsewhere: nothing to do, returns None."""
+    global _tk_root
+    if not IS_MAC:
+        return None
+    if _tk_root is None:
+        import tkinter as tk
+
+        _tk_root = tk.Tk()
+        _tk_root.withdraw()
+    return _tk_root
+
+
 try:
     from ctypes import wintypes  # works on Windows (and on newer Pythons elsewhere)
 except (ImportError, ValueError):  # pragma: no cover - older non-Windows Pythons

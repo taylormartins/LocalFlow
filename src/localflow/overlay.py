@@ -277,7 +277,10 @@ class Overlay:
         self.text_area = int(44 * s) if self.live else 0
         self.H = self.h + self.text_area
 
-        root = tk.Tk()
+        from .platform import tk_first
+
+        root = tk_first() or tk.Tk()  # on a Mac, the root made before AppKit started
+        root.deiconify()
         root.overrideredirect(True)
         layers.transparent(root)
         root.attributes("-alpha", 1.0)
