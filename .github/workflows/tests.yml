@@ -5,7 +5,6 @@ name: tests
 # keyboards and permission prompts still need a person (see HANDOFF.md).
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
