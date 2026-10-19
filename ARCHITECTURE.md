@@ -11,6 +11,15 @@ Written 2026-08-01, against the state of the repo at that date.
 
 ---
 
+## Windows and Mac
+
+Most of this file describes the Windows side, where it began. The Mac port
+(v1.30) keeps the same modules: `platform.py` (IS_MAC / IS_WIN, DLL
+stand-ins), `layers.py` (every overlay window, both platforms), and
+`localflow/mac/` (overlay windows, keys by Quartz, the front app, apps and
+screens, launchd). The rules and traps of the port are in HANDOFF.md ▸
+Windows and Mac.
+
 ## Shape of the thing
 
 One pipeline, two front-ends.

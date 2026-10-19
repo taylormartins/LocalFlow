@@ -42,8 +42,8 @@ transcription + 0.6 s LLM cleanup, about 12× realtime.
 
 ## Install
 
-You need **Windows 10 or 11** and a microphone. Everything else is installed
-for you.
+You need **Windows 10 or 11** (or **macOS**: see [On a Mac](#on-a-mac)) and a
+microphone. Everything else is installed for you.
 
 ```powershell
 git clone https://github.com/taylormartins/LocalFlow.git
@@ -735,6 +735,39 @@ If you move the LocalFlow folder, run `.\install.cmd` again so the startup
 entries point at the new location.
 
 ---
+
+## On a Mac
+
+Golden Flow runs on macOS too (Apple silicon or Intel):
+
+```bash
+git clone https://github.com/taylormartins/LocalFlow.git
+cd LocalFlow
+bash install.sh
+```
+
+That installs everything into the folder, downloads the speech model and
+starts it at login (a launchd agent). The crown appears in the menu bar.
+
+- **Dictate**: hold **Right Option** and talk; let go to paste. Shift + Right
+  Option for raw text. (Caps Lock can't be a dictation key on a Mac.)
+- **Permissions**: the first time, macOS asks for the Python that runs it:
+  **Microphone**, **Accessibility** (it presses Cmd+V and keys), **Input
+  Monitoring** (to hear the dictation key). Allow them in System Settings ▸
+  Privacy & Security, then restart it: `launchctl kickstart -k
+  gui/$(id -u)/com.goldenflow.localflow`.
+- **What works**: dictation with the key and always-on, paste where you
+  started, the pill and every theme, the menu-bar icon, Settings, history,
+  sounds, cleanup by rules or Ollama (`brew install ollama`), command mode's
+  keys, scrolling, tabs, opening and switching apps, "show windows",
+  "show commands", sleep, quick mode, the do word, your own words, camera
+  mode.
+- **Not on the Mac yet**: moving, arranging, swapping, minimising and
+  closing windows, saved layouts, numbered click labels and the grid, and
+  the paste effect. They need macOS Accessibility and come next; until then
+  they say so.
+- Updates: menu bar ▸ Update (or `bash update.sh`). Whisper runs on the CPU
+  (int8), which is fast on Apple silicon.
 
 ## Commands
 

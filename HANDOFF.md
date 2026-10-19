@@ -5,13 +5,13 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18, at v1.27.0; updated for v1.29.0.
+Written 2026-10-18, at v1.27.0; updated for v1.30.0.
 
 ---
 
 ## What this is
 
-A Windows tray app that turns voice (and, starting now, a webcam) into full
+A Windows and macOS tray / menu-bar app that turns voice (and, starting now, a webcam) into full
 control of the PC, with no typing:
 
 - **Dictation** into any app: Whisper on the GPU (CPU fallback), cleanup by a
@@ -100,6 +100,39 @@ learned.json, layouts.json, themes.json, history.jsonl, wake/, models/   private
 - Camera support is an optional extra: `uv sync --no-dev --inexact --extra
   camera` (Settings ▸ Camera ▸ Install does this). `install.ps1` syncs with
   `--inexact`, so updates don't remove it.
+
+## Windows and Mac
+
+One package for both. `localflow.platform` says which (`IS_WIN`, `IS_MAC`)
+and keeps the Win32 modules importable on a Mac (DLL stand-ins:
+configurable, never callable). The Mac's versions live in `localflow.mac`
+and replace the Windows functions of the same names at the end of
+`desktop.py` and `window.py`; smaller differences are `if IS_MAC:` in
+place (inject, sounds, micwatch, hotkey, health, cli, tray, config
+defaults).
+
+Mac rules learned the hard way (CI caught each):
+- **Tk must start before anything touches AppKit** (`platform.tk_first()`),
+  or Tk dies calling its own NSApplication methods on pystray's plain one.
+- **Tk and the menu-bar icon share the main thread**: the overlay runs
+  there (`Overlay.run_here`) and pystray joins its loop (`run_detached`).
+- **No pynput for keys on a Mac**: its layout lookups abort the process off
+  the main thread. `mac/keys.py` listens with a Quartz event tap and posts
+  key codes. (pynput's mouse is fine.)
+- Overlay windows are borderless Tk windows whose NSWindow ignores the
+  mouse, floats at the status level and joins every Space (`mac/overlay.py`).
+- A Mac "hwnd" in desktop code is `pid << 24 | window number`.
+- Start at login is a launchd agent (`mac/startup.py`); `install.sh` /
+  `update.sh` follow `install.ps1` / `update.ps1` (same `update.result`).
+
+Stage 2 for the Mac (not built): window control through Accessibility
+(AXUIElement: move, resize, minimise, close, arrange, layouts, swap), click
+labels from the AX tree, the caret for the paste effect.
+
+`.github/workflows/tests.yml` runs on every push, on macos-latest and
+windows-latest: every module imports, the no-window suites,
+`tests/mac_smoke.py` (overlay windows, screens, apps, clipboard, keys on a
+real Mac) and the whole app started, checked and quit on the Mac.
 
 ## Testing
 
@@ -224,6 +257,7 @@ or user phrases in that language.
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
+| 1.30 | macOS: dictation, always-on, overlay and themes, menu bar, Settings, command mode basics; CI on a real Mac. |
 | 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |
 | 1.28 | Command mode hears with the dictation model; commands wait for "on monitor N"; your own words for every phrase group and command; PortAudio restart fix. |
 
@@ -240,6 +274,7 @@ or user phrases in that language.
 - Lock, restart and shut down by voice.
 - Switch a saved layout automatically when a monitor is plugged in or out.
 - The rest of the rename (package, repo, tasks) if and when it's wanted.
+- The Mac's stage 2: window control and click labels through Accessibility.
 
 ## Open issues
 
