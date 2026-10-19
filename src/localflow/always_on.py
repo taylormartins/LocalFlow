@@ -73,6 +73,9 @@ HOLD = 1.8
 #: pause inside a phrase ("stop... chat") ends a burst, and then neither
 #: half matches alone.
 JOIN = 1.5
+#: Command mode: a command that could go on ("arrange windows in rows" ...
+#: "on monitor 3") waits this long for the rest before it runs.
+SOFT_HOLD = 0.8
 #: How the do word gets misheard: these count only when a command follows.
 DO_HEARD = {"to", "undo", "due", "dew", "doo"}
 #: Commands that put something up to act on next (labels, the window list,
@@ -158,7 +161,9 @@ class Listener:
         self.grammar = Grammar(extra=cfg.always_on.commands, learned_file=LEARNED,
                                cancel_extra=cfg.always_on.cancel_words,
                                exit_extra=cfg.always_on.exit_words,
-                               code_words=cfg.always_on.code_words if cfg.always_on.quick else [])
+                               code_words=cfg.always_on.code_words if cfg.always_on.quick else [],
+                               phrase_words=cfg.always_on.phrase_words,
+                               command_phrases=cfg.always_on.command_phrases)
         #: The last thing said that wasn't understood: (words, monotonic time).
         self._miss: tuple[str, float] | None = None
         #: "Learn this?" waiting for "remember that": (phrase, command, deadline).
@@ -194,6 +199,8 @@ class Listener:
         #: The last burst checked while dictating: (start, end, words).
         self._prev_burst: tuple[int, int, list] | None = None
         self._held_at = 0  # absolute samples: end of the held request's last burst
+        self._held_patience = HOLD  # seconds of quiet before a held request is finished
+        self._heard_well = False  # this burst was heard by the dictation model
         self._llm_lock = threading.Lock()  # one LLM request at a time
         self._file_run = False  # run_file(): everything on the calling thread
         self._levels: deque[float] = deque(maxlen=int(2.0 * RATE / FRAME))
@@ -249,6 +256,12 @@ class Listener:
         log.info("always-on: listening for %r", self.detector.phrases.start.text)
 
     def _open_stream(self) -> None:
+        from .audio import PA_LOCK
+
+        with PA_LOCK:  # not while PortAudio restarts, and not alongside a hotkey recording's open
+            self._open_stream_now()
+
+    def _open_stream_now(self) -> None:
         import sounddevice as sd
 
         from . import micwatch
@@ -401,7 +414,7 @@ class Listener:
             else:
                 self.leave_commands("Command mode off")
         elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
-              and self.ring.end - self._held_at > HOLD * RATE):
+              and self.ring.end - self._held_at > self._held_patience * RATE):
             request, self._held = " ".join(self._held), []
             if self._file_run:
                 self._finish_request(request)  # repeatable timing in tests
@@ -524,7 +537,13 @@ class Listener:
             return
         clip, _ = self.engine.recorder.apply_gain(clip)
         started = time.perf_counter()
-        words = self.detector.words(clip)
+        # Command mode: the dictation model hears short commands far better
+        # than the small listening model (which turned "arrange" into
+        # "range"); the small one only when the big one is busy.
+        words = self._listen_well(clip) if self.commanding else None
+        self._heard_well = words is not None
+        if words is None:
+            words = self.detector.words(clip)
         log.debug("always-on: %.1fs burst -> %d words in %.2fs", len(clip) / RATE,
                   len(words), time.perf_counter() - started)
         if not words:
@@ -657,6 +676,43 @@ class Listener:
                     or time.monotonic() > deadline):
                 return True
             time.sleep(0.05)
+
+    def _listen_well(self, clip) -> list | None:
+        """The clip's words by the dictation model, or None if that model isn't
+        loaded or is busy (a dictation). No prompt: a list of command words
+        as Whisper's initial prompt made it add words after every command
+        ("show labels rules", "maximize and I am going to"), 0 of 12 exact
+        against 9 of 12 without, on TTS clips."""
+        tr = self.engine.transcriber
+        if tr._model is None or not self.engine._pipeline_lock.acquire(blocking=False):
+            return None
+        try:
+            return self.detector.words(clip, model=tr._model)
+        except Exception:
+            log.debug("command listen failed", exc_info=True)
+            return None
+        finally:
+            self.engine._pipeline_lock.release()
+
+    def _could_go_on(self, p: Parsed) -> bool:
+        """A command a few more words could change: one that also takes "on
+        monitor N" (said without it), or one with an "... of monitor N" form."""
+        from .commands import BY_NAME
+
+        if (p.command.name + "_of") in BY_NAME:
+            return True
+        return not p.arg and any("(monitor|screen|display)" in pat for pat in p.command.patterns)
+
+    def _hold_for_more(self, p: Parsed, said: str, b: int) -> bool:
+        """Command mode: wait SOFT_HOLD for the rest of a command that could
+        go on. The next burst joins it; quiet runs it as it is."""
+        if not self._could_go_on(p):
+            return False
+        self._held = [said]
+        self._held_at = b
+        self._held_patience = SOFT_HOLD
+        self._show("…" + said[-30:])
+        return True
 
     def _relisten(self, clip, fresh: float) -> list[str]:
         """The words of ``clip`` (after ``fresh`` s) by the dictation model,
@@ -1283,12 +1339,20 @@ class Listener:
                 self._held = []
                 self._take(p, said)
                 return
+            if self._held_patience == SOFT_HOLD:
+                # A command waiting for "on monitor N" that didn't come: it
+                # runs now, and this burst is taken on its own.
+                waiting, self._held = " ".join(self._held), []
+                q = self.grammar.parse(waiting.split())
+                if q is not None:
+                    self._take(q, waiting)
         p = self.grammar.parse(texts)
         if p is not None and self._usable(p):
             self._held = []
-            self._take(p, " ".join(texts))
+            if not self._hold_for_more(p, " ".join(texts), b):
+                self._take(p, " ".join(texts))
             return
-        if not self._held:
+        if not self._held and not self._heard_well:
             # Command words are short and said alone, which is where the small
             # listening model slips ("paste" heard as "peace" four times in a
             # row). The dictation model gets a second listen before giving up.
@@ -1298,12 +1362,14 @@ class Listener:
                 if q is not None and self._usable(q):
                     log.info("always-on: %r on a second listen (heard %r first)",
                              " ".join(better), " ".join(texts))
-                    self._take(q, " ".join(better))
+                    if not self._hold_for_more(q, " ".join(better), b):
+                        self._take(q, " ".join(better))
                     return
                 texts = better
         # Not a command (yet): wait for the end of the sentence.
         self._held.append(" ".join(texts))
         self._held_at = b  # the burst's end: Whisper's word times run early
+        self._held_patience = HOLD
         self._show("…" + " ".join(self._held)[-30:])
 
     def _held_words(self) -> list[str]:
@@ -1584,7 +1650,7 @@ class Listener:
         if not self.commanding:
             self._enter_commands()
         self._response_cue()
-        self._confirm = ([p], [normalise(w) for w in p.command.confirm],
+        self._confirm = ([p], self.grammar.confirm_words(p.command),
                          self.ring.end + int(11 * RATE))
         log.info("always-on: %s armed - waiting for %r", p.command.name, word)
         self.on_event("confirm", p.command.name)

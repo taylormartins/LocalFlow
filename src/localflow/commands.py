@@ -56,6 +56,10 @@ TRAIL = {"please", "thanks", "now", "for", "me"}
 NOISE = {"you", "thank you", "thanks", "bye", "okay", "thank you for watching", "so", "uh", "um"}
 
 
+#: What confirms "go to sleep" (the sleep command's confirm words).
+GOODNIGHT = ["goodnight", "good night", "good nite", "night night"]
+
+
 class CommandError(Exception):
     """A command that was understood but couldn't be carried out."""
 
@@ -961,6 +965,8 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
 ]
 #: Your own escape words, for the sheet (set by Grammar.set_escape_words).
 ESCAPES: dict[str, list[str]] = {"cancel": [], "exit": []}
+#: Your own phrases and words, for the sheet (set by the Grammar's setters).
+YOURS: dict[str, list[tuple[str, str]]] = {"commands": [], "words": []}
 
 
 def help_sections() -> list[tuple[str, list[tuple[str, str]]]]:
@@ -973,6 +979,9 @@ def help_sections() -> list[tuple[str, list[tuple[str, str]]]]:
         if title == "Command mode" and ESCAPES["exit"]:
             lines.insert(1, ("  ·  ".join(ESCAPES["exit"][:3]), "your own words to leave"))
         out.append((title, lines))
+    yours = YOURS["commands"] + YOURS["words"]
+    if yours:
+        out.append(("Your own words", yours[:12]))
     return out
 
 
@@ -1184,7 +1193,7 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
     Command("sleep", ["put [the|my|this] (computer|pc) to sleep", "(sleep|suspend) [the|my|this] (computer|pc)",
                       "go to sleep", "(computer|pc) (sleep|go to sleep)", "sleep mode"],
             _sleep, "put the computer to sleep (asks you to say goodnight first)",
-            confirm=["goodnight", "good night", "good nite", "night night"]),
+            confirm=GOODNIGHT),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     # Buttons and text.
     Command("click", ["click [on] [number] {name}", "tap {name}", "click"], _click_kind(),
@@ -1399,6 +1408,12 @@ REMEMBER = ["remember that", "remember it", "remember this", "learn that", "lear
             "save that", "yes remember that"]
 #: A learned phrase also matches what's heard this close to it, whole.
 LEARNED_MATCH = 0.9
+#: The built-in phrase groups you can add your own words to (Settings >
+#: Listening > Your own words; always_on.phrase_words "group = phrase").
+#: Escape words have their own setting (cancel_words / exit_words).
+PHRASE_GROUPS = {"command mode": ENTER, "dictation mode": DICTATE, "yes": YES, "no": NO,
+                 "remember": REMEMBER, "forget": FORGET, "edit mode": EDIT_MODE,
+                 "default mode": DEFAULT_MODE, "goodnight": GOODNIGHT}
 
 
 def _usable_entry(v) -> bool:
@@ -1450,6 +1465,12 @@ class Grammar:
     #: Quick mode's shorthand, "word = command [argument]" ("go = submit");
     #: empty while quick mode is off.
     code_words: list[str] = field(default_factory=list)
+    #: Your own words for the built-in ones, "group = phrase" (PHRASE_GROUPS):
+    #: "command mode = take control", "yes = make it so".
+    phrase_words: list[str] = field(default_factory=list)
+    #: Your own ways to say a command, "phrase = command": slots work,
+    #: "bring up {name} = switch".
+    command_phrases: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.patterns = [Pattern.compile(c, p) for c in COMMANDS
@@ -1463,12 +1484,68 @@ class Grammar:
         self.exit = [normalise(s) for s in EXIT]
         self.set_escape_words(self.cancel_extra, self.exit_extra)
         self.set_code_words(self.code_words)
+        self.mine: dict[str, list[str]] = {}
+        self._base_patterns = self.patterns
         self.yes = [normalise(s) for s in YES]
         self.dictate = [normalise(s) for s in DICTATE]
         self.no = [normalise(s) for s in NO]
         self.default_mode = [normalise(s) for s in DEFAULT_MODE]
         self.as_command = [normalise(s) for s in AS_COMMAND]
         self.as_dictation = [normalise(s) for s in AS_DICTATION]
+        self.set_phrase_words(self.phrase_words)
+        self.set_command_phrases(self.command_phrases)
+
+    def set_phrase_words(self, lines: list[str]) -> list[str]:
+        """Your own words added to the built-in groups. Returns lines that
+        couldn't be used (no "=", or a group that doesn't exist)."""
+        self.phrase_words = list(lines or [])
+        self.mine, bad = {}, []
+        for line in self.phrase_words:
+            group, _, phrase = line.partition("=")
+            group = " ".join(group.lower().split())
+            if group not in PHRASE_GROUPS or not normalise(phrase):
+                bad.append(line)
+                continue
+            self.mine.setdefault(group, []).append(phrase.strip())
+
+        def words(group: str) -> list[list[str]]:
+            return [w for w in (normalise(s) for s in PHRASE_GROUPS[group]
+                                + self.mine.get(group, [])) if w]
+
+        self.enter, self.dictate = words("command mode"), words("dictation mode")
+        self.yes, self.no = words("yes"), words("no")
+        self.remember, self.forget_words = words("remember"), words("forget")
+        self.edit_mode, self.default_mode = words("edit mode"), words("default mode")
+        YOURS["words"] = [(phrase, group) for group, phrases in self.mine.items()
+                          for phrase in phrases]
+        if bad:
+            log.warning("own words not understood (want 'group = phrase'): %s", bad)
+        return bad
+
+    def confirm_words(self, command: Command) -> list[list[str]]:
+        """What confirms a command that asks first: its own words, plus yours
+        for "goodnight" (sleep)."""
+        extra = self.mine.get("goodnight", []) if command.name == "sleep" else []
+        return [normalise(w) for w in command.confirm + extra]
+
+    def set_command_phrases(self, lines: list[str]) -> list[str]:
+        """Your own ways to say commands, "phrase = command". Returns lines
+        that couldn't be used (no "=", or no such command)."""
+        self.command_phrases = list(lines or [])
+        mine, bad = [], []
+        for line in self.command_phrases:
+            phrase, _, name = line.rpartition("=")
+            name = name.strip().lower().replace(" ", "_")
+            if not phrase.strip() or name not in BY_NAME:
+                bad.append(line)
+                continue
+            mine.append(Pattern.compile(BY_NAME[name], phrase.strip().lower()))
+        self.patterns = self._base_patterns + mine
+        YOURS["commands"] = [(line.rpartition("=")[0].strip(), line.rpartition("=")[2].strip())
+                             for line in self.command_phrases if line not in bad]
+        if bad:
+            log.warning("own command phrases not understood (want 'phrase = command'): %s", bad)
+        return bad
 
     def set_escape_words(self, cancel: list[str], exit_: list[str]) -> None:
         """The built-in escape words plus your own."""

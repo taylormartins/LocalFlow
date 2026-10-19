@@ -351,6 +351,26 @@ Misheard as "to", "undo", "due" or "dew", it still counts when what follows
 is a command, so "undo" on its own still means undo, and "do the dishes
 tonight" is still dictated (`always_on.do_words`).
 
+**Make it yours.** Every word you say to it can be your own, and stays on
+your PC:
+
+| What | Where |
+|---|---|
+| Start and stop phrases (checked against your voice) | tray ▸ Set up always-on phrases |
+| Words that throw a dictation away or leave command mode | Settings ▸ Listening ▸ Escape words |
+| Your own way to say any command ("bring up {name} = switch", "fire away = submit") | Settings ▸ Listening ▸ Your own words |
+| Your own words for command mode, dictation mode, yes, no, remember, forget, edit mode, default mode, goodnight | Settings ▸ Listening ▸ Your own words |
+| The do word, quick mode's end and send words, code words | Settings ▸ Listening |
+| Phrasings learned from your misses ("remember that") | by voice; Settings ▸ Listening ▸ Learned phrases |
+| Sounds, themes, label look and size, the paste effect | Settings ▸ Sounds / Appearance / Theme builder |
+
+The built-in words keep working alongside yours, and your own ones show at
+the end of the command sheet. One limit: the listening side is English for
+now (the phrase model is `base.en` and commands are matched in English).
+Dictation itself can be another language (`whisper.language`), but your
+start phrase and commands need English words until the listener gets a
+multilingual model.
+
 **Quick mode: for talking fast.** Tray ▸ **Quick mode**, or Settings ▸
 Listening. Off by default. One breath does it all, with no waiting for the
 start sound:

@@ -928,6 +928,60 @@ def _listening(nb, cfg: Config) -> None:
         ttk.Button(row, text="Save", style="Small.TButton",
                    command=save_words).pack(side="left", padx=8)
 
+    card = _card(tab, "Your own words", "Say things your way. Everything here is added to the "
+                 "built-in words (which keep working), applies at once, and stays on this PC. "
+                 "Your start and stop phrases are set up from the tray (Set up phrases), with "
+                 "your voice; escape words are above.")
+    from .commands import COMMANDS, PHRASE_GROUPS, Grammar
+
+    ttk.Label(card, text="Your own ways to say a command, one per line, \"your words = command\". "
+              '{name} stands for a window or app, {text} for words to type: "bring up {name} '
+              '= switch", "fire away = submit". Pick a command below to add a line for it.',
+              style="Muted.TLabel", wraplength=560, justify="left").pack(anchor="w")
+    cmd_box = tk.Text(card, height=5, width=60, bg=FIELD, fg=TEXT, insertbackground=TEXT,
+                      relief="flat", font=("Segoe UI", 10))
+    cmd_box.insert("1.0", "\n".join(cfg.always_on.command_phrases))
+    cmd_box.pack(anchor="w", pady=(2, 0))
+    row = _row(card, "Command", 10)
+    names = [f"{c.name}  -  {c.help}"[:70] for c in COMMANDS]
+    pick_var, _ = _choice(row, names, names[0], lambda v: None, width=46)
+    def add_line():
+        """A line for the picked command, to finish with your words."""
+        sep = "\n" if cmd_box.get("1.0", "end").strip() else ""
+        cmd_box.insert("end", sep + "your words = " + pick_var.get().split()[0])
+
+    ttk.Button(row, text="Add a line", style="Small.TButton", command=add_line).pack(
+        side="left", padx=8)
+    cmd_note = ttk.Label(card, text="", style="Muted.TLabel", wraplength=560, justify="left")
+    cmd_note.pack(anchor="w")
+    ttk.Label(card, text="Your own words for these, one per line, \"group = words\": "
+              + ", ".join(PHRASE_GROUPS) + '. For example "command mode = take control", '
+              '"yes = make it so", "goodnight = lights out".', style="Muted.TLabel",
+              wraplength=560, justify="left").pack(anchor="w", pady=(8, 0))
+    group_box = tk.Text(card, height=4, width=60, bg=FIELD, fg=TEXT, insertbackground=TEXT,
+                        relief="flat", font=("Segoe UI", 10))
+    group_box.insert("1.0", "\n".join(cfg.always_on.phrase_words))
+    group_box.pack(anchor="w", pady=(2, 0))
+    group_note = ttk.Label(card, text="", style="Muted.TLabel", wraplength=560, justify="left")
+    group_note.pack(anchor="w")
+
+    def save_mine():
+        g = Grammar()
+        cmds = [x.strip() for x in cmd_box.get("1.0", "end").splitlines() if x.strip()]
+        groups = [x.strip() for x in group_box.get("1.0", "end").splitlines() if x.strip()]
+        bad_c, bad_g = g.set_command_phrases(cmds), g.set_phrase_words(groups)
+        _save("always_on", "command_phrases", [x for x in cmds if x not in bad_c])
+        _save("always_on", "phrase_words", [x for x in groups if x not in bad_g])
+        cmd_note.configure(text=("Not used (want \"words = command\" with a command from the "
+                                 "list): " + "; ".join(bad_c)) if bad_c else
+                           f"Saved {len(cmds)} of your own command phrases.")
+        group_note.configure(text=("Not used (want \"group = words\" with a group above): "
+                                   + "; ".join(bad_g)) if bad_g else
+                             f"Saved {len(groups)} of your own words.")
+
+    ttk.Button(card, text="Save your own words", style="Small.TButton",
+               command=save_mine).pack(anchor="w", pady=(6, 0))
+
     card = _card(tab, "Quick mode", "For talking fast: one breath does it all. Say your start "
                  'phrase, the words, then an end word: "... continue over" pastes "continue", '
                  '"... continue send" pastes it and presses Enter. No waiting for the start '
@@ -983,7 +1037,7 @@ def _listening(nb, cfg: Config) -> None:
 
     card = _card(tab, "Learned phrases", 'Your own ways of saying commands, learned when you '
                  'said "remember that". Select one and Forget it to drop it.')
-    from .commands import BY_NAME, LEARNED, Grammar, Parsed, describe
+    from .commands import BY_NAME, LEARNED, Parsed, describe
 
     lst = tk.Listbox(card, height=8, bg=FIELD, fg=TEXT, selectbackground=GOLD,
                      selectforeground=BLACK, highlightthickness=0, bd=0, font=("Segoe UI", 10),

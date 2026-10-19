@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18, at v1.27.0.
+Written 2026-10-18, at v1.27.0; updated for v1.28.0.
 
 ---
 
@@ -161,6 +161,29 @@ Never push the `pre-public-history` branch. Don't push untested code to
   (the list is below).
 - Has several monitors (one portrait) and plans a webcam per monitor.
 
+## Per-user words (keep everything customisable)
+
+Anything a person says to the app must be changeable by that person, with
+the built-ins still working. When you add a command or a phrase list, wire
+it into these, not into a new fixed list:
+
+- Start/stop phrases: `wake.py` (set up per user with their voice).
+- `always_on.cancel_words` / `exit_words` (escape words).
+- `always_on.command_phrases` ("phrase = command", slots allowed) and
+  `always_on.commands` (the older dict form) for new ways to say commands.
+- `always_on.phrase_words` ("group = phrase") for the built-in groups in
+  `commands.PHRASE_GROUPS`. Add a new group there if you add a new fixed
+  list of words the user says.
+- `always_on.do_words`, `quick_stop`, `quick_send`, `code_words`.
+- Learned phrases (`learned.json`, "remember that").
+- New settings that should apply without a restart go in
+  `tray.LIVE_SETTINGS` and `Tray.apply_settings`.
+
+The listener is English-only (`base.en`, `language="en"` in
+`Detector.words`, English patterns). Supporting another language means a
+multilingual listening model, the language passed through, and patterns
+or user phrases in that language.
+
 ## Things that were hard (read before touching)
 
 - **Matching speech**: everything goes through fuzzy word alignment
@@ -196,6 +219,7 @@ Never push the `pre-public-history` branch. Don't push untested code to
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
+| 1.28 | Command mode hears with the dictation model; commands wait for "on monitor N"; your own words for every phrase group and command; PortAudio restart fix. |
 
 ## Ideas not built yet (the user wants these pitched)
 

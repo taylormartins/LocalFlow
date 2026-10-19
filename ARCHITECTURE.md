@@ -422,6 +422,15 @@ phrase (while dictating) is among them.
     command [arg]") are matched whole and exactly at the top of `parse`,
     only while quick mode is on (`Tray._quick_changed`); filler words are
     refused because `trim` would strip them first.
+  - **Command mode hears with the dictation model** (`_listen_well`, from
+    `_check` while `commanding`): the big model when it's loaded and free,
+    the small listening model only when a dictation has it. The small one
+    turned "arrange windows in rows" into "range windows and rows", and the
+    second listen that fixed it took 7.8 s. No initial prompt: a command
+    vocabulary prompt made Whisper add words after every command (0/12
+    exact vs 9/12 on TTS clips). A parsed command that could go on ("...
+    on monitor 3", "... of monitor 2"; `_could_go_on`) is held SOFT_HOLD
+    (0.8 s) for the rest; a different command next runs it first.
   - **Command mode**: the start phrase plus "command mode", or plus a
     resolvable command (in the same burst, or the first burst within 4 s of
     the start, which then cancels the fed dictation). Every burst is then a

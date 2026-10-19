@@ -47,7 +47,7 @@ LIVE_SETTINGS = {
     "audio": ("boost",),
     "sounds": ("enabled", "start", "stop", "paste", "response", "command", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
-                  "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words",
+                  "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words", "phrase_words", "command_phrases",
                   "code_words"),
     "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size",
                 "paste_effect"),
@@ -650,7 +650,11 @@ class Tray:
                 self._camera_changed()
             if "always_on.quick" in changed:
                 self._quick_changed()
-            elif "always_on.code_words" in changed:
+            if "always_on.phrase_words" in changed:
+                lis.grammar.set_phrase_words(cur.always_on.phrase_words)
+            if "always_on.command_phrases" in changed:
+                lis.grammar.set_command_phrases(cur.always_on.command_phrases)
+            if "always_on.code_words" in changed and "always_on.quick" not in changed:
                 lis.grammar.set_code_words(
                     cur.always_on.code_words if cur.always_on.quick else [])
         if "overlay.theme" in changed:

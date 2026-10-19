@@ -210,6 +210,39 @@ took = lis._check_command(a, words("okay listen marigold do show commands"), 0.0
 expect("isn't a missed command (it was once offered to be learned as 'scratch')",
        not took and not [e for e in events if e[0] == "unknown"], str(events))
 
+print("command mode: a command that could go on waits for the rest")
+ran = []
+lis._do = lambda p, after_dictation=False, confirmed=False: ran.append(str(p))
+lis.dictating = False
+lis.commanding = True
+lis._held = []
+lis._consumed = 0
+a = 5000 * RATE
+lis.ring.end = a + 2 * RATE
+lis._command_burst(a, a + RATE, words("arrange windows in rows"), SILENCE, 0.0)
+expect("'arrange windows in rows' alone waits a moment", not ran and lis._held, str(ran))
+lis._command_burst(a + 2 * RATE, a + 3 * RATE, words("on monitor 3"), SILENCE, 0.0)
+expect("...'on monitor 3' after a pause: one command, on screen 3", ran == ["arrange_rows(3)"],
+       str(ran))
+ran.clear()
+lis._command_burst(a + 4 * RATE, a + 5 * RATE, words("arrange windows in rows"), SILENCE, 0.0)
+lis.ring.end = a + 5 * RATE + int(1.0 * RATE)  # quiet for a second
+lis._last_speech = 0
+lis._file_run = True  # finish it on this thread, not a worker, so the check is in order
+lis.ingest(np.zeros(160, np.float32))
+lis._file_run = False
+expect("...quiet: it runs as it is (in under a second, not the usual 1.8)",
+       ran == ["arrange_rows"], str(ran))
+ran.clear()
+lis._command_burst(a + 7 * RATE, a + 8 * RATE, words("arrange windows in rows"), SILENCE, 0.0)
+lis._command_burst(a + 9 * RATE, a + 10 * RATE, words("show commands"), SILENCE, 0.0)
+expect("...another command next: both run, in order", ran == ["arrange_rows", "help"], str(ran))
+ran.clear()
+lis._command_burst(a + 11 * RATE, a + 12 * RATE, words("scroll down"), SILENCE, 0.0)
+expect("a command that can't go on runs at once", ran == ["scroll_down"], str(ran))
+lis.leave_commands()
+lis._do = real_do
+
 print("the end word comes off the text if the cut left it")
 caught = []
 real = Listener(engine, cfg, inject=False)

@@ -107,23 +107,44 @@ class DeviceInfo:
         return f"[{self.index}] {self.name} ({self.hostapi}, {self.channels}ch @ {self.default_samplerate:.0f}Hz)"
 
 
+#: Held while PortAudio restarts (refresh_devices) and while anything asks it
+#: for devices or opens a stream. A Caps Lock dictation pressed during the
+#: always-on mic's reopen once failed with "PortAudio not initialized".
+PA_LOCK = threading.RLock()
+
+
 def refresh_devices() -> None:
     """Make PortAudio read the device list (and Windows' defaults) again. It
     otherwise keeps the list from when it started, so a mic plugged in later
     is missing and an unplugged one lingers. Closes nothing itself, but
     invalidates open streams: only call it with none open."""
+    with PA_LOCK:
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as exc:
+            log.warning("could not refresh the device list: %s", exc)
+
+
+def _portaudio_ready() -> None:
+    """Start PortAudio again if a restart left it down (it raises "PortAudio
+    not initialized" on everything until then)."""
     try:
-        sd._terminate()
+        sd.query_hostapis()
+    except sd.PortAudioError as exc:
+        if "not initialized" not in str(exc).lower():
+            raise
+        log.warning("PortAudio was down - starting it again")
         sd._initialize()
-    except Exception as exc:
-        log.warning("could not refresh the device list: %s", exc)
 
 
 def microphones() -> list[str]:
     """Input device names for a picker, one per microphone. The same mic is
     listed once per Windows audio API (MME cuts names to 31 characters), so
     WASAPI names are used where there are any."""
-    devices = list_input_devices()
+    with PA_LOCK:
+        _portaudio_ready()
+        devices = list_input_devices()
     wasapi = [d.name for d in devices if d.hostapi == "Windows WASAPI"]
     names = wasapi or [d.name for d in devices if d.hostapi == "MME"] or [d.name for d in devices]
     skip = ("sound mapper", "primary sound capture", "stereo mix")
@@ -282,9 +303,10 @@ class Recorder:
         return stream
 
     def start(self) -> None:
-        with self._lock:
+        with PA_LOCK, self._lock:
             if self._stream is not None:
                 return
+            _portaudio_ready()
 
             candidates = resolve_candidates(self.cfg.device) or [None]
             usable = [

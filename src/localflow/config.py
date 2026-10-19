@@ -246,6 +246,13 @@ class AlwaysOnConfig:
     #: Quick mode's shorthand, each "word = command [argument]": "go = submit",
     #: "nope = scratch", "chrome = switch chrome". Only while quick mode is on.
     code_words: list[str] = field(default_factory=list)
+    #: Your own words alongside the built-in ones, "group = phrase": groups are
+    #: command mode, dictation mode, yes, no, remember, forget, edit mode,
+    #: default mode, goodnight. Settings > Listening > Your own words.
+    phrase_words: list[str] = field(default_factory=list)
+    #: Your own ways to say commands, "phrase = command" (slots work:
+    #: "bring up {name} = switch"). Settings > Listening > Your own words.
+    command_phrases: list[str] = field(default_factory=list)
     #: Command mode ends after this many seconds without a command; 0 = never.
     #: Applies whichever mode is the default. "command timeout two minutes".
     command_mode_seconds: float = 30.0

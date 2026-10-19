@@ -122,6 +122,17 @@ sheet = dict(help_sections())
 expect("...and show on the command sheet",
        any("abort mission" in say for say, _ in sheet["After the stop phrase"])
        and any("over and out" in say for say, _ in sheet["Command mode"]))
+new2 = copy.deepcopy(new)
+new2.always_on.phrase_words = ["command mode = take control", "yes = make it so"]
+new2.always_on.command_phrases = ["bring up {name} = switch", "fire away = submit"]
+tray.always_on = FakeListener()
+tray.apply_settings(new2)
+p = g.parse("bring up chrome".split())
+expect("your own command phrases apply live",
+       p is not None and p.command.name == "switch" and p.arg == "chrome", str(p))
+expect("...and your own words for the built-in groups",
+       g.is_one(["take", "control"], g.enter) and g.is_one(["make", "it", "so"], g.yes)
+       and g.is_one(["command", "mode"], g.enter))
 tray.always_on = None
 
 print("every theme draws")
