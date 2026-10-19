@@ -25,6 +25,15 @@ CASES = [
     ("pressing", "submit", "", ""),
     ("presenter", "submit", "", ""),
     ("summit", "submit", "", ""),
+    # The night routine (monitors off, PC on), not sleep.
+    ("night time routine", "night_routine", "", ""),
+    ("nighttime routine", "night_routine", "", ""),
+    ("night-time routine", "night_routine", "", ""),
+    ("start my night routine", "night_routine", "", ""),
+    ("turn off the monitors", "night_routine", "", ""),
+    ("turn the screens off", "night_routine", "", ""),
+    ("monitors off", "night_routine", "", ""),
+    ("go to sleep", "sleep", "", ""),
     # Bringing a window forward.
     ("switch to chrome", "switch", "chrome", ""),
     ("select filezilla", "switch", "filezilla", ""),

@@ -257,6 +257,7 @@ or user phrases in that language.
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
+| 1.31 | The night routine: "night time routine" / "monitors off" turns every monitor off and keeps the PC awake until someone's back. |
 | 1.30 | macOS: dictation, always-on, overlay and themes, menu bar, Settings, command mode basics; CI on a real Mac. |
 | 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |
 | 1.28 | Command mode hears with the dictation model; commands wait for "on monitor N"; your own words for every phrase group and command; PortAudio restart fix. |
@@ -272,6 +273,9 @@ or user phrases in that language.
 - Search the command sheet by voice ("show commands for windows").
 - Theme by time of day.
 - Lock, restart and shut down by voice.
+- Enhance the night-time routine: personal routines, e.g. only certain
+  windows stay up, peripherals' lights off. Tonight's version only turns
+  the monitors off and keeps the PC awake.
 - Switch a saved layout automatically when a monitor is plugged in or out.
 - The rest of the rename (package, repo, tasks) if and when it's wanted.
 - The Mac's stage 2: window control and click labels through Accessibility.

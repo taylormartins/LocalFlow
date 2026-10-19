@@ -493,6 +493,13 @@ phrase (while dictating) is among them.
     SeShutdownPrivilege, then calls `SetSuspendState(False, False, False)`.
     The "LocalFlow resume" task (Power-Troubleshooter event 1) restarts the
     app on wake. Tests run with inject=False, so they never sleep the PC.
+  - **The night routine** (`night_routine`, no confirmation: it's harmless)
+    is not sleep. `desktop.monitors_off` *posts* SC_MONITORPOWER 2 to
+    HWND_BROADCAST (SendMessage would wait on any hung window) and starts a
+    thread that holds `SetThreadExecutionState(ES_CONTINUOUS |
+    ES_SYSTEM_REQUIRED)` until `GetLastInputInfo` changes, so the PC can't
+    idle-sleep while agents work. The state is per thread, hence the thread.
+    On a Mac: `caffeinate -i` for 12 h, then `pmset displaysleepnow`.
   - A slot command naming a window that doesn't exist goes to the LLM when
     there is one (`Listener._usable`), not straight to an error.
 - **Terminals** (`inject.in_terminal`, `terminal_single_line`): a dictation

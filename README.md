@@ -428,6 +428,7 @@ too. To live in command mode instead, make it the default (see
 | undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
 | undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
 | put the computer to sleep · go to sleep | the response sound (three clicks), then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
+| night time routine · monitors off · turn off the screens | the night routine: every monitor goes off, the PC and the mic stay on (it won't sleep until you touch the keyboard or mouse, so agents keep working). Any key or mouse move brings the monitors back. In one breath: *start phrase*, "do", "night time routine" |
 | change default mode | the response sound, then say **"command mode"** or **"dictation mode"**. Or in one go: "default mode command mode" |
 | command timeout *two minutes* · dictation timeout *never* | how long command mode waits in silence, and how long a dictation does, before ending; "never" turns it off |
 | make this shorter · make it more formal · turn this into bullet points · fix the punctuation | rewrites the selected text, or (nothing selected) your last dictation. See *Editing by voice* |

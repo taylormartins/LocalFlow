@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "press", "scroll", "click_at", "windows", "foreground", "focus", "show", "close",
-    "monitors", "monitor_of", "to_monitor", "apps", "launch", "open_url", "sleep_pc",
+    "monitors", "monitor_of", "to_monitor", "apps", "launch", "open_url", "sleep_pc", "monitors_off",
     "window_rect", "work_area", "caret_point", "controls", "activate_control", "place",
     "center", "arrange", "move_windows", "swap_windows", "get_placement", "set_placement",
     "snapshot", "restore", "window_chips", "confirm_terminal_paste", "per_monitor_dpi",
@@ -243,6 +243,13 @@ def open_url(url: str) -> None:
 
 def sleep_pc() -> None:
     subprocess.run(["pmset", "sleepnow"], check=True)
+
+
+def monitors_off() -> None:
+    """The night routine: the displays sleep, the Mac doesn't (caffeinate
+    holds off idle sleep for 12 hours)."""
+    subprocess.Popen(["caffeinate", "-i", "-t", str(12 * 3600)])
+    subprocess.run(["pmset", "displaysleepnow"], check=True)
 
 
 def caret_point():

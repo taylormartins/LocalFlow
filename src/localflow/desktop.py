@@ -1089,6 +1089,44 @@ def sleep_pc() -> None:
         raise OSError(f"SetSuspendState failed (error {ctypes.get_last_error()})")
 
 
+HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, MONITOR_OFF = 0xFFFF, 0x0112, 0xF170, 2
+ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+#: How often the night routine checks whether someone's back.
+NIGHT_POLL = 30.0
+
+
+class _LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+
+def _last_input() -> int:
+    info = _LASTINPUTINFO(cbSize=ctypes.sizeof(_LASTINPUTINFO))
+    user32.GetLastInputInfo(ctypes.byref(info))
+    return info.dwTime
+
+
+def _awake_until_input() -> None:
+    """Keep the PC from sleeping (agents keep working) until a key or the
+    mouse is touched. Per thread, so set and cleared on this one."""
+    kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    start = _last_input()
+    try:
+        while _last_input() == start:
+            time.sleep(NIGHT_POLL)
+    finally:
+        kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+        log.info("night routine over (someone's back)")
+
+
+def monitors_off() -> None:
+    """The night routine: every monitor off, the PC and the mic left on. Any
+    key or mouse move wakes the monitors. Posted, not sent: SendMessage to
+    every window waits on any one that doesn't answer."""
+    threading.Thread(target=_awake_until_input, daemon=True, name="localflow-night").start()
+    time.sleep(0.2)  # its input stamp is taken before the monitors go
+    user32.PostMessageW(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, MONITOR_OFF)
+
+
 def window_rect(hwnd: int) -> tuple[int, int, int, int]:
     r = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(r))

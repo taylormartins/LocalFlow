@@ -869,6 +869,13 @@ def _sleep(arg: str, ctx: Ctx) -> str:
     return "Sleeping"
 
 
+def _night(arg: str, ctx: Ctx) -> str:
+    time.sleep(0.6)  # let the pill and the sound finish first
+    log.info("commands: night routine (monitors off, staying awake)")
+    desktop.monitors_off()
+    return "Goodnight"
+
+
 def _type(arg: str, ctx: Ctx) -> str:
     if ctx.paste is None:
         raise CommandError("can't type here")
@@ -979,6 +986,8 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("command timeout two minutes  ·  never", "also: dictation timeout ...", ()),
         ("remember that  ·  forget that", "learn (or drop) your own phrasing", ()),
         ("go to sleep", 'then say "goodnight"', ("sleep",)),
+        ("night time routine  ·  monitors off", "screens off, the PC keeps working",
+         ("night_routine",)),
         ("show commands  ·  hide commands", "this list", ("help", "hide_help")),
     ]),
     ("After the stop phrase", [
@@ -1223,6 +1232,12 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
                       "go to sleep", "(computer|pc) (sleep|go to sleep)", "sleep mode"],
             _sleep, "put the computer to sleep (asks you to say goodnight first)",
             confirm=GOODNIGHT),
+    Command("night_routine", ["[start] [the|my] (night time|nighttime|night|bedtime|bed time) "
+                              "(routine|mode)",
+                              "(turn|switch|shut) (off|down) [the|my|all] [the] (monitors|screens|displays)",
+                              "(turn|switch) [the|my|all] [the] (monitors|screens|displays) off",
+                              "(monitors|screens|displays) off", "lights out"],
+            _night, "the night routine: every monitor off; the PC and the mic stay on"),
     Command("desktop", ["show [the] desktop"], _keys("win+d", "Desktop"), "show the desktop"),
     # Buttons and text.
     Command("click", ["click [on] [number] {name}", "tap {name}", "click"], _click_kind(),
