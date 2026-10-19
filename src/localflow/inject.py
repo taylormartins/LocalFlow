@@ -171,6 +171,11 @@ class Injector:
             raise
 
     def _type(self, text: str) -> None:
+        if IS_MAC:
+            from .mac.keys import type_text
+
+            type_text(text, self.cfg.type_interval)
+            return
         kb = self.keyboard
         for ch in text:
             kb.type(ch)
@@ -192,10 +197,15 @@ class Injector:
         # before it services the Ctrl+V, or it pastes the previous value.
         time.sleep(self.cfg.paste_delay)
 
-        kb = self.keyboard
-        with kb.pressed(Key.cmd if IS_MAC else Key.ctrl):
-            kb.press("v")
-            kb.release("v")
+        if IS_MAC:
+            from .mac.keys import press
+
+            press("cmd+v")  # by key code: pynput's layout lookup aborts off the main thread
+        else:
+            kb = self.keyboard
+            with kb.pressed(Key.ctrl):
+                kb.press("v")
+                kb.release("v")
         # Windows Terminal asks before pasting over 5 KiB (or several lines,
         # if they weren't joined): dictating it was the yes.
         if not IS_MAC and (len(text.encode("utf-8")) > 4000 or "\n" in text):

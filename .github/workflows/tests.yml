@@ -77,5 +77,6 @@ jobs:
           echo "---- localflow.log"; cat localflow.log
           ! kill -0 $pid 2>/dev/null || { echo "didn't quit"; kill $pid; exit 1; }
           grep -q "overlay ready" localflow.log || { echo "no overlay"; exit 1; }
+          grep -q "hotkeys active" localflow.log || { echo "no hotkeys"; exit 1; }
           grep -q "shut down" localflow.log || { echo "no clean shutdown"; exit 1; }
           ! grep -E "Traceback|ERROR|overlay failed" localflow.log

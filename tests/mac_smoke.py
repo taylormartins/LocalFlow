@@ -91,6 +91,17 @@ expect("Shift+Right Option for raw", hotkey.spec_to_vks("<shift>+<alt_r>")
        == frozenset({16, hotkey.VK_RIGHT_OPTION}))
 expect("Ctrl+Cmd still parses", hotkey.spec_to_vks("<ctrl>+<cmd>") == frozenset({17, 91}))
 
+print("keys without pynput (its Mac code aborts off the main thread)")
+from localflow.mac import keys  # noqa: E402
+
+expect("Right Option's key code is the dictation key", keys.TO_VK[61] == hotkey.VK_RIGHT_OPTION)
+keys.press("shift")  # harmless; must not take the process down
+heard = []
+lis = keys.Listener(heard.append, heard.append)
+lis.start()
+lis.stop()
+expect("the key listener starts and stops (it may lack permission on CI)", True)
+
 print("Windows shortcuts become Mac ones")
 from localflow.mac.desktop import MAC_CHORDS  # noqa: E402
 

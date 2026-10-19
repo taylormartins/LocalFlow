@@ -62,42 +62,16 @@ def confirm_terminal_paste(timeout: float = 1.0) -> bool:
 
 # -- keys and the mouse ------------------------------------------------------
 
-_kb = None
 _mouse = None
-
-
-def _keyboard():
-    global _kb
-    if _kb is None:
-        from pynput.keyboard import Controller
-
-        _kb = Controller()
-    return _kb
-
-
-def _key(name: str):
-    from pynput.keyboard import Key
-
-    names = {"ctrl": Key.ctrl, "cmd": Key.cmd, "win": Key.cmd, "alt": Key.alt,
-             "shift": Key.shift, "enter": Key.enter, "tab": Key.tab, "escape": Key.esc,
-             "backspace": Key.backspace, "delete": Key.delete, "space": Key.space,
-             "left": Key.left, "right": Key.right, "up": Key.up, "down": Key.down,
-             "pageup": Key.page_up, "pagedown": Key.page_down, "home": Key.home,
-             "end": Key.end, "f4": Key.f4, "f5": Key.f5, "f11": Key.f11}
-    return names.get(name, name)
 
 
 def press(chord: str, times: int = 1) -> None:
     """Press a chord named the Windows way ("ctrl+shift+tab"); Mac shortcuts
-    are used where they differ (Ctrl+C is Cmd+C)."""
-    chord = MAC_CHORDS.get(chord, chord)
-    keys = [_key(k) for k in chord.split("+")]
-    kb = _keyboard()
-    for _ in range(times):
-        for k in keys:
-            kb.press(k)
-        for k in reversed(keys):
-            kb.release(k)
+    are used where they differ (Ctrl+C is Cmd+C). By key code (mac/keys.py)."""
+    from .keys import press as press_codes
+
+    chord = MAC_CHORDS.get(chord, chord).replace("win", "cmd")
+    press_codes(chord, times)
 
 
 def scroll(notches: int) -> None:

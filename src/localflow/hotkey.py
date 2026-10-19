@@ -374,14 +374,13 @@ class HotkeyManager:
         self._worker = threading.Thread(target=self._drain, daemon=True, name="localflow-hotkey")
         self._worker.start()
         if IS_MAC:
-            # No low-level filter on a Mac: pynput's callbacks drive the same
-            # state machine. Keys aren't suppressed (Right Option on its own
-            # types nothing anyway).
-            self._listener = keyboard.Listener(
-                on_press=lambda key: self._mac_key(key, True),
-                on_release=lambda key: self._mac_key(key, False))
+            # A Quartz event tap drives the same state machine (pynput's Mac
+            # listener aborts the process on recent macOS; see mac/keys.py).
+            # Listen-only: Right Option on its own types nothing anyway.
+            from .mac.keys import Listener
+
+            self._listener = Listener(self._handle_down, self._handle_up)
             self._listener.start()
-            self._listener.wait()
             log.info("hotkeys active: %s", ", ".join(b.spec for b in self._bindings))
             return
         # on_press/on_release are deliberately no-ops; _filter drives everything.
@@ -393,15 +392,6 @@ class HotkeyManager:
         self._listener.start()
         self._listener.wait()
         log.info("hotkeys active: %s", ", ".join(b.spec for b in self._bindings))
-
-    def _mac_key(self, key, down: bool) -> None:
-        vk = key_vk(key)
-        if vk is None:
-            return
-        if down:
-            self._handle_down(vk)
-        else:
-            self._handle_up(vk)
 
     def stop(self) -> None:
         if self._listener is not None:
@@ -415,5 +405,5 @@ class HotkeyManager:
         self._chord = None
 
     def join(self) -> None:
-        if self._listener is not None:
+        if self._listener is not None and not IS_MAC:
             self._listener.join()
