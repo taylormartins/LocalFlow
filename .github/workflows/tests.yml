@@ -51,3 +51,31 @@ jobs:
             if ! uv run python tests/$t.py; then failed=1; fi
           done
           exit $failed
+      - name: Mac pieces on a real Mac (overlay windows, screens, apps, clipboard)
+        if: runner.os == 'macOS'
+        run: uv run python tests/mac_smoke.py
+      - name: The whole app starts, shows its overlay and menu-bar icon, and quits
+        if: runner.os == 'macOS'
+        run: |
+          cat > ci.toml <<'EOF'
+          [whisper]
+          model = "tiny.en"
+          [cleanup]
+          method = "rules"
+          [always_on]
+          enabled = false
+          EOF
+          uv run python -m localflow.cli -c ci.toml run &
+          pid=$!
+          for i in $(seq 1 60); do
+            grep -q "overlay ready" localflow.log 2>/dev/null && break
+            sleep 2
+          done
+          sleep 5
+          touch .quit
+          for i in $(seq 1 30); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          echo "---- localflow.log"; cat localflow.log
+          ! kill -0 $pid 2>/dev/null || { echo "didn't quit"; kill $pid; exit 1; }
+          grep -q "overlay ready" localflow.log || { echo "no overlay"; exit 1; }
+          grep -q "shut down" localflow.log || { echo "no clean shutdown"; exit 1; }
+          ! grep -E "Traceback|ERROR|overlay failed" localflow.log
