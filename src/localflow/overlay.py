@@ -720,7 +720,24 @@ class Overlay:
             label = label[:-1]
         return label.rstrip() + "…"
 
+    def _restyle(self) -> None:
+        """A new theme, label look or size (Settings) redraws what's up now:
+        the command sheet stayed in the old theme until it was reopened."""
+        theme = self._themes.get(self.cfg.theme)
+        key = (id(theme), self.cfg.label_theme, self.cfg.label_size)
+        if key == getattr(self, "_style_key", key):
+            self._style_key = key
+            return
+        self._style_key = key
+        if self._help:
+            self._help_version += 1
+        if self._list:
+            self._list_version += 1
+        if self._labels:
+            self._labels_version += 1
+
     def _tick(self) -> None:
+        self._restyle()
         if self._help_version != self._help_drawn:
             try:
                 self._draw_help()

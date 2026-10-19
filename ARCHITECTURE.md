@@ -771,6 +771,11 @@ $s.SetOutputToWaveFile("test.wav"); $s.Speak("um so I think we should, actually 
 
 ## Known issues and next steps
 
+- **Camera mode** (planned, not built): gaze gating, spatial window
+  addressing, a cover-the-lens kill switch, pinch and tilt controls, voice
+  plus gaze fusion. The design and build order are in
+  [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md).
+
 - Short imperatives ("tell me a joke") sometimes get a spurious question mark
   from the LLM. Cosmetic; resisted fixing because the obvious fix overfits the
   prompt to the test suite.

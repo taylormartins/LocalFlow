@@ -332,6 +332,10 @@ start sound:
 
 - **"Okay listen, Marigold. Continue over."** pastes "continue".
 - **"Okay listen, Marigold. Continue send."** pastes it and presses Enter.
+- **"Okay listen, Marigold. Do enter."** runs that one command (Enter) and
+  that's it: no command mode left open. "Do" alone, then the command,
+  works too. Commands that put something up to act on next (show labels,
+  show windows, the grid) still open command mode (`always_on.quick_do`).
 - The end word also ends a longer dictation, in place of the stop phrase.
 - An end word only counts as the very last thing you say before a pause
   (0.4 s), so "move it over here" doesn't stop anything. Change the words in
@@ -608,8 +612,11 @@ Everything else is in tray ▸ **Settings...**, a black and gold window with
 tabs:
 
 - **Appearance**: the pill's **theme**, with a live preview, the **pill
-  opacity** (down to 20%, to see what's behind it), and the click labels'
-  opacity. The themes:
+  opacity** (down to 20%, to see what's behind it), the click labels' look,
+  size and opacity, and **Preview theme**: one window with everything in the
+  theme (the pill, click labels on a pretend app, window numbers, the window
+  list, the command sheet, the grid). A theme change also restyles the
+  command sheet, window list and labels already on screen. The themes:
   - **Royal** (the default): black and gold, a framed border with diamond
     ornaments, a straight-line waveform, Palatino lettering, and stardust for
     the recording mark: a star with a ring of sparkles, each twinkling in its
@@ -652,7 +659,8 @@ tabs:
   ones, plus your own, for throwing a dictation away and for leaving command
   mode), **quick mode** with its end words and code words, the LLM for
   commands, history, learned phrases.
-- **Sounds**: the four cues and the volume.
+- **Sounds**: the cues (start, stop, paste, **command**: a click the moment
+  a voice command is heard, and **response**) and the volume.
 
 Every change applies at once, without a restart: Settings saves to
 `config.toml`, and LocalFlow picks the change up within a second. Editing
@@ -995,6 +1003,13 @@ Windows blocks input from a normal process into an elevated one. Re-run
 `.\install.cmd` and accept the admin prompt so LocalFlow starts elevated.
 
 ---
+
+## What's next
+
+Camera mode: looking at the screen to arm listening, "close that" while
+looking at a window, a covered lens as an instant stop for everything,
+pinch-and-slide scrolling and hand-tilt zoom. The design is in
+[docs/CAMERA_MODE.md](docs/CAMERA_MODE.md); none of it is built yet.
 
 ## License and credits
 

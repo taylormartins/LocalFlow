@@ -147,6 +147,147 @@ class Preview:
                       font=themes.font(theme, s))
 
 
+class Showcase:
+    """Preview theme: everything that wears the theme, in one window - the
+    pill, click labels on a pretend app, window chips, the window list, a
+    piece of the command sheet and a grid cell. Follows the picks live."""
+
+    W, H = 900, 600
+
+    def __init__(self, parent, get_theme, get_labels, get_size):
+        import tkinter as tk
+
+        self.get_theme, self.get_labels, self.get_size = get_theme, get_labels, get_size
+        self.win = tk.Toplevel(parent)
+        self.win.title("Theme preview")
+        self.win.configure(bg=BLACK)
+        self.win.resizable(False, False)
+        self.canvas = tk.Canvas(self.win, width=self.W, height=self.H, bg="#3a3d44",
+                                highlightthickness=0)
+        self.canvas.pack(side="left", padx=10, pady=10)
+        self.pill = Preview(self.win, get_theme)
+        self.pill.canvas.pack(side="left", anchor="n", padx=(0, 10), pady=10)
+        self._key = None
+        self._tick()
+
+    def _tick(self) -> None:
+        from . import themes
+
+        try:
+            if not self.win.winfo_exists():
+                return
+            pill, labels = self.get_theme(), self.get_labels()
+            key = (id(pill), id(labels), self.get_size())
+            if key != self._key:
+                self._key = key
+                self.draw(themes, pill, labels, self.get_size())
+        except Exception:
+            log.debug("theme preview failed", exc_info=True)
+        self.win.after(400, self._tick)
+
+    def draw(self, themes, pill, look, size: int) -> None:
+        import tkinter.font as tkfont
+
+        c = self.canvas
+        c.delete("all")
+        mark = themes.marker(look)
+
+        def bold(px: float):
+            return themes.font(look, 1.0, bold=True, size=int(px))
+
+        number = bold(size)
+        m = tkfont.Font(root=c, font=number)
+        bh = m.metrics("linespace") + 3
+
+        def label(x, y, n: str) -> None:
+            pad = 15 if look.border == "ornate" else 9
+            themes.label_box(c, look, x, y, x + max(bh, m.measure(n) + pad), y + bh, 1.0, n,
+                             number)
+
+        # A pretend app with its click labels.
+        x0, y0, x1, y1 = 16, 16, 470, 330
+        c.create_rectangle(x0, y0, x1, y1, fill="#f3f3f3", outline="#9a9a9a")
+        c.create_rectangle(x0, y0, x1, y0 + 30, fill="#e1e1e1", outline="#9a9a9a")
+        c.create_text(x0 + 12, y0 + 15, text="Mail - Inbox", anchor="w", fill="#333",
+                      font=("Segoe UI", -13))
+        items = [((x0 + 14, y0 + 44, x0 + 124, y0 + 76), "New mail", "1"),
+                 ((x0 + 134, y0 + 44, x0 + 224, y0 + 76), "Reply", "2"),
+                 ((x0 + 234, y0 + 44, x0 + 334, y0 + 76), "Archive", "3"),
+                 ((x0 + 14, y0 + 92, x1 - 14, y0 + 124), "Search mail", "4"),
+                 ((x0 + 14, y0 + 136, x1 - 14, y0 + 166), "Lunch on Friday?", "5"),
+                 ((x0 + 14, y0 + 170, x1 - 14, y0 + 200), "Budget for next quarter", "12"),
+                 ((x0 + 14, y0 + 204, x1 - 14, y0 + 234), "Your order has shipped", "127"),
+                 ((x1 - 110, y1 - 46, x1 - 14, y1 - 14), "Send", "18")]
+        for (l, t, r, b), text, n in items:
+            field = text == "Search mail"
+            c.create_rectangle(l, t, r, b, fill="#ffffff" if field else "#e9e9e9",
+                               outline="#bdbdbd")
+            c.create_text(l + 40, (t + b) / 2, text=text, anchor="w",
+                          fill="#888" if field else "#222", font=("Segoe UI", -13))
+            c.create_rectangle(l, t, r - 1, b - 1, outline=mark)
+            label(l + 2, t + 2, n)
+
+        # Window chips: three windows, two stacked at one spot.
+        wx, wy = 492, 16
+        for i, (dx, dy, n) in enumerate(((0, 0, "1"), (40, 40, "2"), (220, 10, "3"))):
+            l, t = wx + dx, wy + dy
+            c.create_rectangle(l, t, l + 170, t + 110, fill=("#d9d9d9", "#cfcfcf", "#c4c4c4")[i],
+                               outline="#888")
+            c.create_rectangle(l, t, l + 170, t + 18, fill="#bdbdbd", outline="#888")
+        for i, (dx, dy, n) in enumerate(((0, 0, "1"), (40, 40, "2"), (220, 10, "3"))):
+            l, t = wx + dx + 6, wy + dy + 4
+            themes.label_box(c, look, l, t, l + 44, t + 32, 1.0, n, bold(18))
+
+        # The window list.
+        lx, ly, lw = 492, 180, 392
+        panel = themes.with_changes(look, border=look.border if look.border in ("bevel", "prism")
+                                    else "plain")
+        themes.pill(c, panel, lx, ly, lx + lw, ly + 150, 14, 1.0)
+        dim = themes.blend(look.text, look.bg, 0.4)
+        text_font = themes.font(look, 1.0, size=12)
+        c.create_text(lx + 14, ly + 12, anchor="nw", fill=dim, font=text_font,
+                      text='Windows - say "switch to" and a number')
+        for i, row in enumerate(("Inbox  (Mail)", "Budget.xlsx  (Excel)", "Terminal")):
+            y = ly + 40 + i * 34
+            themes.label_box(c, look, lx + 14, y, lx + 46, y + 28, 1.0, str(i + 1), bold(13))
+            c.create_text(lx + 58, y + 14, text=row, anchor="w", fill=look.text, font=text_font)
+
+        # A piece of the command sheet (in the pill's theme, as on screen).
+        sx, sy, sw, sh = 16, 346, 470, 238
+        sheet = themes.with_changes(pill, border="plain" if pill.border == "ornate"
+                                    else pill.border)
+        themes.pill(c, sheet, sx, sy, sx + sw, sy + sh, 16, 1.0)
+        accent = pill.accent or pill.text
+        pdim = themes.blend(pill.text, pill.bg, 0.4)
+        head = ("Segoe UI Semibold", -(themes.LABEL_MIN + 2))
+        say, does = ("Segoe UI Semibold", -themes.LABEL_MIN), ("Segoe UI", -themes.LABEL_MIN)
+        c.create_text(sx + 18, sy + 18, anchor="nw", fill=accent, font=head,
+                      text='Say a command  ·  "hide commands" to close')
+        c.create_text(sx + 18, sy + 50, anchor="nw", fill=accent, font=head, text="Windows")
+        c.create_line(sx + 18, sy + 72, sx + sw - 18, sy + 72,
+                      fill=themes.blend(accent, pill.bg, 0.6))
+        y = sy + 80
+        for a, b in (("switch to Chrome  ·  switch to 3", "bring a window to the front"),
+                     ("arrange windows  ·  tile windows", "every window side by side"),
+                     ("save layout as work  ·  layout work", "save where every window is")):
+            c.create_text(sx + 18, y, anchor="nw", fill=pill.text, font=say, text=a)
+            c.create_text(sx + 18, y + 20, anchor="nw", fill=pdim, font=does, text=b)
+            y += 46
+
+        # A grid cell.
+        gx, gy, gs = 492, 346, 238
+        c.create_rectangle(gx, gy, gx + 392, gy + gs, fill="#2b2d33", outline="")
+        for k in range(1, 3):
+            c.create_line(gx + 392 * k / 3, gy, gx + 392 * k / 3, gy + gs, fill=mark, width=2)
+            c.create_line(gx, gy + gs * k / 3, gx + 392, gy + gs * k / 3, fill=mark, width=2)
+        for k in range(9):
+            cx = gx + 392 * (k % 3 + 0.5) / 3
+            cy = gy + gs * (k // 3 + 0.5) / 3
+            sz = 22
+            themes.label_box(c, look, cx - sz * 0.8, cy - sz * 0.66, cx + sz * 0.8,
+                             cy + sz * 0.66, 1.0, str(k + 1), bold(sz))
+
+
 def _card(parent, title: str, note: str = ""):
     from tkinter import ttk
 
@@ -259,6 +400,14 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     prev = Preview(body, lambda: themes.resolve(current.get()))
     prev.canvas.pack(side="left")
 
+    def preview_all():
+        """Everything in the theme: the label look and size as picked below."""
+        Showcase(tab, lambda: themes.resolve(current.get()),
+                 lambda: state["label_look"](), lambda: state["label_size"]())
+
+    ttk.Button(card, text="Preview theme  (labels, windows, commands)", style="Small.TButton",
+               command=preview_all).pack(anchor="w", pady=(8, 0))
+
     card = _card(tab, "Pill opacity", "Lower it to see what's behind the pill.")
     row = _row(card, "Pill opacity")
     op = tk.DoubleVar(value=cfg.overlay.opacity)
@@ -294,6 +443,9 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     size_shown.pack(side="left", padx=8)
     size_scale.bind("<ButtonRelease-1>",
                     lambda _e: _save("overlay", "label_size", int(size_var.get())))
+    state["label_look"] = lambda: themes.label_theme(by_name.get(look_var.get(), "match"),
+                                                     themes.resolve(current.get()))
+    state["label_size"] = lambda: int(size_var.get())
     sample = tk.Canvas(card, width=320, height=76, bg=PANEL, highlightthickness=0)
     sample.pack(anchor="w", pady=(6, 2))
 
@@ -654,7 +806,8 @@ def _listening(nb, cfg: Config) -> None:
                  "sound. An end word only counts as the last thing you say before a pause, so "
                  '"move it over here" doesn\'t stop anything. Also in the tray menu.')
     _check(card, "Quick mode on", cfg.always_on.quick, lambda v: _save("always_on", "quick", v))
-    for key, label in (("quick_stop", "End words (stop)"), ("quick_send", "Send words (+ Enter)")):
+    for key, label in (("quick_stop", "End words (stop)"), ("quick_send", "Send words (+ Enter)"),
+                       ("quick_do", "Do words (one command)")):
         row = _row(card, label, 20)
         var = tk.StringVar(value=", ".join(getattr(cfg.always_on, key)))
         entry = ttk.Entry(row, textvariable=var, width=30)
@@ -742,12 +895,14 @@ def _sounds(nb, cfg: Config) -> None:
     from .sounds import CHOICES, play, render
 
     tab = _scroller(nb, "Sounds")
-    card = _card(tab, "Sounds", "The response sound means a command is waiting for your "
-                 'answer ("goodnight", "yes", "remember that").')
+    card = _card(tab, "Sounds", "The command sound plays the moment a voice command is "
+                 'heard ("submit" after the stop phrase, anything in command mode). The '
+                 "response sound means a command is waiting for your answer "
+                 '("goodnight", "yes", "remember that").')
     _check(card, "Play sounds", cfg.sounds.enabled, lambda v: _save("sounds", "enabled", v))
     vol = tk.DoubleVar(value=cfg.sounds.volume)
     for key, label in (("start", "Start"), ("stop", "Stop"), ("paste", "Paste"),
-                       ("response", "Response")):
+                       ("command", "Command"), ("response", "Response")):
         row = _row(card, label)
         cur = getattr(cfg.sounds, key)
         values = [c.capitalize() for c in CHOICES]

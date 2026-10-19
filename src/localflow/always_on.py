@@ -73,6 +73,9 @@ HOLD = 1.8
 #: pause inside a phrase ("stop... chat") ends a burst, and then neither
 #: half matches alone.
 JOIN = 1.5
+#: Commands that put something up to act on next (labels, the window list,
+#: the grid, the command sheet): after "do", these still open command mode.
+FOLLOW_UP = {"show_labels", "show_windows", "show_grid", "show_monitors", "help"}
 #: A command said after the stop phrase is held (input buffering) until the
 #: text is in, however long cleanup takes, at most this long; then
 #: command_window more seconds from the paste.
@@ -160,6 +163,8 @@ class Listener:
         self._offer: tuple[str, Parsed, float] | None = None
         self._said: dict[int, str] = {}  # id(Parsed) -> the words it came from
         self._return_to_commands = False  # a dictation begun from command mode
+        #: Quick mode's "<start> do": command mode for the next command only.
+        self._oneshot = False
         self.runner = Runner(self._command_done)
         # Command mode.
         self.commanding = False
@@ -867,6 +872,7 @@ class Listener:
             return True
         log.info("always-on: command %r (%r)", p.command.name, " ".join(texts))
         self.on_event("command", p.command.name)
+        self._command_cue()
         self._offer_learning(p)
         if ready:
             self._do(p, after_dictation=True)
@@ -892,6 +898,7 @@ class Listener:
 
         log.info("always-on: cancel after the paste: deleting it")
         self.on_event("command", "scratch")
+        self._command_cue()
         self._do(Parsed(BY_NAME["scratch"], "", 1.0), after_dictation=True)
         return True
 
@@ -922,24 +929,45 @@ class Listener:
 
     # -- command mode -----------------------------------------------------------
 
+    def _is_do(self, word: str) -> bool:
+        """Quick mode's one-shot word ("do")?"""
+        on = self.cfg.always_on
+        return on.quick and " ".join(normalise(word)) in {
+            " ".join(normalise(x)) for x in on.quick_do}
+
     def _command_instead(self, a: int, words) -> bool:
         """Right after the start phrase: is this a command rather than the
         start of a dictation? Only if it's a command in full whose target
-        exists, so "open the file and check it" is still dictated."""
+        exists, so "open the file and check it" is still dictated.
+
+        Quick mode: "do <command>" runs that one command and stays out of
+        command mode; "do" alone opens command mode for the next command only.
+        """
         texts = [w.text for w in words]
-        enter = self.grammar.is_one(texts, self.grammar.enter)
-        p = None if enter else self.grammar.parse(texts)
-        if not enter and (p is None or not resolvable(p)):
+        oneshot = bool(texts) and self._is_do(texts[0])
+        if oneshot:
+            texts = texts[1:]
+        enter = bool(texts) and self.grammar.is_one(texts, self.grammar.enter)
+        p = None if enter or not texts else self.grammar.parse(texts)
+        if not (oneshot and not texts) and not enter and (p is None or not resolvable(p)):
             return False
         if self.dictating:
             with self._lock:
                 self.dictating = False
             self.engine.cancel_external()
         self._consumed = max(self._consumed, a + int(words[-1].end * RATE))
+        if oneshot and p is not None and p.command.name not in FOLLOW_UP:
+            log.info("always-on: one-shot command %r", p.command.name)
+            self.on_event("command", p.command.name)
+            self._command_cue()
+            self._do(p)
+            return True
+        self._oneshot = oneshot and not texts
         self._enter_commands()
         if p is not None:
             log.info("always-on: command %r", p.command.name)
             self.on_event("command", p.command.name)
+            self._command_cue()
             self._do(p)
         return True
 
@@ -1001,18 +1029,26 @@ class Listener:
         self._show(msg)
 
     def _response_cue(self) -> None:
-        """The response sound: a command is waiting for your answer. Its own
-        sound, picked up by the mic, isn't taken for the answer."""
+        """The response sound: a command is waiting for your answer."""
+        self._cue("response")
+
+    def _command_cue(self) -> None:
+        """The command sound: a command was heard, like a button clicking."""
+        self._cue("command")
+
+    def _cue(self, which: str) -> None:
+        """Play sounds.<which>. Its own sound, picked up by the mic, isn't
+        taken for speech."""
         data = None
         sounds = self.cfg.sounds
         if sounds.enabled:
             try:
                 from .sounds import play, render
 
-                data = render(sounds.response, sounds.volume)
+                data = render(getattr(sounds, which), sounds.volume)
                 play(data)
             except Exception:
-                log.debug("response sound failed", exc_info=True)
+                log.debug("%s sound failed", which, exc_info=True)
         if data:
             from .sounds import _duration
 
@@ -1073,6 +1109,7 @@ class Listener:
             return
         self.commanding = False
         self.commanding_announced = False
+        self._oneshot = False
         self._confirm = None
         self._choice = None
         self.editing = False
@@ -1245,9 +1282,15 @@ class Listener:
     def _take(self, p: Parsed, said: str = "") -> None:
         log.info("always-on: command %r", p.command.name)
         self.on_event("command", p.command.name)
+        self._command_cue()
         if said:
             self._said[id(p)] = said  # for learning: a failure is a miss too
         self._do(p)
+        if self._oneshot and p.command.name not in FOLLOW_UP:
+            # "<start> do" ... "enter": that was the one command.
+            self._oneshot = False
+            if not self.commands_default:
+                self.leave_commands("one command done")
 
     def _finish_request(self, request: str) -> None:
         """A pause ended an unrecognised request: one more try with the rules

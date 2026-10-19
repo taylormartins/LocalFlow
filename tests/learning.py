@@ -262,6 +262,24 @@ events.clear()
 lis._check_command(a, [Word("never", 0.1, 0.3), Word("mind", 0.3, 0.5)], 0.0)
 expect("after the paste, 'never mind' deletes it (scratch)", ("ran", "scratch") in events, str(events))
 
+print("the command sound")
+from localflow import sounds as _snd  # noqa: E402
+
+lis.leave_commands()
+lis.commanding = True
+played.clear()
+say.n = 150
+say("scroll down")
+click = _snd.render(cfg.sounds.command, cfg.sounds.volume)
+expect("a recognised command clicks", click is not None and click in played,
+       f"played={len(played)}")
+cfg.sounds.command = "none"
+played.clear()
+say("scroll up")
+expect("...silent with 'none'", not any(played), str(played[:1]))
+cfg.sounds.command = "click"
+lis.leave_commands()
+
 print("show commands")
 lis.leave_commands()
 lis.commanding = True

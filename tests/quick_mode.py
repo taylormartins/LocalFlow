@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 
 from localflow import commands
+from localflow import sounds as sounds_mod
 from localflow.always_on import RATE, Listener
 from localflow.config import Config
 from localflow.engine import Engine, State
@@ -48,6 +49,8 @@ lis.finish = fake_finish
 live = LivePreview(engine, cfg.overlay)
 lis.watch_live(live)
 SILENCE = np.zeros(RATE, np.float32)
+played = []
+sounds_mod.play = lambda data: played.append(data)  # quiet, and countable
 
 
 def words(text, at=0.0):
@@ -80,9 +83,12 @@ lis.ring.end = a + 6 * RATE
 live._set("Send Sam the budget. That will be all.", 4 * RATE)
 engine.recorder.stop()
 expect("the preview's stop finishes the dictation", finished == [(4 * RATE, "")], str(finished))
+played.clear()
 lis._handle(a + int(4.5 * RATE), a + int(5.2 * RATE), SILENCE, words("submit"))
 expect("'submit' said straight after the phrase is held for the paste", pending() == "submit",
        f"{events}")
+expect("...and clicks right away, before the paste",
+       sounds_mod.render(cfg.sounds.command, cfg.sounds.volume) in played, f"played={len(played)}")
 
 print("input buffering: a command during a long cleanup")
 a = 2000 * RATE
@@ -160,6 +166,32 @@ lis._handle(a, a + int(2.2 * RATE), SILENCE, words("keep going over"))
 expect("quick mode off: 'over' is just a word", not finished, str(finished))
 lis.dictating = False
 engine.recorder.stop()
+
+print("the do word: one command and out")
+ran = []
+real_do = lis._do
+lis._do = lambda p, after_dictation=False, confirmed=False: ran.append(p.command.name)
+cfg.always_on.quick = True
+lis.dictating = False
+ran.clear()
+took = lis._command_instead(a, words("do enter"))
+expect("'<start> do enter' presses Enter", took and ran == ["submit"], str(ran))
+expect("...and leaves no command mode open", not lis.commanding)
+ran.clear()
+lis._command_instead(a, words("do"))
+expect("'<start> do' alone opens command mode for one command", lis.commanding and lis._oneshot)
+lis._take(commands.Parsed(commands.BY_NAME["new_tab"], "", 1.0))
+expect("...which closes after that command", ran == ["new_tab"] and not lis.commanding, str(ran))
+lis._command_instead(a, words("do show labels"))
+expect("'do show labels' stays in command mode, to click one", lis.commanding)
+lis.leave_commands()
+expect("'do the dishes tonight' is still a dictation",
+       not lis._command_instead(a, words("do the dishes tonight")))
+cfg.always_on.quick = False
+ran.clear()
+expect("quick mode off: 'do enter' is just words", not lis._command_instead(a, words("do enter"))
+       and not ran)
+lis._do = real_do
 
 print("the end word comes off the text if the cut left it")
 caught = []

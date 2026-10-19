@@ -194,6 +194,9 @@ class SoundsConfig:
     #: A command is waiting for your answer (sleep's "goodnight", a "yes" to
     #: a plan, "change default mode"). "none" for silence.
     response: str = "triple click"
+    #: A voice command was recognised ("submit" after the stop phrase, any
+    #: command in command mode): like hearing a button press. "none" for silence.
+    command: str = "click"
     #: 0.0-1.0, applied to the built-in sounds.
     volume: float = 0.5
 
@@ -232,6 +235,10 @@ class AlwaysOnConfig:
     quick: bool = False
     quick_stop: list[str] = field(default_factory=lambda: ["over"])
     quick_send: list[str] = field(default_factory=lambda: ["send"])
+    #: Quick mode's one-shot word: "<start phrase> do enter" runs that one
+    #: command and that's it, no command mode left open. "<start> do", a
+    #: pause, then the command works too.
+    quick_do: list[str] = field(default_factory=lambda: ["do"])
     #: Quick mode's shorthand, each "word = command [argument]": "go = submit",
     #: "nope = scratch", "chrome = switch chrome". Only while quick mode is on.
     code_words: list[str] = field(default_factory=list)

@@ -162,6 +162,22 @@ expect("label numbers come out the size asked for (Tk's negative pixels once mad
        abs(label_font(-20)[1]) == 20 and abs(label_font(-60)[1]) == 60,
        f"{label_font(-20)} {label_font(-60)}")
 expect("label size has a 10 pt floor", themes.LABEL_MIN >= 13)
+import copy as _copy  # noqa: E402
+
+shown = overlay.Overlay.__new__(overlay.Overlay)
+shown.cfg, shown._themes = _copy.deepcopy(cfg.overlay), themes.Current()
+shown.cfg.theme = "royal"
+shown._help, shown._list, shown._labels = [("Windows", [])], [], [(1, (0, 0, 9, 9))]
+shown._help_version = shown._list_version = shown._labels_version = 0
+shown._restyle()
+expect("nothing changed: nothing redrawn", shown._help_version == 0)
+shown.cfg.theme = "ice"
+shown._restyle()
+expect("a new theme redraws the command sheet and labels that are up",
+       shown._help_version == 1 and shown._labels_version == 1 and shown._list_version == 0)
+shown.cfg.label_size = 20
+shown._restyle()
+expect("...and so does a new label size", shown._labels_version == 2)
 expect("Royal is the default",
        themes.resolve("") is themes.ROYAL and themes.resolve("default") is themes.ROYAL)
 expect("the gem keeps the dot's three meanings apart",
