@@ -771,10 +771,23 @@ $s.SetOutputToWaveFile("test.wav"); $s.Speak("um so I think we should, actually 
 
 ## Known issues and next steps
 
-- **Camera mode** (planned, not built): gaze gating, spatial window
-  addressing, a cover-the-lens kill switch, pinch and tilt controls, voice
-  plus gaze fusion. The design and build order are in
-  [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md).
+- **Camera mode** (`camera.py`; the plan for the rest is in
+  [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md)). Part one, attention, is
+  built: a `Watcher` thread reads each camera (OpenCV, DirectShow, 640x480,
+  `camera.fps`), runs MediaPipe's face landmarker (VIDEO mode, one per
+  camera) and turns each frame into a gaze: head yaw/pitch from the facial
+  transformation matrix plus iris position in the eye (`eye_offset`, x60 /
+  x40 degrees). `decide` picks the screen from the calibration (per camera,
+  per screen mean and spread; nearest within max(14 deg, 2 x spread)),
+  or uncalibrated, a face square to a camera is that camera's screen
+  (`camera.cameras` "camera:screen"). `Attention` adds hysteresis (on after
+  0.3 s, off after 1 s). The listener asks `looked_within(1.5)` before
+  taking the start phrase (`gate_start`) and `looking()` before timing out
+  command mode (`hold_commands`); None (off or failed) never blocks.
+  Calibration is its own process (`localflow camera-calibrate`): it writes
+  `data/camera.lock`, the watcher releases the cameras while it exists.
+  Frames are never stored. The extra is optional (`--extra camera`);
+  install.ps1 syncs with `--inexact` so an update doesn't remove it.
 
 - Short imperatives ("tell me a joke") sometimes get a spurious question mark
   from the LLM. Cosmetic; resisted fixing because the obvious fix overfits the

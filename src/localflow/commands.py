@@ -569,11 +569,39 @@ def _paste_again(arg: str, ctx: Ctx) -> str:
 
 # -- arranging windows and saved layouts -----------------------------------------
 
-def _arrange(arg: str, ctx: Ctx) -> str:
-    n = desktop.arrange()
-    if not n:
-        raise CommandError("no windows to arrange")
-    return f"Arranged {n} windows"
+#: Which style "next arrangement" shows next.
+_next_style = [0]
+STYLE_NAMES = {"equal": "evenly", "main": "around the front window", "columns": "in columns",
+               "rows": "in rows", "grid": "in a grid", "cascade": "in a cascade"}
+
+
+def _arrange_in(style: str) -> Callable[[str, Ctx], str]:
+    """Arrange every screen's windows (or screen N's: the slot) in a style;
+    "next" goes on to the next style each time."""
+    def run(arg: str, ctx: Ctx) -> str:
+        chosen = style
+        if style == "next":
+            _next_style[0] = (_next_style[0] + 1) % len(desktop.STYLES)
+            chosen = desktop.STYLES[_next_style[0]]
+        elif style in desktop.STYLES:
+            _next_style[0] = desktop.STYLES.index(style)
+        monitor = 0
+        if arg:
+            monitor = number(arg) or 0
+            if not monitor:
+                raise CommandError(f"which screen is {arg}?")
+        try:
+            n = desktop.arrange(style=chosen, monitor=monitor)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        if not n:
+            raise CommandError("no windows to arrange")
+        where = f" on screen {monitor}" if monitor else ""
+        return f"Arranged {n} windows {STYLE_NAMES[chosen]}{where}"
+    return run
+
+
+_arrange = _arrange_in("equal")
 
 
 def load_layouts() -> dict[str, list[dict]]:
@@ -665,7 +693,8 @@ MOVES = {"center", "next_monitor", "previous_monitor", "maximize", "minimize", "
          "place_top_left", "place_top_right", "place_bottom_left", "place_bottom_right",
          "place_left", "place_right", "place_top", "place_bottom"}
 #: Commands that move many windows: undone by putting every one back.
-REARRANGES = {"arrange", "restore_layout"}
+REARRANGES = {"arrange", "arrange_columns", "arrange_rows", "arrange_grid", "arrange_main",
+              "arrange_cascade", "arrange_next", "restore_layout"}
 #: Commands undone by pressing other keys in the same window.
 INVERSE_KEYS = {
     "new_tab": "ctrl+w", "close_tab": "ctrl+shift+t", "reopen_tab": "ctrl+w",
@@ -839,8 +868,13 @@ HELP_SHEET: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("move it to monitor 2  ·  next monitor", "another screen",
          ("to_monitor", "next_monitor", "previous_monitor")),
         ("show monitors", "each screen's number", ("show_monitors",)),
-        ("arrange windows  ·  tile windows", "every window side by side, on its own screen",
+        ("arrange windows  ·  ... on monitor 3", "every window tiled evenly on its screen",
          ("arrange",)),
+        ("arrange windows in columns  ·  in rows  ·  in a grid", "",
+         ("arrange_columns", "arrange_rows", "arrange_grid")),
+        ("main window  ·  cascade windows  ·  next arrangement",
+         "front window big  ·  stacked  ·  try the next style",
+         ("arrange_main", "arrange_cascade", "arrange_next")),
         ("save layout as work  ·  layout work", "save where every window is; put them back",
          ("save_layout", "restore_layout")),
         ("list layouts  ·  delete layout work", "", ("list_layouts", "delete_layout")),
@@ -1073,9 +1107,31 @@ Command("place_top_left_of", ["(move|put|snap) [it|the window] [to|on] [the] top
     Command("hide_windows", ["hide [the] (window list|windows list|list)", "close [the] (window list|list)"],
             hide_windows, "hide the window list"),
     Command("arrange", ["(arrange|tile|organize|organise) [all] [the|my] windows",
-                        "(put|lay out|spread out) [all] [the|my] windows side by side",
-                        "windows side by side", "spread out [all] [the|my] windows"],
-            _arrange, "tile every window on its own screen so all can be seen"),
+                        "(arrange|tile|organize|organise) [all] [the|my] windows (on|of) [the] (monitor|screen|display) [number] {name}",
+                        "spread out [all] [the|my] windows", "even out [the|my] windows"],
+            _arrange, "tile every window evenly on its own screen (or screen N) so all can be seen"),
+    Command("arrange_columns", ["(arrange|tile|put|stack) [all] [the|my] windows (in|into) columns",
+                                "(arrange|tile|put|stack) [all] [the|my] windows (in|into) columns (on|of) [the] (monitor|screen|display) [number] {name}",
+                                "(put|lay out) [all] [the|my] windows side by side",
+                                "windows side by side"],
+            _arrange_in("columns"), "windows side by side in columns"),
+    Command("arrange_rows", ["(arrange|tile|put|stack) [all] [the|my] windows (in|into) rows",
+                             "(arrange|tile|put|stack) [all] [the|my] windows (in|into) rows (on|of) [the] (monitor|screen|display) [number] {name}",
+                             "stack [all] [the|my] windows", "windows stacked"],
+            _arrange_in("rows"), "windows stacked in rows, one above the other"),
+    Command("arrange_grid", ["(arrange|tile|put) [all] [the|my] windows (in|into) a grid",
+                             "(arrange|tile|put) [all] [the|my] windows (in|into) a grid (on|of) [the] (monitor|screen|display) [number] {name}"],
+            _arrange_in("grid"), "windows in a grid as square as can be"),
+    Command("arrange_main", ["main window [layout]", "(arrange|tile) [the|my] windows around [the] (main|front) window",
+                             "main window [layout] (on|of) [the] (monitor|screen|display) [number] {name}"],
+            _arrange_in("main"), "the front window big, the others beside it"),
+    Command("arrange_cascade", ["cascade [all] [the|my] windows",
+                                "cascade [all] [the|my] windows (on|of) [the] (monitor|screen|display) [number] {name}"],
+            _arrange_in("cascade"), "windows overlapping in a cascade, the front one on top"),
+    Command("arrange_next", ["next arrangement", "(arrange|tile) [the|my] windows differently",
+                             "(shuffle|switch up|change up) [the|my] windows", "another arrangement",
+                             "next layout style"],
+            _arrange_in("next"), "the next arrangement style, each time it's said"),
     Command("save_layout", ["save [the|this|my] [window] layout [as|called|named] {name}",
                             "save [the|this|my] [window] layout"],
             _save_layout, "save where every window is, under a name"),

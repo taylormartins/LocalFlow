@@ -189,9 +189,26 @@ expect("'do the dishes tonight' is still a dictation",
        not lis._command_instead(a, words("do the dishes tonight")))
 cfg.always_on.quick = False
 ran.clear()
-expect("quick mode off: 'do enter' is just words", not lis._command_instead(a, words("do enter"))
-       and not ran)
+expect("works with quick mode off too", lis._command_instead(a, words("do enter"))
+       and ran == ["submit"] and not lis.commanding, str(ran))
+for heard in ("to show commands", "undo show commands"):
+    ran.clear()
+    took = lis._command_instead(a, words(heard))
+    expect(f"misheard: '{heard}' shows the commands", took and ran == ["help"], str(ran))
+    lis.leave_commands()
+ran.clear()
+lis._command_instead(a, words("undo"))
+expect("'undo' on its own is still undo", ran == ["undo"], str(ran))
+lis.leave_commands()
+expect("'to the shops' is still a dictation", not lis._command_instead(a, words("to the shops")))
 lis._do = real_do
+
+print("the start phrase in the window after a dictation")
+events.clear()
+lis._cmd_from, lis._cmd_until, lis._delivered = a, a + 5 * RATE, True
+took = lis._check_command(a, words("okay listen marigold do show commands"), 0.0)
+expect("isn't a missed command (it was once offered to be learned as 'scratch')",
+       not took and not [e for e in events if e[0] == "unknown"], str(events))
 
 print("the end word comes off the text if the cut left it")
 caught = []

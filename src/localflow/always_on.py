@@ -73,6 +73,8 @@ HOLD = 1.8
 #: pause inside a phrase ("stop... chat") ends a burst, and then neither
 #: half matches alone.
 JOIN = 1.5
+#: How the do word gets misheard: these count only when a command follows.
+DO_HEARD = {"to", "undo", "due", "dew", "doo"}
 #: Commands that put something up to act on next (labels, the window list,
 #: the grid, the command sheet): after "do", these still open command mode.
 FOLLOW_UP = {"show_labels", "show_windows", "show_grid", "show_monitors", "help"}
@@ -165,6 +167,8 @@ class Listener:
         self._return_to_commands = False  # a dictation begun from command mode
         #: Quick mode's "<start> do": command mode for the next command only.
         self._oneshot = False
+        #: camera.Watcher (camera mode), or None.
+        self.camera = None
         self.runner = Runner(self._command_done)
         # Command mode.
         self.commanding = False
@@ -392,7 +396,10 @@ class Listener:
         self._segment(x)
         if (self.commanding and self.cfg.always_on.command_mode_seconds > 0
                 and self.ring.end > self._mode_until):
-            self.leave_commands("Command mode off")
+            if self._watching():
+                self._extend_mode()  # looking at the screen: still here
+            else:
+                self.leave_commands("Command mode off")
         elif (self._held and not self._in_speech and not self._busy and self._bursts.empty()
               and self.ring.end - self._held_at > HOLD * RATE):
             request, self._held = " ".join(self._held), []
@@ -552,6 +559,11 @@ class Listener:
                 # Close but not quite: a second listen with the dictation model.
                 hit, words = self._second_opinion("start", clip, fresh, words)
             if hit is None:
+                return
+            if self._looking_away():
+                log.info("always-on: start phrase while looking away - ignored (camera)")
+                self.on_event("ignored", "looking away")
+                self._consumed = max(self._consumed, a + int(hit.end * RATE))
                 return
             # "<start phrase>, switch to Chrome" / "..., command mode".
             rest = [w for w in words if w.start >= hit.end - 0.05]
@@ -841,6 +853,11 @@ class Listener:
         if not pool or pool[0].start > hi:
             return False
         texts = [w.text for w in pool]
+        start = find(normalise(" ".join(texts)), self.detector.variants("start"))
+        if start is not None and start.first == 0 and start.score >= self.detector.accept:
+            # The start phrase (a new dictation, or "<start> do ..."): not a
+            # missed command. It was once offered to be learned as "scratch".
+            return False
         if self._cancel_dictation(a, pool, texts):
             return True
         enter = self.grammar.is_one(texts, self.grammar.enter)
@@ -929,22 +946,41 @@ class Listener:
 
     # -- command mode -----------------------------------------------------------
 
-    def _is_do(self, word: str) -> bool:
-        """Quick mode's one-shot word ("do")?"""
-        on = self.cfg.always_on
-        return on.quick and " ".join(normalise(word)) in {
-            " ".join(normalise(x)) for x in on.quick_do}
+    def _looking_away(self) -> bool:
+        """Camera mode: the start phrase is ignored while you're looking away
+        (in the last 1.5 s: a glance down as you say it is fine)."""
+        cam = self.camera
+        if cam is None or not self.cfg.camera.gate_start:
+            return False
+        return cam.looked_within(1.5) is False
+
+    def _watching(self) -> bool:
+        """Camera mode: looking at a screen keeps command mode open."""
+        cam = self.camera
+        return bool(cam is not None and self.cfg.camera.hold_commands and cam.looking())
+
+    def _is_do(self, word: str, exact: bool = True) -> bool:
+        """The one-shot word ("do"), or with ``exact`` False, one of the ways
+        it's misheard ("to", "undo"), which count only before a command."""
+        w = " ".join(normalise(word))
+        if w in {" ".join(normalise(x)) for x in self.cfg.always_on.do_words}:
+            return True
+        return not exact and w in DO_HEARD
 
     def _command_instead(self, a: int, words) -> bool:
         """Right after the start phrase: is this a command rather than the
         start of a dictation? Only if it's a command in full whose target
         exists, so "open the file and check it" is still dictated.
 
-        Quick mode: "do <command>" runs that one command and stays out of
-        command mode; "do" alone opens command mode for the next command only.
+        "do <command>" runs that one command and stays out of command mode;
+        "do" alone opens command mode for the next command only. A misheard
+        do ("to", "undo") counts only when a command follows it.
         """
         texts = [w.text for w in words]
         oneshot = bool(texts) and self._is_do(texts[0])
+        if (not oneshot and len(texts) > 1 and self._is_do(texts[0], exact=False)
+                and self.grammar.parse(texts[1:]) is not None):
+            oneshot = True
         if oneshot:
             texts = texts[1:]
         enter = bool(texts) and self.grammar.is_one(texts, self.grammar.enter)

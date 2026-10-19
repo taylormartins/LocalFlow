@@ -46,10 +46,11 @@ LIVE_SETTINGS = {
     "audio": ("boost",),
     "sounds": ("enabled", "start", "stop", "paste", "response", "command", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
-                  "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "quick_do",
+                  "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words",
                   "code_words"),
     "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size"),
     "history": ("enabled",),
+    "camera": ("enabled", "cameras", "gate_start", "hold_commands", "fps"),
 }
 
 
@@ -121,13 +122,14 @@ def _icon(colour: tuple[int, int, int], ring: bool = False) -> Image.Image:
 class Tray:
     def __init__(
         self, engine: Engine, on_quit=None, sounds=None, on_keys_changed=None, always_on=None,
-        health=None,
+        health=None, camera=None,
     ):
         import pystray
 
         self.engine = engine
         self.always_on = always_on  # always_on.Listener, or None
         self.health = health  # health.OllamaHealth, or None
+        self.camera = camera  # camera.Watcher, or None
         self._setup_open = False
         self._settings_open = False
         self._updating = False
@@ -169,6 +171,17 @@ class Tray:
                     self._toggle_commands,
                     checked=lambda _: bool(self.always_on and self.always_on.commanding),
                     visible=lambda _: bool(self.always_on and self.always_on.running),
+                ),
+                pystray.MenuItem(
+                    "Camera mode",
+                    self._toggle_camera,
+                    checked=lambda _: bool(self.camera and self.camera.running),
+                    visible=lambda _: self.camera is not None,
+                ),
+                pystray.MenuItem(
+                    lambda _: self.camera.status() if self.camera else "",
+                    None, enabled=False,
+                    visible=lambda _: bool(self.camera and self.camera.running),
                 ),
                 pystray.MenuItem(
                     "Quick mode",
@@ -286,6 +299,34 @@ class Tray:
         else:
             lis.enter_commands()
         icon.update_menu()
+
+    def _toggle_camera(self, icon, item) -> None:
+        """Camera mode on or off (and saved)."""
+        from .config import save_setting
+
+        cam = self.camera
+        if cam is None:
+            return
+        on = not cam.running
+        self.engine.cfg.camera.enabled = on
+        try:
+            save_setting("camera", "enabled", on)
+        except OSError as exc:
+            log.warning("could not save camera mode: %s", exc)
+        self._camera_changed()
+        icon.update_menu()
+
+    def _camera_changed(self) -> None:
+        cam = self.camera
+        if cam is None:
+            return
+        cam.stop()
+        if self.engine.cfg.camera.enabled:
+            cam.start()
+            self.engine.notice("Camera mode on" if not cam.error else f"Camera: {cam.error}",
+                               "info" if not cam.error else "error", 5)
+        else:
+            self.engine.notice("Camera mode off", "info", 3)
 
     def _toggle_quick(self, icon, item) -> None:
         """Quick mode on or off: the end words and the code words."""
@@ -592,6 +633,9 @@ class Tray:
                 lis._extend_mode()
             if {"always_on.cancel_words", "always_on.exit_words"} & changed.keys():
                 lis.grammar.set_escape_words(cur.always_on.cancel_words, cur.always_on.exit_words)
+            if {k for k in changed if k.startswith("camera.")} - {"camera.gate_start",
+                                                                  "camera.hold_commands"}:
+                self._camera_changed()
             if "always_on.quick" in changed:
                 self._quick_changed()
             elif "always_on.code_words" in changed:

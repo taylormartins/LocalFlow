@@ -345,6 +345,15 @@ def cmd_settings(args, cfg) -> int:
     return settings_main(cfg)
 
 
+def cmd_camera_calibrate(args, cfg) -> int:
+    """Camera mode: look at a dot on each screen in turn (opens windows)."""
+    from .camera import calibrate
+
+    msg = calibrate(cfg.camera)
+    print(msg)
+    return 0 if msg.startswith("Calibrated") else 1
+
+
 def cmd_enroll(args, cfg) -> int:
     """Set up the always-on start/stop phrases (opens a window)."""
     from .enroll import main as enroll_main
@@ -793,12 +802,15 @@ def cmd_run(args, cfg) -> int:
     from .always_on import Listener
 
     listener = Listener(engine, cfg)
+    from .camera import Watcher
     from .health import OllamaHealth
 
     health = OllamaHealth(engine.cleaner)
+    camera = Watcher(cfg.camera)
+    listener.camera = camera
     tray = Tray(
         engine, on_quit=stopping.set, sounds=cues, on_keys_changed=rebind, always_on=listener,
-        health=health,
+        health=health, camera=camera,
     )
 
     def ollama_changed(status: str, msg: str) -> None:
@@ -831,6 +843,8 @@ def cmd_run(args, cfg) -> int:
             tray.notify(msg + (" - see update.log" if kind == "error" else ""), "LocalFlow")
         engine.warmup()
         health.start()
+        if cfg.camera.enabled:
+            camera.start()
         if cfg.cleanup.method != "rules":
             health.suspect()  # check now, not in two minutes
         hotkeys.start()
@@ -936,6 +950,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("enroll", help="set up always-on start/stop phrases", parents=[common])
     sub.add_parser("history", help="search past dictations; paste or copy one", parents=[common])
     sub.add_parser("settings", help="the Settings window", parents=[common])
+    sub.add_parser("camera-calibrate", help="camera mode: look at each screen in turn",
+                   parents=[common])
     p_li = sub.add_parser(
         "listen", help="try always-on mode in the console (pastes nothing)", parents=[common]
     )
@@ -971,6 +987,7 @@ def main(argv: list[str] | None = None) -> int:
         "enroll": cmd_enroll,
         "history": cmd_history,
         "settings": cmd_settings,
+        "camera-calibrate": cmd_camera_calibrate,
         "listen": cmd_listen,
         "fetch-model": cmd_fetch_model,
         "import-model": cmd_import_model,

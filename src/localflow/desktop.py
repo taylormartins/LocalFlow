@@ -762,14 +762,19 @@ def _set_visible(hwnd: int, x: int, y: int, w: int, h: int) -> None:
     user32.SetWindowPos(hwnd, 0, x - dl, y - dt, w + dl + dr, h + dt + db, 0x0004 | 0x0010)
 
 
-def grid(n: int, area: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
-    """n tiles filling an area (left, top, right, bottom), row by row. Wide
-    screens get more columns than rows; a short row's tiles are wider."""
+#: Arrangement styles: "equal" (the default: tiles as equal as can be, each
+#: as close to a normal window's shape as can be), "columns" (side by
+#: side), "rows" (stacked), "grid" (as square as can be), "main" (the front
+#: window big, the rest beside it), "cascade".
+STYLES = ("equal", "main", "columns", "rows", "grid", "cascade")
+#: A window's natural shape, width / height: what "equal" aims each tile at.
+NICE_ASPECT = 1.5
+
+
+def _rows(n: int, rows: int, area) -> list[tuple[int, int, int, int]]:
+    """n tiles in ``rows`` rows filling the area; a short row's tiles are wider."""
     left, top, right, bottom = area
     w, h = right - left, bottom - top
-    if n <= 0:
-        return []
-    rows = max(1, min(n, round(math.sqrt(n * h / max(w, 1) * 1.2))))
     out = []
     for row in range(rows):
         cols = n // rows + (1 if row < n % rows else 0)
@@ -779,36 +784,90 @@ def grid(n: int, area: tuple[int, int, int, int]) -> list[tuple[int, int, int, i
     return out
 
 
-def arrange(wins: list[Win] | None = None) -> int:
+def grid(n: int, area: tuple[int, int, int, int], style: str = "equal"
+         ) -> list[tuple[int, int, int, int]]:
+    """n tiles filling an area (left, top, right, bottom), row by row (the
+    order windows go in: top row first, left to right). See STYLES."""
+    left, top, right, bottom = area
+    w, h = max(right - left, 1), max(bottom - top, 1)
+    if n <= 0:
+        return []
+    if style == "columns":
+        return _rows(n, 1, area)
+    if style == "rows":
+        return [(left, top + h * k // n, right, top + h * (k + 1) // n) for k in range(n)]
+    if style == "grid":
+        return _rows(n, max(1, min(n, round(math.sqrt(n * h / w * 1.2)))), area)
+    if style == "main" and n > 1:
+        # The first window big (60 %), the rest stacked beside it, or under
+        # it on a portrait screen.
+        if w >= h:
+            split = left + w * 3 // 5
+            return [(left, top, split, bottom)] + grid(n - 1, (split, top, right, bottom), "rows")
+        split = top + h * 3 // 5
+        return [(left, top, right, split)] + grid(n - 1, (left, split, right, bottom), "columns")
+    if style == "cascade":
+        step = max(24, min(w, h) // 20)
+        cw, ch = w * 7 // 10, h * 7 // 10
+        out = []
+        for k in range(n):
+            o = (k * step) % max(1, min(w - cw, h - ch) + 1)
+            out.append((left + o, top + o, left + o + cw, top + o + ch))
+        return out
+    # "equal": every rows x columns choice; the best has tiles all the same
+    # size, shaped most like a window. Three on a portrait screen stack; three
+    # on a wide one sit side by side (the old square-ish rule put two beside
+    # each other and one wide one under them on a portrait screen).
+    best, best_score = 1, float("inf")
+    for rows in range(1, n + 1):
+        cols = -(-n // rows)
+        aspect = (w / cols) / (h / rows)
+        score = abs(math.log(aspect / NICE_ASPECT)) + (1.0 if rows * cols != n else 0.0)
+        if score < best_score - 1e-9:
+            best, best_score = rows, score
+    return _rows(n, best, area)
+
+
+def arrange(wins: list[Win] | None = None, style: str = "equal", monitor: int = 0) -> int:
     """Tile the windows open on each screen (not minimised ones) so every one
-    can be seen. Each stays on its own screen; ones on the left stay left."""
+    can be seen, in a style (STYLES). Each stays on its own screen; ones on
+    the left stay left. ``monitor``: only that screen (1-based)."""
     wins = [w for w in (windows() if wins is None else wins) if not user32.IsIconic(w.hwnd)]
     mons = monitors()
+    if monitor and not 1 <= monitor <= len(mons):
+        raise ValueError(f"there is no screen {monitor} (there are {len(mons)})")
     by_screen: dict[int, list[Win]] = {}
-    for w in wins:
+    for w in wins:  # front to back, so a group's first window is its front one
         by_screen.setdefault(monitor_of(w.hwnd, mons), []).append(w)
     done = 0
     for n, group in by_screen.items():
-        if not 1 <= n <= len(mons):
+        if not 1 <= n <= len(mons) or (monitor and n != monitor):
             continue
         work = mons[n - 1][2]
-        tiles = grid(len(group), (work.left, work.top, work.right, work.bottom))
+        tiles = grid(len(group), (work.left, work.top, work.right, work.bottom), style)
 
         def centre(w: Win) -> tuple[float, float]:
             l, t, r, b = window_rect(w.hwnd)
             return (l + r) / 2, (t + b) / 2
 
-        # Top ones to the top row, then left to right within each row.
-        group.sort(key=lambda w: centre(w)[1])
-        ordered, i = [], 0
-        for row_top in sorted({t[1] for t in tiles}):
-            k = sum(1 for t in tiles if t[1] == row_top)
-            ordered += sorted(group[i:i + k], key=lambda w: centre(w)[0])
-            i += k
+        if style in ("main", "cascade"):
+            # Main: the front window gets the big tile. Cascade: the front
+            # window ends up on top, so it goes last.
+            ordered = group if style == "main" else group[::-1]
+        else:
+            # Top ones to the top row, then left to right within each row.
+            group.sort(key=lambda w: centre(w)[1])
+            ordered, i = [], 0
+            for row_top in sorted({t[1] for t in tiles}):
+                k = sum(1 for t in tiles if t[1] == row_top)
+                ordered += sorted(group[i:i + k], key=lambda w: centre(w)[0])
+                i += k
         for w, (l, t, r, b) in zip(ordered, tiles):
             if user32.IsZoomed(w.hwnd):
                 user32.ShowWindow(w.hwnd, SW_RESTORE)
             _set_visible(w.hwnd, l, t, r - l, b - t)
+            if style == "cascade":
+                user32.SetWindowPos(w.hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # to the top
             done += 1
     return done
 

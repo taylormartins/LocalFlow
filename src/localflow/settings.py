@@ -288,6 +288,131 @@ class Showcase:
                              cy + sz * 0.66, 1.0, str(k + 1), bold(sz))
 
 
+def _uv() -> str:
+    import shutil
+    from pathlib import Path
+
+    found = shutil.which("uv")
+    if found:
+        return found
+    home = Path.home() / ".local" / "bin" / "uv.exe"
+    return str(home) if home.exists() else "uv"
+
+
+def _camera(nb, cfg: Config) -> None:
+    import subprocess
+    import tkinter as tk
+    from tkinter import ttk
+
+    from . import camera
+    from .config import PROJECT_ROOT
+    from .proc import NO_WINDOW, run_localflow
+
+    tab = _scroller(nb, "Camera")
+    card = _card(tab, "Camera mode", "Part one of camera control: LocalFlow knows whether you're "
+                 "looking at your screens, and which one. Frames are read, turned into a "
+                 "direction and dropped: nothing is recorded or saved but the calibration. "
+                 "Off by default; also in the tray menu. The plan for the rest (gestures, "
+                 "a cover-the-lens stop) is in docs/CAMERA_MODE.md.")
+    why = camera.available()
+    status = ttk.Label(card, text=why or "Camera support is installed.", style="Muted.TLabel",
+                       wraplength=560, justify="left")
+    status.pack(anchor="w", pady=(0, 4))
+
+    def install():
+        """uv sync --extra camera: MediaPipe and OpenCV (about 150 MB)."""
+        status.configure(text="Installing camera support (about 150 MB)... this takes a minute.")
+
+        def go():
+            code = subprocess.call([_uv(), "sync", "--no-dev", "--inexact", "--extra", "camera"],
+                                   cwd=str(PROJECT_ROOT), creationflags=NO_WINDOW)
+            msg = ("Installed. Turn camera mode on below." if code == 0 else
+                   f"The install failed (uv exit code {code}); see the log.")
+            tab.after(0, lambda: status.configure(text=msg))
+
+        threading.Thread(target=go, daemon=True).start()
+
+    if why:
+        ttk.Button(card, text="Install camera support", style="Small.TButton",
+                   command=install).pack(anchor="w", pady=(0, 6))
+    _check(card, "Camera mode on", cfg.camera.enabled, lambda v: _save("camera", "enabled", v))
+    _check(card, "Only start dictating while I'm looking at a screen (the TV or someone in "
+           "the room can't start one)", cfg.camera.gate_start,
+           lambda v: _save("camera", "gate_start", v))
+    _check(card, "Keep command mode open while I'm looking at a screen", cfg.camera.hold_commands,
+           lambda v: _save("camera", "hold_commands", v))
+
+    card = _card(tab, "Cameras and screens", "Which cameras to use and the screen each one sits "
+                 'on, as camera:screen, separated by commas ("0:1, 1:2" = camera 0 on screen '
+                 "1, camera 1 on screen 2). Screens are numbered left to right, as \"show "
+                 'monitors" shows them. A camera on each screen you use tells looking left '
+                 "from right best.")
+    row = _row(card, "Cameras", 12)
+    var = tk.StringVar(value=", ".join(cfg.camera.cameras))
+    entry = ttk.Entry(row, textvariable=var, width=30)
+    entry.pack(side="left")
+
+    def save_cams(_e=None):
+        items = [x.strip() for x in var.get().split(",") if x.strip()]
+        if camera.parse_cameras(items):
+            _save("camera", "cameras", items)
+
+    entry.bind("<FocusOut>", save_cams)
+    entry.bind("<Return>", save_cams)
+    ttk.Button(row, text="Save", style="Small.TButton", command=save_cams).pack(side="left", padx=8)
+    found = ttk.Label(card, text="", style="Muted.TLabel", wraplength=560, justify="left")
+
+    def find():
+        """Try cameras 0-5 (each turns on for a moment)."""
+        found.configure(text="Looking (each camera's light comes on for a moment)...")
+
+        def go():
+            try:
+                import cv2
+            except ImportError:
+                tab.after(0, lambda: found.configure(text="Install camera support first."))
+                return
+            camera.DATA.mkdir(parents=True, exist_ok=True)
+            camera.LOCK.write_text("finding cameras", encoding="utf-8")
+            ok = []
+            try:
+                time.sleep(1.5)  # LocalFlow lets go of its cameras
+                for i in range(6):
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if cap.isOpened() and cap.read()[0]:
+                        ok.append(str(i))
+                    cap.release()
+            finally:
+                camera.LOCK.unlink(missing_ok=True)
+            text = ("Found camera " + ", ".join(ok) + ". Point each at you and set which "
+                    "screen it sits on above.") if ok else "No camera found."
+            tab.after(0, lambda: found.configure(text=text))
+
+        threading.Thread(target=go, daemon=True).start()
+
+    ttk.Button(card, text="Find cameras", style="Small.TButton", command=find).pack(
+        anchor="w", pady=(6, 0))
+    found.pack(anchor="w")
+
+    card = _card(tab, "Calibrate", "Look at a dot on each screen in turn, about three seconds "
+                 "each, the way you'd turn to read it. Do it again after moving a camera or "
+                 "a screen.")
+    note = ttk.Label(card, text="", style="Muted.TLabel", wraplength=560, justify="left")
+
+    def calibrate():
+        note.configure(text="Calibrating... look at each dot.")
+
+        def go():
+            code = run_localflow("camera-calibrate")
+            text = "Calibrated." if code == 0 else "Not calibrated - see the log."
+            tab.after(0, lambda: note.configure(text=text))
+
+        threading.Thread(target=go, daemon=True).start()
+
+    ttk.Button(card, text="Calibrate", style="Small.TButton", command=calibrate).pack(anchor="w")
+    note.pack(anchor="w")
+
+
 def _card(parent, title: str, note: str = ""):
     from tkinter import ttk
 
@@ -807,7 +932,7 @@ def _listening(nb, cfg: Config) -> None:
                  '"move it over here" doesn\'t stop anything. Also in the tray menu.')
     _check(card, "Quick mode on", cfg.always_on.quick, lambda v: _save("always_on", "quick", v))
     for key, label in (("quick_stop", "End words (stop)"), ("quick_send", "Send words (+ Enter)"),
-                       ("quick_do", "Do words (one command)")):
+                       ("do_words", "Do words (one command)")):
         row = _row(card, label, 20)
         var = tk.StringVar(value=", ".join(getattr(cfg.always_on, key)))
         entry = ttk.Entry(row, textvariable=var, width=30)
@@ -948,7 +1073,7 @@ def main(cfg: Config) -> int:
     state: dict = {}
     for build in (_appearance, _builder):
         build(nb, cfg, state)
-    for build in (_dictation, _listening, _sounds):
+    for build in (_dictation, _listening, _sounds, _camera):
         try:
             build(nb, cfg)
         except Exception:

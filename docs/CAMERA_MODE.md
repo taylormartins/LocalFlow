@@ -1,4 +1,10 @@
-# Camera mode: design notes (not built yet)
+# Camera mode: design notes
+
+**Status:** part one, attention gating (section 1 below), is built:
+`camera.py`, Settings ▸ Camera, `tests/camera_mode.py`. It uses head pose
+plus iris position from MediaPipe's face landmarker, a per-camera,
+per-screen calibration (nearest calibrated direction), and a camera-to-
+screen mapping (`camera.cameras`, "0:1"). The rest is still a plan.
 
 Voice runs the PC today. The next step is the rest of the body: where you
 look, what your hands do, and a way to stop everything instantly. This is

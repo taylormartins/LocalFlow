@@ -37,6 +37,37 @@ for n, shape in ((1, [1]), (2, [2]), (3, [3]), (4, [2, 2]), (5, [3, 2]), (6, [3,
            and covered == 1920 * 1040, f"{got} {covered}")
 tall = desktop.grid(2, (0, 0, 1080, 1920))
 expect("a portrait screen stacks them", tall[0][1] != tall[1][1], str(tall))
+three = desktop.grid(3, (0, 0, 1440, 2500))
+
+
+def same_size(tiles):  # to the pixel the screen divides into
+    ws, hs = [r - l for l, t, r, b in tiles], [b - t for l, t, r, b in tiles]
+    return max(ws) - min(ws) <= 2 and max(hs) - min(hs) <= 2
+
+
+expect("three on a portrait screen: stacked, all the same size (not two and one wide)",
+       len({t[1] for t in three}) == 3 and same_size(three), str(three))
+three = desktop.grid(3, (0, 0, 3840, 2088))
+expect("three on a 4K screen: side by side, all the same size",
+       len({t[1] for t in three}) == 1 and same_size(three), str(three))
+
+print("arrangement styles")
+wide = (0, 0, 2560, 1040)
+expect("columns: one row", len({t[1] for t in desktop.grid(4, wide, "columns")}) == 1)
+expect("rows: one column", len({t[0] for t in desktop.grid(4, wide, "rows")}) == 1)
+main = desktop.grid(4, wide, "main")
+expect("main: the first window gets 60 %, the rest stack beside it",
+       main[0] == (0, 0, 1536, 1040) and all(t[0] == 1536 for t in main[1:]), str(main))
+casc = desktop.grid(3, wide, "cascade")
+expect("cascade: overlapping, each a step down and right, all on screen",
+       casc[1][0] > casc[0][0] and casc[1][1] > casc[0][1]
+       and all(r <= 2560 and b <= 1040 for _, _, r, b in casc), str(casc))
+for style in desktop.STYLES:
+    for n in (1, 2, 5, 9):
+        tiles = desktop.grid(n, wide, style)
+        if len(tiles) != n or not all(0 <= l < r <= 2560 and 0 <= t < b <= 1040
+                                      for l, t, r, b in tiles):
+            expect(f"{style} with {n} windows: {n} tiles on screen", False, str(tiles))
 
 print("window chips (show windows)")
 from ctypes import wintypes  # noqa: E402
@@ -66,12 +97,19 @@ print("phrases")
 g = Grammar()  # no learned phrases
 cases = {
     "arrange windows": ("arrange", ""), "tile all my windows": ("arrange", ""),
-    "organize the windows": ("arrange", ""), "put my windows side by side": ("arrange", ""),
+    "organize the windows": ("arrange", ""), "put my windows side by side": ("arrange_columns", ""),
     "save layout as work": ("save_layout", "work"), "save the window layout": ("save_layout", ""),
     "restore layout work": ("restore_layout", "work"), "layout gaming": ("restore_layout", "gaming"),
     "load my layout work": ("restore_layout", "work"), "delete layout work": ("delete_layout", "work"),
     "list layouts": ("list_layouts", ""),
     "show windows": ("show_windows", ""),  # still the window list
+    "arrange windows on monitor 3": ("arrange", "3"),
+    "arrange windows in columns": ("arrange_columns", ""),
+    "stack my windows": ("arrange_rows", ""),
+    "arrange the windows in rows on screen 2": ("arrange_rows", "2"),
+    "arrange windows in a grid": ("arrange_grid", ""),
+    "main window": ("arrange_main", ""), "cascade windows": ("arrange_cascade", ""),
+    "next arrangement": ("arrange_next", ""), "shuffle my windows": ("arrange_next", ""),
 }
 for said, (name, arg) in cases.items():
     p = g.parse(said.split())
@@ -110,6 +148,8 @@ restored.clear()
 step = commands.undo_step(Parsed(BY_NAME["arrange"], "", 1.0), Ctx(), 0, 0, 0, fake, "ok")
 step.run()
 expect("...without opening anything", restored == [(fake, False)], str(restored))
+expect("every arrangement style can be undone", all(
+    n in commands.REARRANGES for n in commands.BY_NAME if n.startswith("arrange")))
 expect("plain 'undo' takes it back", "arrange" in commands.SMART_UNDO
        and "restore_layout" in commands.SMART_UNDO)
 

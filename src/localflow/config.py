@@ -235,10 +235,11 @@ class AlwaysOnConfig:
     quick: bool = False
     quick_stop: list[str] = field(default_factory=lambda: ["over"])
     quick_send: list[str] = field(default_factory=lambda: ["send"])
-    #: Quick mode's one-shot word: "<start phrase> do enter" runs that one
-    #: command and that's it, no command mode left open. "<start> do", a
-    #: pause, then the command works too.
-    quick_do: list[str] = field(default_factory=lambda: ["do"])
+    #: The do word, quick mode or not: "<start phrase> do enter" runs that
+    #: one command and that's it, no command mode left open; "<start> do", a
+    #: pause, then the command works too. Misheard as "to", "undo", "due" or
+    #: "dew", it still counts when what follows is a command.
+    do_words: list[str] = field(default_factory=lambda: ["do"])
     #: Quick mode's shorthand, each "word = command [argument]": "go = submit",
     #: "nope = scratch", "chrome = switch chrome". Only while quick mode is on.
     code_words: list[str] = field(default_factory=list)
@@ -273,6 +274,24 @@ class VocabularyConfig:
 
 
 @dataclass
+class CameraConfig:
+    #: Camera mode, part one: which screen you're looking at (docs/CAMERA_MODE.md).
+    #: Off by default; needs camera support (Settings > Camera > Install).
+    #: Frames are read, turned into a direction and dropped; nothing is saved
+    #: but the calibration.
+    enabled: bool = False
+    #: Which cameras, and the screen each sits on: "0:1" = camera 0 on screen 1.
+    #: One camera per screen tells looking left from right best.
+    cameras: list[str] = field(default_factory=lambda: ["0:1"])
+    #: The start phrase only counts while you're looking at a screen.
+    gate_start: bool = True
+    #: Command mode doesn't time out while you're looking at a screen.
+    hold_commands: bool = True
+    #: Frames a second per camera (CPU use rises with it).
+    fps: float = 10.0
+
+
+@dataclass
 class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     whisper: WhisperConfig = field(default_factory=WhisperConfig)
@@ -286,6 +305,7 @@ class Config:
     always_on: AlwaysOnConfig = field(default_factory=AlwaysOnConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     vocabulary: VocabularyConfig = field(default_factory=VocabularyConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
 
 
 def _apply(target: Any, data: dict[str, Any], path: str = "") -> list[str]:

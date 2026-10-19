@@ -1,6 +1,6 @@
 [project]
 name = "localflow"
-version = "1.25.0"
+version = "1.26.0"
 description = "Free, private dictation for Windows: Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"
@@ -31,6 +31,11 @@ localflow = "localflow.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/taylormartins/LocalFlow"
+
+[project.optional-dependencies]
+camera = [
+    "mediapipe>=1.1.1",
+]
 
 [build-system]
 requires = ["hatchling"]

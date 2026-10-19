@@ -258,11 +258,11 @@ Step 'Python and dependencies (first run downloads ~1.5 GB)'
 # everywhere. (UV_NATIVE_TLS is the same switch for older uv versions.)
 $env:UV_SYSTEM_CERTS = '1'
 $env:UV_NATIVE_TLS = '1'
-uv sync --no-dev
+uv sync --no-dev --inexact
 if ($LASTEXITCODE) {
     Note 'retrying with uv''s own certificates'
     Remove-Item Env:UV_SYSTEM_CERTS, Env:UV_NATIVE_TLS -ErrorAction SilentlyContinue
-    uv sync --no-dev
+    uv sync --no-dev --inexact
     if ($LASTEXITCODE) { throw 'uv sync failed - see the output above.' }
 }
 Ok 'environment ready in .venv'

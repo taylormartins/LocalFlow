@@ -326,16 +326,21 @@ follows.
   **"command mode"** can follow: that's the way out of a dictation you didn't
   mean to make.
 
+**The do word: one command and out.** "Okay listen, Marigold. **Do** enter."
+runs that one command (Enter) and that's it, no command mode left open; "do"
+alone, then the command, works too. Commands that put something up to act on
+next (show commands, show labels, show windows, the grid) open command mode
+as usual, so "do show commands" is the quickest way to the command sheet.
+Misheard as "to", "undo", "due" or "dew", it still counts when what follows
+is a command, so "undo" on its own still means undo, and "do the dishes
+tonight" is still dictated (`always_on.do_words`).
+
 **Quick mode: for talking fast.** Tray ▸ **Quick mode**, or Settings ▸
 Listening. Off by default. One breath does it all, with no waiting for the
 start sound:
 
 - **"Okay listen, Marigold. Continue over."** pastes "continue".
 - **"Okay listen, Marigold. Continue send."** pastes it and presses Enter.
-- **"Okay listen, Marigold. Do enter."** runs that one command (Enter) and
-  that's it: no command mode left open. "Do" alone, then the command,
-  works too. Commands that put something up to act on next (show labels,
-  show windows, the grid) still open command mode (`always_on.quick_do`).
 - The end word also ends a longer dictation, in place of the stop phrase.
 - An end word only counts as the very last thing you say before a pause
   (0.4 s), so "move it over here" doesn't stop anything. Change the words in
@@ -365,7 +370,8 @@ too. To live in command mode instead, make it the default (see
 | move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
 | center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
-| arrange windows · tile windows · put my windows side by side | tiles every window that's open (not minimised) on each screen so all of them can be seen, each on its own screen; "undo" puts them all back |
+| arrange windows · tile windows · arrange windows on monitor 3 | tiles every window that's open (not minimised) on each screen, or one screen, so all can be seen: as equal as can be, each tile shaped like a window (three on a portrait screen stack; three on a wide one sit side by side). "undo" puts them all back |
+| arrange windows in columns · in rows · in a grid · main window · cascade windows | other styles: side by side, stacked, a grid, the front window big with the rest beside it, overlapping. **"next arrangement"** (or "shuffle my windows") tries the next style each time; all take "on monitor N" |
 | save layout as *work* · save layout | remembers where every window is (and which app it is) under that name, or "default"; kept in `layouts.json`, this PC only |
 | layout *work* · restore layout *work* | puts every window back as saved, starting apps that aren't open and placing them as their windows appear; "undo" puts them back. **"list layouts"** and **"delete layout work"** |
 | show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
@@ -1004,12 +1010,35 @@ Windows blocks input from a normal process into an elevated one. Re-run
 
 ---
 
-## What's next
+## Camera mode (part one: attention)
 
-Camera mode: looking at the screen to arm listening, "close that" while
-looking at a window, a covered lens as an instant stop for everything,
-pinch-and-slide scrolling and hand-tilt zoom. The design is in
-[docs/CAMERA_MODE.md](docs/CAMERA_MODE.md); none of it is built yet.
+LocalFlow can use your webcams to know whether you're looking at your
+screens, and which one. Off by default: Settings ▸ **Camera** (or tray ▸
+Camera mode).
+
+1. **Install camera support** (MediaPipe and OpenCV, about 150 MB, kept
+   through updates).
+2. **Cameras**: which cameras, and the screen each sits on, as
+   `camera:screen` (`0:1, 1:2`). **Find cameras** lists the ones that work.
+   A camera on each screen you use tells looking left from right best; with
+   one camera, screens far apart can still be told apart after calibrating.
+3. **Calibrate**: look at a dot on each screen in turn, about three
+   seconds each.
+
+Then:
+
+- The start phrase only counts while you're looking at a screen (in the
+  last 1.5 s), so the TV or someone in the room can't start a dictation
+  (`camera.gate_start`).
+- Command mode doesn't time out while you're looking at a screen
+  (`camera.hold_commands`).
+- The tray shows which screen you're looking at.
+
+Frames are read, turned into a head-and-eye direction and dropped; nothing
+is recorded. Only the calibration (directions, no pictures) is saved, in
+`data/`. The rest of the plan (a cover-the-lens stop for everything,
+"close that" while looking at a window, pinch and tilt controls) is in
+[docs/CAMERA_MODE.md](docs/CAMERA_MODE.md).
 
 ## License and credits
 
