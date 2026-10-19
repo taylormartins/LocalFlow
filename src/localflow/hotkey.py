@@ -88,6 +88,10 @@ def key_vk(key) -> int | None:
     """
     if IS_MAC:
         name = getattr(key, "name", None)
+        if name is None:
+            # A parsed spec can give the Mac's raw key code ("<alt_r>" is
+            # KeyCode 61), not the Key: look its name up.
+            name = _mac_key_names().get(getattr(getattr(key, "value", key), "vk", None))
         if name in MAC_VKS:
             return MAC_VKS[name]
         char = getattr(key, "char", None)
@@ -99,6 +103,19 @@ def key_vk(key) -> int | None:
         if char and len(char) == 1 and char.isalnum():
             vk = ord(char.upper())
     return normalise_vk(vk)
+
+
+def _mac_key_names() -> dict:
+    """The Mac's key codes -> pynput Key names (built once)."""
+    names = getattr(_mac_key_names, "cache", None)
+    if names is None:
+        names = {}
+        for k in keyboard.Key:
+            vk = getattr(k.value, "vk", None)
+            if vk is not None:
+                names.setdefault(vk, k.name)
+        _mac_key_names.cache = names
+    return names
 
 
 def spec_to_vks(spec: str) -> frozenset[int]:

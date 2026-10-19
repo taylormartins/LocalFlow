@@ -79,6 +79,18 @@ expect("round trip (UTF-8)", inject.get_clipboard_text() == "Golden Flow ✓ cli
 if before is not None:
     inject.set_clipboard_text(before)
 
+print("the dictation keys")
+from localflow import hotkey  # noqa: E402
+
+expect("Right Option is its own key (not Option)",
+       hotkey.spec_to_vks("<alt_r>") == frozenset({hotkey.VK_RIGHT_OPTION}),
+       str(hotkey.spec_to_vks("<alt_r>")))
+b = hotkey.Binding("<alt_r>", on_press=lambda: None)
+expect("...and a key you hold to talk, not a modifier chord", not b.chord and b.triggers)
+expect("Shift+Right Option for raw", hotkey.spec_to_vks("<shift>+<alt_r>")
+       == frozenset({16, hotkey.VK_RIGHT_OPTION}))
+expect("Ctrl+Cmd still parses", hotkey.spec_to_vks("<ctrl>+<cmd>") == frozenset({17, 91}))
+
 print("Windows shortcuts become Mac ones")
 from localflow.mac.desktop import MAC_CHORDS  # noqa: E402
 

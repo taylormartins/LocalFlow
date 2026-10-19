@@ -65,7 +65,7 @@ jobs:
           [always_on]
           enabled = false
           EOF
-          uv run python -m localflow.cli -c ci.toml run &
+          uv run python -m localflow.cli run -c ci.toml &
           pid=$!
           for i in $(seq 1 60); do
             grep -q "overlay ready" localflow.log 2>/dev/null && break
