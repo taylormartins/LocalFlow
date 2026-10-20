@@ -5,7 +5,33 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18, at v1.27.0; updated for v1.30.0.
+Written 2026-10-18 at v1.27.0; last updated 2026-10-19 at v1.31.1, when the
+original developer (a Claude session) handed the project on. Everything
+below is current as of that release.
+
+## Start here (your first hour)
+
+1. **Set up**: install [uv](https://docs.astral.sh/uv/), then in the repo
+   `uv sync --inexact` (add `--extra camera` for camera mode). Python 3.12
+   is fetched by uv. On a Mac, `bash install.sh --no-start` does the same
+   plus the Whisper model.
+2. **Prove the tree is green**: run the no-window suites (seconds; no GPU,
+   no models, no windows):
+   ```
+   for t in learning quick_mode edit_commands live_stop command_phrases \
+            enroll_redraw ollama_health layouts camera_mode settings_apply; do
+     uv run python tests/$t.py | tail -1; done
+   ```
+   Each prints `all passed`. CI runs the same on macOS and Windows.
+3. **Read** this file, then ARCHITECTURE.md ▸ "Five things that will bite
+   you", then the module you're changing. The big modules have a docstring
+   at the top saying what they own and why.
+4. **Look at a real log**: the user's `localflow.log` (gitignored) shows every
+   start/stop phrase, command, paste and timing. Most bug reports are
+   explained there before you read any code.
+5. **Pick work** from "What's next" at the bottom. Mac stage 2 is the most
+   wanted: the user has a MacBook ready for it.
+
 
 ---
 
@@ -83,6 +109,67 @@ learned.json, layouts.json, themes.json, history.jsonl, wake/, models/   private
 | `server.py`, `pwa/` | Phone dictation over HTTPS. |
 | `updates.py` | Version check against GitHub releases. |
 
+## What's built (the full inventory)
+
+**Dictation**
+- Hold-to-talk and tap-to-toggle hotkeys (Caps Lock tap, Ctrl+Win, F9 on
+  Windows; Right Option on a Mac), and a raw variant without cleanup.
+- Whisper (large-v3-turbo on the GPU, CPU int8 fallback), models fetched
+  once; a small `base.en` for listening, sharing the GPU.
+- Cleanup: an Ollama LLM with guards (meaning kept, length checks, fallback
+  on timeout) or rules alone (`cleanup.method = "rules"`); a style / tone
+  rewrite (`style.py`); terminals get their lines joined.
+- Paste where you started (the window is remembered at the start), the
+  clipboard restored; a history window; phone dictation over HTTPS
+  (`server.py`, `pwa/`); a live preview on the pill while you talk.
+
+**Always-on listening** (`always_on.py`, `wake.py`)
+- Per-user start and stop phrases, set up and voice-checked (DTW) in the
+  phrase setup window; mishearing tolerance; second listens with the big
+  model for near misses.
+- After the stop phrase: "submit"/"press enter", "cancel", "command mode",
+  with input buffering (said early, still caught).
+- Quick mode: one breath "<start> ... over/send"; code words; the do word
+  ("<start> do show commands") for one command without entering command mode.
+- Optional timeouts, a default mode, escape words, the response sound.
+
+**Command mode** (`commands.py`, `desktop.py`)
+- Windows: switch, open apps, close, minimise/maximise, snap halves and
+  corners, move to monitor N, arrange (columns/rows/grid/main/cascade, the
+  most even layout per screen), swap, saved layouts, a numbered window list
+  with chips on every window.
+- Clicking: numbered click labels from UI Automation, click by name, a
+  mouse grid, double/right click, type into a label.
+- Keys, tabs, scrolling, undo of the last command, edit by voice ("make that
+  shorter": rules first, LLM for the rest).
+- Learning: "remember that" maps a missed phrase to the last command;
+  remembered LLM answers.
+- An optional LLM planner for requests the patterns don't cover: it can only
+  pick from the same command list, risky plans wait for "yes", and screen
+  numbers the user didn't say are dropped.
+- Sleep (confirmed by "goodnight"), the night routine (monitors off, the PC
+  kept awake), the command sheet ("show commands").
+
+**Look and feel**
+- Themes for the pill, labels, window list, command sheet and a paste
+  effect: Royal (the default and the identity), Gemstone, Silver, Smooth,
+  Fire, Ice and more, plus a theme builder (custom themes in themes.json).
+- The Settings window (Appearance, Theme builder, Dictation, Listening,
+  Sounds, Camera), applied live; generated cue sounds; the crown icon and
+  app identity (notifications and the taskbar say Golden Flow).
+
+**Camera mode, part one** (`camera.py`): which screen you're looking at
+(head pose + iris), calibration per screen, a camera pill, the listener
+gated while you look away, on/off by voice. Not yet tried with a real face.
+
+**Health and plumbing**: the Ollama watcher with a tray restart and an
+orphaned-runner sweep; default-mic following; PortAudio restart; single
+instance; start at logon and after sleep; the updater (GitHub releases);
+CI on both OSes.
+
+**macOS, stage 1**: everything above except window control, click labels,
+the grid and the paste effect (see "Windows and Mac").
+
 ## Running it
 
 - It runs **elevated** from Task Scheduler (`localflow install-startup` makes
@@ -125,14 +212,95 @@ Mac rules learned the hard way (CI caught each):
 - Start at login is a launchd agent (`mac/startup.py`); `install.sh` /
   `update.sh` follow `install.ps1` / `update.ps1` (same `update.result`).
 
-Stage 2 for the Mac (not built): window control through Accessibility
-(AXUIElement: move, resize, minimise, close, arrange, layouts, swap), click
-labels from the AX tree, the caret for the paste effect.
+Stage 2 for the Mac (not built) is planned step by step below.
 
 `.github/workflows/tests.yml` runs on every push, on macos-latest and
 windows-latest: every module imports, the no-window suites,
 `tests/mac_smoke.py` (overlay windows, screens, apps, clipboard, keys on a
 real Mac) and the whole app started, checked and quit on the Mac.
+
+### Mac stage 2: the plan (the next big job)
+
+Every stub is in `src/localflow/mac/desktop.py` (the `_not_yet` lines at
+the bottom). Replace them one by one with Accessibility code. The Windows
+versions in `desktop.py` define the behaviour and the signatures;
+`commands.py` needs no change.
+
+1. **Window handles.** Today a Mac "hwnd" is `pid << 24 | CGWindowNumber`.
+   To act on a window you need its `AXUIElement`:
+   `AXUIElementCreateApplication(pid)` → `kAXWindowsAttribute`, matched by
+   position and size (from `CGWindowListCopyWindowInfo`) or title. Cache the
+   match per hwnd; drop it when the window closes.
+2. **Move and resize** (`move_windows`, `place`, `center`, `to_monitor`,
+   `arrange`, `swap_windows`, `restore`): set `kAXPositionAttribute` and
+   `kAXSizeAttribute` with `AXValueCreate(kAXValueCGPointType / CGSizeType)`.
+   Coordinates are points, top-left origin across screens (what
+   `mac/overlay.screens()` already returns). Keep the Windows version's
+   verify-and-correct loop: Mac apps have minimum sizes too. `desktop.grid()`
+   and the arrangement styles are pure functions and work as they are.
+3. **Minimise, show, close**: `kAXMinimizedAttribute`; close by pressing the
+   window's `kAXCloseButtonAttribute` (`AXUIElementPerformAction(...,
+   kAXPressAction)`); bring forward with `kAXRaiseAction` plus the app's
+   `activateWithOptions_`.
+4. **Layouts** (`snapshot` / `restore`): the same JSON as on Windows, keyed
+   by the app's bundle path (`_exe_path`) and title.
+5. **Click labels** (`controls`, `activate_control`): walk the front
+   window's AX tree (`kAXChildrenAttribute`), keep the roles a person clicks
+   (AXButton, AXLink, AXMenuItem, AXCheckBox, AXRadioButton, AXTab..., and
+   AXTextField for typing), read position and size for the label spot, act
+   with `kAXPressAction` (or a click at its centre). Chromium and Electron
+   apps need `AXEnhancedUserInterface` set on the app first: the same
+   laziness as on Windows.
+6. **The caret** (`caret_point`, for the paste effect): the focused
+   element's `kAXSelectedTextRangeAttribute`, then
+   `kAXBoundsForRangeParameterizedAttribute`.
+7. **The grid**: the overlay layers already work on a Mac; it needs only
+   `click_at` (done) and the screens.
+
+PyObjC has all of this in `ApplicationServices`
+(`pyobjc-framework-ApplicationServices`: add it to the darwin markers in
+pyproject.toml). The user must allow **Accessibility** for the Python that
+runs Golden Flow: check with `AXIsProcessTrustedWithOptions` and say so in
+the log, as `mac/keys.py` does for Input Monitoring. CI can't grant that
+permission, so extend `tests/mac_smoke.py` only with what runs without it,
+and test the rest on the user's MacBook (TextEdit and Finder windows are
+safe targets; never move the user's own windows while testing).
+
+### Camera mode: what's next
+
+docs/CAMERA_MODE.md has the plan, the design rules and the build order.
+Part one (attention: which screen) is in `camera.py`: `Watcher` (the
+thread), `Attention` (hysteresis), `Calibration`, `decide()`. The listener
+asks `_looking_away()` / `_watching()`; the overlay draws the camera pill.
+Next, in order: the cover-the-lens kill switch and the open-palm stop
+(MediaPipe hand landmarks into a small recognizer with hysteresis, wired to
+the listener's cancel and the command runner), then pinch-and-slide and
+tilt zoom, then "close that" by gaze. Never open the user's camera without
+asking them.
+
+## Recipes (how to change the common things)
+
+- **A new voice command**: add `Command(name, patterns, action, help)` to
+  `commands.COMMANDS` (patterns: `[optional]`, `(a|b)`, `{slot}`). Write the
+  action as `def _x(arg, ctx) -> str`, returning what the pill should say.
+  Add a row to `HELP_SHEET` so it shows on the command sheet, and the ways
+  people actually say it to `tests/command_phrases.py`. It is then
+  customisable through `command_phrases` with no extra work. Platform calls
+  go through `desktop.*` so the Mac gets them too: add a Mac version (or a
+  `_not_yet` stub) in `mac/desktop.py` and its `__all__`.
+- **A new setting**: a field in the right dataclass in `config.py` (default
+  and a comment), a control in `settings.py`, its key in
+  `tray.LIVE_SETTINGS` if it should apply live, and a line in
+  `config.example.toml`.
+- **A new theme**: a `Theme(...)` in `themes.py` and an entry in
+  `BUILT_IN`. The drawing helpers (`marker`, `label_box`, `paste_burst`)
+  take the theme, so the overlay and the Settings preview follow. Render it
+  and look.
+- **A new overlay layer**: copy an `Overlay._make_*_layer` method. Every
+  layer goes through `layers.py` (click-through, no focus, both OSes) and is
+  drawn on the overlay's own Tk thread only.
+- **A new fixed word list the user says**: add a group to
+  `commands.PHRASE_GROUPS` so `phrase_words` can extend it.
 
 ## Testing
 
@@ -257,13 +425,18 @@ or user phrases in that language.
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
-| 1.31.1 | Ollama's orphaned model runners (5-6 GB each, left when its server is killed or updated) are found and killed; restarting Ollama kills the whole tree. Golden Flow's own ~4 GB is the CUDA + two Whisper models baseline (measured fresh), not a leak. |
-| 1.31 | The night routine: "night time routine" / "monitors off" turns every monitor off and keeps the PC awake until someone's back. |
-| 1.30 | macOS: dictation, always-on, overlay and themes, menu bar, Settings, command mode basics; CI on a real Mac. |
-| 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |
 | 1.28 | Command mode hears with the dictation model; commands wait for "on monitor N"; your own words for every phrase group and command; PortAudio restart fix. |
+| 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |
+| 1.30 | macOS: dictation, always-on, overlay and themes, menu bar, Settings, command mode basics; CI on a real Mac. |
+| 1.31 | The night routine: "night time routine" / "monitors off" turns every monitor off and keeps the PC awake until someone's back. |
+| 1.31.1 | Ollama's orphaned model runners (5-6 GB each, left when its server is killed or updated) are found and killed; restarting Ollama kills the whole tree. Golden Flow's own ~4 GB is the CUDA + two Whisper models baseline (measured fresh), not a leak. |
 
-## Ideas not built yet (the user wants these pitched)
+## What's next (the user wants these pitched at the end of each job)
+
+Roughly in the order the user asked for them:
+
+- **The Mac's stage 2** (window control, click labels, the caret): the plan
+  is under "Windows and Mac" above.
 
 - Camera mode next steps, in order: cover-the-lens stop and open-palm stop;
   pinch-and-slide and tilt zoom; "close that" / "move this" with gaze or
@@ -279,7 +452,6 @@ or user phrases in that language.
   the monitors off and keeps the PC awake.
 - Switch a saved layout automatically when a monitor is plugged in or out.
 - The rest of the rename (package, repo, tasks) if and when it's wanted.
-- The Mac's stage 2: window control and click labels through Accessibility.
 
 ## Open issues
 
@@ -287,4 +459,10 @@ or user phrases in that language.
   without the user's say-so); the first calibration will show how well one
   webcam separates screens.
 - A work PC copy has missed sound cues before; it needs that PC's log.
+- Mac stage 1 passed CI (imports, suites, overlay windows, a full start and
+  quit), but nobody has dictated on a real Mac yet: the first run will show
+  the permission prompts, the pill and the menu-bar icon.
+- Memory: Golden Flow's ~4.1 GB private is CUDA plus two Whisper models,
+  mostly paged out (working set ~100 MB). Ollama's model (~5.7 GB) stays
+  loaded for `cleanup.keep_alive` (30 min). See ARCHITECTURE.md.
 - See ARCHITECTURE.md ▸ Known issues for older ones.
