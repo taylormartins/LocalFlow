@@ -493,6 +493,17 @@ phrase (while dictating) is among them.
     SeShutdownPrivilege, then calls `SetSuspendState(False, False, False)`.
     The "LocalFlow resume" task (Power-Troubleshooter event 1) restarts the
     app on wake. Tests run with inject=False, so they never sleep the PC.
+  - **Ollama's orphaned runners**: Ollama runs each model in a child
+    `llama-server.exe`. Killing `ollama.exe` (our restart, Ollama's updater,
+    a crash) leaves that child alive with the model's 5-6 GB until reboot.
+    `health.restart` uses `taskkill /t`, and the health loop calls
+    `sweep_runners()` every probe: runners under Ollama's install folder
+    whose parent isn't `ollama.exe` are killed. Another app's llama-server
+    (a different path) is never touched.
+  - **Golden Flow's own memory** is ~4.1 GB private (mostly paged out; the
+    working set is ~100 MB): CUDA's libraries plus large-v3-turbo and
+    base.en. Measured in a fresh process: 3.1 GB after loading, 4.1 GB after
+    the first transcriptions, then flat. Over 4.5 GB and growing would be a leak.
   - **The night routine** (`night_routine`, no confirmation: it's harmless)
     is not sleep. `desktop.monitors_off` *posts* SC_MONITORPOWER 2 to
     HWND_BROADCAST (SendMessage would wait on any hung window) and starts a

@@ -83,4 +83,19 @@ fake["generates"] = False
 cleaner.clean("um so hello there how are you")
 expect("a failed cleanup wakes the watcher", woke == [1], str(woke))
 
+print("orphaned model runners (they kept 5-6 GB each after the server went)")
+from localflow.health import orphaned_runners  # noqa: E402
+
+home = Path("C:/Users/me/AppData/Local/Programs/Ollama")
+paths = {10: home / "lib/ollama/llama-server.exe", 11: home / "lib/ollama/llama-server.exe",
+         12: Path("C:/Tools/llama/llama-server.exe"), 13: home / "lib/ollama/llama-server.exe"}
+procs = [(5, 1, "ollama.exe"), (10, 5, "llama-server.exe"),   # the live server's runner
+         (11, 999, "llama-server.exe"),                       # its server is gone
+         (12, 999, "llama-server.exe"),                       # someone else's llama-server
+         (13, 7, "llama-server.exe"), (7, 1, "explorer.exe")]  # parent PID reused
+got = orphaned_runners(procs, lambda pid: str(paths.get(pid, "")), home)
+expect("only Ollama's runners whose server is gone", got == [11, 13], str(got))
+expect("none when every runner has its server",
+       orphaned_runners(procs[:2], lambda pid: str(paths[pid]), home) == [])
+
 print("\nall passed" if not failures else f"\n{failures} FAILED")

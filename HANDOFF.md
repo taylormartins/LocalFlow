@@ -257,6 +257,7 @@ or user phrases in that language.
 | 1.25 | Command click, Preview theme, live restyle, camera design doc. |
 | 1.26 | Camera mode part one; arrangement styles; the do word always on. |
 | 1.27 | Golden Flow name and crown emblem; paste effects; camera pill; camera by voice; this handoff. |
+| 1.31.1 | Ollama's orphaned model runners (5-6 GB each, left when its server is killed or updated) are found and killed; restarting Ollama kills the whole tree. Golden Flow's own ~4 GB is the CUDA + two Whisper models baseline (measured fresh), not a leak. |
 | 1.31 | The night routine: "night time routine" / "monitors off" turns every monitor off and keeps the PC awake until someone's back. |
 | 1.30 | macOS: dictation, always-on, overlay and themes, menu bar, Settings, command mode basics; CI on a real Mac. |
 | 1.29 | Windows that move themselves or keep a minimum size are moved, checked and corrected (mixed-DPI desks); swap two windows; "command mode" split by a pause, or pasted as text, now switches; "which screen?" instead of an LLM guess. |

@@ -71,6 +71,8 @@ class OllamaHealth:
         while True:
             woken = self._wake.wait(EVERY_OK if self.ok else EVERY_BAD)
             self._wake.clear()
+            if sys.platform == "win32" and not self.restarting:
+                sweep_runners()  # Ollama's updater and crashes leave these
             if self.cleaner.uses_llm and not self.restarting:
                 # The routine check while all is well only asks if it's up; a
                 # failure (or being down already) gets the full test.
@@ -138,10 +140,13 @@ class OllamaHealth:
                 self._restart_mac()
                 return
             app, server = _ollama_paths()
+            # /t takes the server's model runner too: without it the runner
+            # is orphaned and keeps the model's 5-6 GB until the PC restarts.
             for name in ("ollama app.exe", "ollama.exe"):
-                subprocess.run(["taskkill", "/f", "/im", name], capture_output=True,
+                subprocess.run(["taskkill", "/f", "/t", "/im", name], capture_output=True,
                                creationflags=subprocess.CREATE_NO_WINDOW)
             time.sleep(1.0)
+            sweep_runners()
             if app is not None:
                 # Through Explorer, so it runs as you, not elevated like LocalFlow.
                 subprocess.Popen(["explorer.exe", str(app)],
@@ -199,3 +204,91 @@ def _ollama_paths() -> tuple[Path | None, Path | None]:
     found = shutil.which("ollama")
     return (app if app.is_file() else None,
             server if server.is_file() else (Path(found) if found else None))
+
+
+#: Ollama's model runners (the second is the name older versions used).
+RUNNERS = {"llama-server.exe", "ollama_llama_server.exe"}
+
+
+def _processes() -> list[tuple[int, int, str]]:
+    """(pid, parent pid, exe name) for every process (Toolhelp; no psutil)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ENTRY(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    out = []
+    try:
+        e = ENTRY(dwSize=ctypes.sizeof(ENTRY))
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out.append((e.th32ProcessID, e.th32ParentProcessID, e.szExeFile.lower()))
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k32.CloseHandle(snap)
+    return out
+
+
+def _exe_of(pid: int) -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf, size = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+        k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size))
+        return buf.value
+    finally:
+        k32.CloseHandle(h)
+
+
+def orphaned_runners(procs=None, exe_of=None, home: Path | None = None) -> list[int]:
+    """Ollama model runners whose Ollama server is gone. A killed or updated
+    server leaves its runner behind, still holding the model: 5-6 GB of
+    memory each, until the PC restarts. Only Ollama's own runners (by path)
+    count, so another app's llama-server is never touched."""
+    if sys.platform != "win32" and procs is None:
+        return []
+    procs = _processes() if procs is None else procs
+    exe_of = exe_of or _exe_of
+    if home is None:
+        _app, server = _ollama_paths()
+        if server is None:
+            return []
+        home = server.parent
+    home_s = str(home).lower()
+    names = {pid: name for pid, _ppid, name in procs}
+    out = []
+    for pid, ppid, name in procs:
+        if name in RUNNERS and names.get(ppid) != "ollama.exe" \
+                and exe_of(pid).lower().startswith(home_s):
+            out.append(pid)
+    return out
+
+
+def sweep_runners() -> int:
+    """Kill orphaned Ollama runners; how many went."""
+    gone = 0
+    try:
+        for pid in orphaned_runners():
+            r = subprocess.run(["taskkill", "/f", "/pid", str(pid)], capture_output=True,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            if r.returncode == 0:
+                gone += 1
+                log.warning("ollama: killed an orphaned model runner (pid %d) that was "
+                            "holding its model's memory", pid)
+    except Exception:
+        log.debug("ollama: runner sweep failed", exc_info=True)
+    return gone
