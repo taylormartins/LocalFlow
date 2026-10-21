@@ -224,6 +224,10 @@ class AlwaysOnConfig:
     #: Lower catches more mishearings and more lookalikes ("Mary told" for
     #: "marigold"); add spellings in setup rather than lowering this.
     accept: float = 0.85
+    #: How loosely a heard phrase must sound like your setup takes, 0-1.
+    #: Raise it when a phrase reads right in the log but is "vetoed" (a poor
+    #: or boosted mic); 1.0 all but turns the voice check off. Settings > Listening.
+    voice_sensitivity: float = 0.25
     #: Extra spellings for voice commands, name -> spellings (see commands.py
     #: for the names and the built-in ones, e.g. submit = "submit", "press enter").
     commands: dict[str, list[str]] = field(default_factory=dict)

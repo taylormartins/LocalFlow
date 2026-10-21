@@ -49,7 +49,7 @@ LIVE_SETTINGS = {
     "sounds": ("enabled", "start", "stop", "paste", "response", "command", "volume"),
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
                   "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words", "phrase_words", "command_phrases",
-                  "code_words"),
+                  "code_words", "voice_sensitivity"),
     "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size",
                 "paste_effect"),
     "history": ("enabled",),
@@ -649,6 +649,10 @@ class Tray:
         if lis is not None:
             if "always_on.default_mode" in changed:
                 lis.set_default_mode(cur.always_on.default_mode)
+            if "always_on.voice_sensitivity" in changed:
+                from .wake import voice_floor
+
+                lis.detector.veto_floor = voice_floor(cur.always_on.voice_sensitivity)
             if {"always_on.command_mode_seconds", "always_on.idle_stop_seconds"} & changed.keys():
                 lis._extend_mode()
             if {"always_on.cancel_words", "always_on.exit_words"} & changed.keys():

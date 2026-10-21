@@ -127,7 +127,8 @@ class Listener:
         self.cfg = cfg
         self.inject = inject
         self.on_event = on_event or (lambda kind, text: None)
-        self.detector = Detector(cfg.always_on.model, Phrases.load(), cfg.always_on.accept)
+        self.detector = Detector(cfg.always_on.model, Phrases.load(), cfg.always_on.accept,
+                                 cfg.always_on.voice_sensitivity)
         self.ring = Ring()
         self._lock = threading.Lock()  # ring writes + feeding vs. starting/stopping
         self._blocks: queue.Queue[np.ndarray | None] = queue.Queue()

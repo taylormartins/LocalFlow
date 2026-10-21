@@ -902,6 +902,22 @@ def _listening(nb, cfg: Config) -> None:
                 lambda v, key=key, options=options: _save("always_on", key, float(options[v])),
                 width=22)
 
+    card = _card(tab, "Phrase sensitivity", "How loosely the start and stop phrases must "
+                 "sound like your setup takes. Raise it if the log says a phrase was "
+                 '"vetoed" (a webcam or boosted mic); lower it if TV or talk sets it off.')
+    row = _row(card, "Strict  -  Loose")
+    sens = tk.DoubleVar(value=cfg.always_on.voice_sensitivity)
+    scale = ttk.Scale(row, from_=0.0, to=1.0, variable=sens, length=240)
+    scale.pack(side="left")
+    shown = ttk.Label(row, text=f"{sens.get():.0%}", style="Card.TLabel")
+    shown.pack(side="left", padx=8)
+
+    def sens_done(_e=None):
+        shown.configure(text=f"{sens.get():.0%}")
+        _save("always_on", "voice_sensitivity", round(sens.get(), 2))
+
+    scale.bind("<ButtonRelease-1>", sens_done)
+
     from .commands import CANCEL, EXIT
 
     card = _card(tab, "Escape words", "Say one of these to get out. Add your own, separated by "

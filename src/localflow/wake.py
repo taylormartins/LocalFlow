@@ -150,6 +150,13 @@ VOICE_VETO = 2.5
 VOICE_VETO_FLOOR = 0.2
 
 
+def voice_floor(sensitivity: float) -> float:
+    """always_on.voice_sensitivity (0-1) as the veto floor: 0 -> 0.1, the
+    default 0.25 -> VOICE_VETO_FLOOR, 1 -> 0.5, past other sentences, so
+    about off. A real webcam mic on auto gain needed ~0.35."""
+    return 0.1 + 0.4 * min(max(sensitivity, 0.0), 1.0)
+
+
 def find(words: list[str], variants: list[list[str]]) -> Match | None:
     """Best occurrence of any spelling inside ``words``.
 
@@ -406,9 +413,11 @@ class Hit:
 class Detector:
     """The small listening model plus the phrases it listens for."""
 
-    def __init__(self, model: str, phrases: Phrases, accept: float = WORD_FLOOR):
+    def __init__(self, model: str, phrases: Phrases, accept: float = WORD_FLOOR,
+                 voice_sensitivity: float = 0.25):
         self.model_name = model
         self.accept = accept
+        self.veto_floor = voice_floor(voice_sensitivity)
         self.device = "cpu"  # the listener sets "cuda" when the GPU is in use
         self._model = None
         self._lock = threading.Lock()
@@ -502,7 +511,7 @@ class Detector:
                 clip = squeeze(clip)
             feats = features(trim(clip)) if clip.size else clip
             dist = min(dtw(feats, t) for t in templates) if len(feats) else float("inf")
-            veto = max(limit * VOICE_VETO, VOICE_VETO_FLOOR)
+            veto = max(limit * VOICE_VETO, self.veto_floor)
             log.debug("always-on: %s %r text %.2f, voice %.3f (veto above %.3f)",
                       which, heard, m.score, dist, veto)
             if dist > veto:

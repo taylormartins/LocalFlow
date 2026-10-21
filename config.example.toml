@@ -157,6 +157,8 @@ model = ""           # "" = cleanup model; "gemma4:12B" = stronger voices, ~2.8 
 enabled = false
 model = "base.en"          # listens for the phrases only; CPU, ~160 MB
 idle_stop_seconds = 45.0   # finish on our own after this much silence
+voice_sensitivity = 0.25   # 0 strict - 1 loose: how much a phrase may sound unlike
+                           # your setup takes (raise it if the log says "vetoed")
 command_window = 5.0       # a command after a dictation counts this long after the
                            # stop phrase, and again after the text is pasted
 command_mode_seconds = 30.0  # command mode ends after this long without a command
