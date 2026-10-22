@@ -274,6 +274,30 @@ class Engine:
             return True
         return False
 
+    def _abortable(self, fn: Callable[[], str], fallback: str) -> str:
+        """Run a slow model call, but give up on it the moment the dictation
+        is discarded ("cancel" after the stop phrase), returning ``fallback``.
+        Only for the LLM stages: Whisper is not reentrant, so it is never
+        abandoned in the background. The orphaned call ends on its own."""
+        box: dict = {}
+
+        def run() -> None:
+            try:
+                box["out"] = fn()
+            except BaseException as exc:  # handed back to the caller below
+                box["exc"] = exc
+
+        worker = threading.Thread(target=run, daemon=True, name="localflow-abortable")
+        worker.start()
+        while worker.is_alive():
+            worker.join(0.05)
+            if self._discard:
+                log.info("cancelled mid-%s - not waiting for it", self.state.name.lower())
+                return fallback
+        if "exc" in box:
+            raise box["exc"]
+        return box["out"]
+
     def cancel_external(self) -> None:
         """Drop a fed dictation unprocessed (it turned out to be a command)."""
         if self.recorder.external:
@@ -413,6 +437,8 @@ class Engine:
             if transform is not None and raw:
                 raw = transform(raw)
             transcribe_s = time.perf_counter() - t0
+            if self._discard:
+                cleanup = False  # cancelled: keep the raw words in history, skip the models
 
             text = raw
             cleanup_s = 0.0
@@ -427,16 +453,17 @@ class Engine:
             if raw and cleanup and self.cfg.cleanup.enabled and not one_pass:
                 self._set_state(State.CLEANING, "")
                 t1 = time.perf_counter()
-                text = self.cleaner.clean(raw)
+                text = self._abortable(lambda: self.cleaner.clean(raw), raw)
                 cleanup_s = time.perf_counter() - t1
 
             self.stylizer.last_outcome = ""
             # Character/tone rewrite. Skipped in raw mode (Shift+Caps): raw means verbatim.
-            if text and cleanup and self.stylizer.active:
+            if text and cleanup and self.stylizer.active and not self._discard:
                 self._set_state(State.STYLING, describe(self.cfg.style))
                 t2 = time.perf_counter()
-                text = self.stylizer.apply(text, also_clean=one_pass)
-                if one_pass and self.stylizer.last_outcome in ("rejected", "failed"):
+                text = self._abortable(
+                    lambda: self.stylizer.apply(text, also_clean=one_pass), text)
+                if one_pass and not self._discard and self.stylizer.last_outcome in ("rejected", "failed"):
                     # Fall back to ordinary cleanup so the text is still tidy.
                     # Costs one model swap, but only when the style pass failed.
                     self._set_state(State.CLEANING, "")

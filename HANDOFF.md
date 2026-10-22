@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-19 at v1.32.0, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-19 at v1.32.1, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -431,6 +431,7 @@ or user phrases in that language.
 | 1.31 | The night routine: "night time routine" / "monitors off" turns every monitor off and keeps the PC awake until someone's back. |
 | 1.31.1 | Ollama's orphaned model runners (5-6 GB each, left when its server is killed or updated) are found and killed; restarting Ollama kills the whole tree. Golden Flow's own ~4 GB is the CUDA + two Whisper models baseline (measured fresh), not a leak. |
 | 1.32.0 | The pill no longer vanishes while you click around: it re-asserts its place on top twice a second (another topmost window, e.g. a call bar or security popup, used to bury it for good) and reappears if the system hides it (tests/pill_stays_on_top.py, with a control). Also merges the downstairs PC's phrase-sensitivity slider (always_on.voice_sensitivity). |
+| 1.32.1 | "Cancel" after the stop phrase now stops the work at once: Engine._abortable abandons a running cleanup/style call instead of waiting it out (up to 20 s) and discarding the result; the raw words still go to history (tests/cancel_midway.py, with a control). The abandoned Ollama request finishes on its own, so an immediate re-dictation can queue behind it briefly. |
 
 ## What's next (the user wants these pitched at the end of each job)
 
