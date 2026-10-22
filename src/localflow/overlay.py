@@ -53,6 +53,7 @@ PINK = "#e86fb0"
 TEAL = "#2ec4b6"
 
 FRAME_MS = 33
+RAISE_EVERY = 0.5  # seconds between re-asserting the pill's place on top
 #: Camera mode's pill (px at 100%).
 CAM_W, CAM_H = 170, 30
 #: The paste effect: its square's side (px at 100%) and how long it plays.
@@ -293,6 +294,7 @@ class Overlay:
 
         self.hwnd = layers.prepare(root)
         self.visible = False
+        self._next_raise = 0.0
         self.font = ("Segoe UI", -int(13 * s))
         self.font_bold = ("Segoe UI Semibold", -int(13 * s))
         import tkinter.font as tkfont
@@ -313,12 +315,29 @@ class Overlay:
 
     def _show(self) -> None:
         if self.visible:
+            self._keep_on_top()
             return
         area = _work_area()
         x = (area.left + area.right - self.w) // 2
         y = area.bottom - self.H - int(self.cfg.margin * self.s)
         layers.show(self.hwnd, x, y)
         self.visible = True
+
+    def _keep_on_top(self) -> None:
+        """Clicking around must not lose the pill. Windows drops a topmost
+        window behind another topmost one (a call bar, a security popup, a
+        full-screen app) and nothing told us, so twice a second put it back on
+        top, and show it again if something hid it."""
+        now = time.monotonic()
+        if now < self._next_raise:
+            return
+        self._next_raise = now + RAISE_EVERY
+        if not layers.visible(self.hwnd):
+            log.info("the pill was hidden by the system - showing it again")
+            self.visible = False
+            self._show()
+            return
+        layers.raise_(self.hwnd)
 
     def _hide(self) -> None:
         if self.visible:
