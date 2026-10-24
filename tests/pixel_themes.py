@@ -70,7 +70,9 @@ def has(img: Image.Image, colour: str, at_least: int = 6) -> bool:
 
 print("which theme is in use")
 ov = OverlayConfig()
-expect("pixel is the default look", ov.pixel and themes.effective(ov) == "pixel-block")
+expect("legacy is the default look", not ov.pixel and themes.effective(ov) == "royal")
+ov.pixel = True
+expect("pixel when ticked", themes.effective(ov) == "pixel-block")
 ov.pixel_theme = "wizard"
 expect("a pixel pick", themes.effective(ov) == "pixel-wizard")
 ov.pixel_theme = "nonsense"

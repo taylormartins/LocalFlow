@@ -117,7 +117,7 @@ token = ""
 enabled = true
 # The pixel themes (Silkscreen type, square beveled shapes, a segmented border).
 # false = the legacy v2 themes below, exactly as before.
-pixel = true
+pixel = false
 # Which pixel theme: "block", "knight", "wizard" or "electric".
 pixel_theme = "block"
 margin = 18

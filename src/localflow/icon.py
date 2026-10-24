@@ -1,6 +1,6 @@
 """The app's icon: a golden crown lifted by the golden wind.
 
-Two drawings. The pixel one (overlay.pixel, the default; house style in
+Two drawings. The pixel one (overlay.pixel, opt-in; house style in
 C:/Code/design) is a 28x28 hand-placed sprite scaled with nearest-neighbour,
 the same picture for the tray, the windows, the notification icon and the
 header. The legacy one is drawn with Pillow at 4x and scaled down smooth.

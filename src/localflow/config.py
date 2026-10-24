@@ -148,7 +148,7 @@ class OverlayConfig:
     #: The new look: pixel themes (Silkscreen type, square beveled shapes, a
     #: segmented border, per the house style in C:/Code/design). Off returns
     #: to the legacy v2 themes above, untouched.
-    pixel: bool = True
+    pixel: bool = False
     #: Which pixel theme: "block" (plain castle gold), "knight", "wizard", "electric".
     pixel_theme: str = "block"
     #: How solid the pill is: 1.0 solid, down to 0.2 to see what's behind it.

@@ -26,11 +26,11 @@ your machine, there is no account, and nothing costs money.
   layouts, number everything clickable and click by number, edit text, and
   "do show commands" for a sheet of everything you can say. A click tells you
   each command was heard.
-- **Themes**: four **pixel themes** (the default; Silkscreen type, square
+- **Themes**: four optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
   beveled shapes, a segmented border): **Pixel Block** (castle gold),
   **Pixel Knight** (stone and battlements), **Pixel Wizard** (cast a spell)
-  and **Pixel Electric**. One tick in Settings returns to the **legacy v2**
-  themes (Royal, Gemstone, Fire, Ice and more), which are untouched. They
+  and **Pixel Electric**. The default is the **legacy v2**
+  themes (Royal, Gemstone, Fire, Ice and more), untouched; unticking returns to them. They
   dress the pill, the tray icon, the click labels, the command sheet and a
   little burst where text lands.
 - **Camera mode** (optional): webcams know which screen you're looking at, so

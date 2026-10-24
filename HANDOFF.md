@@ -99,7 +99,7 @@ learned.json, layouts.json, themes.json, history.jsonl, wake/, models/   private
 | `edit.py` | Edit by voice (rules first, LLM for the rest). |
 | `overlay.py` | Every on-screen layer: the pill, labels, window list, command sheet, paste effect, camera pill. One Tk thread. |
 | `themes.py` | Theme data and every drawing function the overlay and Settings share (legacy v2 shapes; pixel themes dispatch to `pixel.py`). |
-| `pixel.py` | The pixel themes (default since 1.33): Silkscreen text, the segmented-border body, four looks (block, knight, wizard, electric), sprites, LED-style meters. House style: `C:\Code\design`. |
+| `pixel.py` | The pixel themes (opt-in tick since 1.33.2; default is legacy): Silkscreen text, the segmented-border body, four looks (block, knight, wizard, electric), sprites, LED-style meters. House style: `C:\Code\design`. |
 | `settings.py` | The Settings window (its own process): Appearance, Theme builder, Dictation, Listening, Sounds, Camera. |
 | `tray.py` | The tray icon and menu; applies Settings changes live (`LIVE_SETTINGS`). |
 | `camera.py` | Camera mode: the watcher thread, gaze geometry, calibration. |
@@ -439,6 +439,7 @@ or user phrases in that language.
 | 1.32.1 | "Cancel" after the stop phrase now stops the work at once: Engine._abortable abandons a running cleanup/style call instead of waiting it out (up to 20 s) and discarding the result; the raw words still go to history (tests/cancel_midway.py, with a control). The abandoned Ollama request finishes on its own, so an immediate re-dictation can queue behind it briefly. |
 | 1.33.0 | **Pixel themes** (the house style in C:/Code/design): Pixel Block, Knight, Wizard, Electric, drawn by `pixel.py` (Silkscreen text, segmented border, sprites, LED/blade/rune/bolt meters); default on. `overlay.pixel` / `overlay.pixel_theme`; unticking returns to the untouched legacy v2 themes. Settings > Appearance: tick + four live tiles. Pixel crown icon (`icon.pixel_crown`, nearest-neighbour .ico). Click labels, window list, command sheet and paste burst follow the pixel look. Tests: `tests/pixel_themes.py` (real overlay via PrintWindow, with a control). Standard: `C:/Code/design/GOLDEN_FLOW_DESIGN_STANDARD.md`. |
 | 1.33.1 | The pixel pill was too big (about as wide as the legacy one but twice as tall, text huge). Art pixel `cell(s)` 2.7 -> 1.9 x scale, row 14 -> 13 art px, width 92 -> 76, live-text line pitch 8 -> 7: about 40% smaller each way, still Silkscreen at whole art pixels. Settings tiles now draw the pill at its true size. |
+| 1.33.2 | Legacy themes are the default again; pixel themes are an opt-in tick (`overlay.pixel = false`). Reported "can't switch to a pixel theme": the running app was still pre-1.33 code (Settings is a new process, the pill is not), so it ignored the pixel keys until restarted. |
 
 ## What's next (the user wants these pitched at the end of each job)
 
