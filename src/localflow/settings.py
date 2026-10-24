@@ -547,7 +547,8 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
         pixel_key.set(key)
         _save("overlay", "pixel_theme", key)
 
-    TILE_W, TILE_H = 304, 96
+    k = pixel_mod.cell(1.0)
+    TILE_W, TILE_H = 232, 74
     grid = ttk.Frame(pixel_box, style="Card.TFrame")
     grid.configure(borderwidth=0)
     grid.pack(anchor="w")
@@ -563,18 +564,19 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     def tile_tick():
         try:
             now = time.monotonic() - t0
+            wu, hu = TILE_W // k, TILE_H // k
             for key, cv in tiles.items():
                 th = themes.PIXEL[f"pixel-{key}"]
                 look = pixel_mod.LOOKS[key]
                 chosen = key == pixel_key.get()
                 cv.delete("all")
-                g = pixel_mod.Grid(cv, 3, 3, 3)
-                edge = look.pal["accent"] if chosen else look.pal["line"]
-                g.rect(0, 0, 100, 31, mix_hex(edge, "#000000", 0.0))
-                g.rect(1, 1, 98, 29, look.pal["shadow"])
-                pixel_mod.preview(cv, th, 9, 7, 280, now, "recording")
-                g.text(5, 22, look.title, look.pal["accent"] if chosen else look.pal["muted"])
-                g.text(95, 22, "ON" if chosen else "", look.pal["accent"], anchor="e")
+                g = pixel_mod.Grid(cv, 0, 0, k)
+                g.rect(0, 0, wu, hu, look.pal["accent"] if chosen else look.pal["line"])
+                g.rect(1, 1, wu - 2, hu - 2, look.pal["shadow"])
+                pixel_mod.preview(cv, th, (TILE_W - pixel_mod.PILL_U * k) // 2, 3 * k, 0, now,
+                                  "recording")
+                g.text(4, hu - 9, look.title, look.pal["accent"] if chosen else look.pal["muted"])
+                g.text(wu - 4, hu - 9, "ON" if chosen else "", look.pal["accent"], anchor="e")
             pixel_box.after(70, tile_tick)
         except tk.TclError:
             pass

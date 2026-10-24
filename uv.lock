@@ -866,7 +866,7 @@ wheels = [
 
 [[package]]
 name = "localflow"
-version = "1.33.0"
+version = "1.33.1"
 source = { editable = "." }
 dependencies = [
     { name = "comtypes", marker = "sys_platform == 'win32'" },

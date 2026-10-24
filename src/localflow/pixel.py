@@ -40,10 +40,10 @@ FONT_FILE = ASSETS / "Silkscreen-Regular.ttf"
 FAMILY = "Silkscreen"
 
 #: The pill row is this many art pixels tall, and wide by default.
-ROW_U = 14
-PILL_U = 92
+ROW_U = 13
+PILL_U = 76
 #: Caps are 5 art pixels tall; a line of live text is 5 + 3 apart.
-LINE_U = 8
+LINE_U = 7
 CAP_U = 5
 #: Two lines of live text above the pill row, with padding.
 TEXT_U = 2 * LINE_U + 3
@@ -56,7 +56,7 @@ RED = "#ef5350"
 
 def cell(s: float) -> int:
     """Screen pixels per art pixel at this scale."""
-    return max(2, round(2.7 * s))
+    return max(2, round(1.9 * s))
 
 
 def hexrgb(h: str) -> tuple[int, int, int]:
@@ -623,15 +623,15 @@ def draw(c, theme, x0: float, y1: float, w_px: float, s: float, now: float, mode
 
     for j, line in enumerate(lines):
         for x, word, col in line:
-            g.text(5 + x, 4 + j * LINE_U, word, col)
-    mid = hu - ROW_U // 2
+            g.text(5 + x, 3 + j * LINE_U, word, col)
+    mid = hu - (ROW_U + 1) // 2
     if mode == "recording":
         dot(g, look, 9, mid, DOTS.get(dot_kind, DOTS["llm"]), now)
         secs = int(elapsed)
         stamp = f"{secs // 60}:{secs % 60:02d}"
         g.text(wu - 5, mid - 2, stamp, p["text"], anchor="e")
         x_end = wu - 5 - text_w(stamp) - 4
-        wave(g, look, levels, 17, x_end, mid + 5, 10, speech, now)
+        wave(g, look, levels, 17, x_end, mid + 5, 9, speech, now)
     else:
         badge(g, look, 9, mid, mode, colour or p["accent"], now, glyph)
         g.text(17, mid - 2, fit(label, wu - 17 - 6), p["text"])
@@ -689,10 +689,11 @@ def preview(c, theme, x: float, y: float, w: float, now: float, mode: str = "rec
         env = 0.5 + 0.5 * math.sin(v * 0.9) * math.sin(v * 0.37 + 1)
         levels.append(10 ** (-60 / 20 + 40 / 20 * max(0.0, env)) * (1 if env > 0.15 else 0.2))
     if mode == "recording":
-        draw(c, theme, x, y + ROW_U * cell(1.0), w, 1.0, now, "recording", levels,
-             elapsed=now % 60)
+        draw(c, theme, x, y + ROW_U * cell(1.0), PILL_U * cell(1.0), 1.0, now, "recording",
+             levels, elapsed=now % 60)
     else:
-        draw(c, theme, x, y + ROW_U * cell(1.0), w, 1.0, now, "done", label="INSERTED")
+        draw(c, theme, x, y + ROW_U * cell(1.0), PILL_U * cell(1.0), 1.0, now, "done",
+             label="INSERTED")
 
 
 def panel(c, theme, x0: float, y0: float, x1: float, y1: float, s: float, now: float = 0.0) -> None:

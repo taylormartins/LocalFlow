@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.33.0, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.33.1, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -438,6 +438,7 @@ or user phrases in that language.
 | 1.32.0 | The pill no longer vanishes while you click around: it re-asserts its place on top twice a second (another topmost window, e.g. a call bar or security popup, used to bury it for good) and reappears if the system hides it (tests/pill_stays_on_top.py, with a control). Also merges the downstairs PC's phrase-sensitivity slider (always_on.voice_sensitivity). |
 | 1.32.1 | "Cancel" after the stop phrase now stops the work at once: Engine._abortable abandons a running cleanup/style call instead of waiting it out (up to 20 s) and discarding the result; the raw words still go to history (tests/cancel_midway.py, with a control). The abandoned Ollama request finishes on its own, so an immediate re-dictation can queue behind it briefly. |
 | 1.33.0 | **Pixel themes** (the house style in C:/Code/design): Pixel Block, Knight, Wizard, Electric, drawn by `pixel.py` (Silkscreen text, segmented border, sprites, LED/blade/rune/bolt meters); default on. `overlay.pixel` / `overlay.pixel_theme`; unticking returns to the untouched legacy v2 themes. Settings > Appearance: tick + four live tiles. Pixel crown icon (`icon.pixel_crown`, nearest-neighbour .ico). Click labels, window list, command sheet and paste burst follow the pixel look. Tests: `tests/pixel_themes.py` (real overlay via PrintWindow, with a control). Standard: `C:/Code/design/GOLDEN_FLOW_DESIGN_STANDARD.md`. |
+| 1.33.1 | The pixel pill was too big (about as wide as the legacy one but twice as tall, text huge). Art pixel `cell(s)` 2.7 -> 1.9 x scale, row 14 -> 13 art px, width 92 -> 76, live-text line pitch 8 -> 7: about 40% smaller each way, still Silkscreen at whole art pixels. Settings tiles now draw the pill at its true size. |
 
 ## What's next (the user wants these pitched at the end of each job)
 
