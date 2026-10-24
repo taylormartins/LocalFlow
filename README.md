@@ -26,8 +26,13 @@ your machine, there is no account, and nothing costs money.
   layouts, number everything clickable and click by number, edit text, and
   "do show commands" for a sheet of everything you can say. A click tells you
   each command was heard.
-- **Themes**: Royal (the default), Gemstone, Fire, Ice and more, for the pill,
-  the click labels, the command sheet and a little burst where text lands.
+- **Themes**: four **pixel themes** (the default; Silkscreen type, square
+  beveled shapes, a segmented border): **Pixel Block** (castle gold),
+  **Pixel Knight** (stone and battlements), **Pixel Wizard** (cast a spell)
+  and **Pixel Electric**. One tick in Settings returns to the **legacy v2**
+  themes (Royal, Gemstone, Fire, Ice and more), which are untouched. They
+  dress the pill, the tray icon, the click labels, the command sheet and a
+  little burst where text lands.
 - **Camera mode** (optional): webcams know which screen you're looking at, so
   the TV can't start a dictation. The plan for gestures and gaze is in
   [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md).
@@ -655,7 +660,10 @@ turn a lone "pop" into made-up text.
 Everything else is in tray ▸ **Settings...**, a black and gold window with
 tabs:
 
-- **Appearance**: the pill's **theme**, with a live preview, the **pill
+- **Appearance**: the pill's **theme**: four live **pixel** tiles to click
+  (Pixel Block, Knight, Wizard, Electric; `overlay.pixel_theme`), and a
+  **Pixel themes** tick (`overlay.pixel`); untick it for the legacy v2 list
+  below (Royal and the rest), which keeps its own pick. With a live preview, the **pill
   opacity** (down to 20%, to see what's behind it), the click labels' look,
   size and opacity, and **Preview theme**: one window with everything in the
   theme (the pill, click labels on a pretend app, window numbers, the window

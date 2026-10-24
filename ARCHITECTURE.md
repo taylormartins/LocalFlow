@@ -318,6 +318,23 @@ It fails in three different ways, and `models.py` handles each one:
   Each path is retried once, because a dropped connection mid-download really
   happened during testing.
 
+### 9b. The pixel themes draw art pixels, not shapes
+
+`pixel.py` draws on a grid of "art pixels" (`cell(s)` screen pixels each, no
+anti-aliasing). The body and segmented border are one small cached PNG per
+animation step, text is Silkscreen rendered through PIL (`fontmode "1"`) and
+cached per string, sprites are string bitmaps, and the meter is plain
+rectangles, so a frame is a few dozen canvas items. Traps: (1) the overlay
+window is as wide as the pixel pill and the legacy pill is centred in it
+(`Overlay.pw` vs `w`, `canvas.move`), so don't use `self.w` for the legacy
+pill's width; (2) Tk's own Silkscreen font only looks right at whole multiples
+of 8 px (`pixel_px`), and has to be registered per process
+(`AddFontResourceEx`); (3) cached `PhotoImage`s must stay referenced
+(`canvas._pxl_cache`), cleared only when it gets large; (4) the overlay is
+captured for tests with `PrintWindow`, never a desktop grab (it would record
+other windows); (5) `overlay.pixel` off must give the legacy look pixel for
+pixel, with its own `overlay.theme` pick untouched.
+
 ### 10. Always-on mode: false triggers are the enemy
 
 `always_on.Listener` holds its own mic stream. It resamples to 16 kHz into a

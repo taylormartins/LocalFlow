@@ -1,13 +1,19 @@
 """The app's icon: a golden crown lifted by the golden wind.
 
-Drawn with Pillow at 4x and scaled down, so it stays smooth at tray size.
-A small dot in the corner shows what LocalFlow is doing (none when idle); a
+Two drawings. The pixel one (overlay.pixel, the default; house style in
+C:/Code/design) is a 28x28 hand-placed sprite scaled with nearest-neighbour,
+the same picture for the tray, the windows, the notification icon and the
+header. The legacy one is drawn with Pillow at 4x and scaled down smooth.
+A small mark in the corner shows what LocalFlow is doing (none when idle); a
 ring round it means it's recording.
 """
 
 from __future__ import annotations
 
+import io
 import logging
+import struct
+import time
 
 from PIL import Image, ImageDraw
 
@@ -42,11 +48,97 @@ TIPS = [(30, 62), (128, 34), (226, 62)]
 SWOOSH = [((6, 70, 250, 238), 18, 150), ((40, 120, 226, 250), 30, 128)]
 
 
+_pixel_cache = (0.0, True)
+
+
+def pixel_on() -> bool:
+    """Is the pixel look on (overlay.pixel)? Read from config.toml, at most
+    every few seconds: the tray asks on every state change."""
+    global _pixel_cache
+    now = time.monotonic()
+    if now - _pixel_cache[0] > 3.0:
+        try:
+            from .config import load
+
+            _pixel_cache = (now, bool(load()[0].overlay.pixel))
+        except Exception:
+            _pixel_cache = (now, True)
+    return _pixel_cache[1]
+
+
+# The pixel crown, on a 28x28 grid: no anti-aliasing, a dark tile behind it.
+PX_TILE, PX_EDGE, PX_EDGE2 = (28, 27, 32), (139, 106, 69), (64, 54, 52)
+PX_GOLD, PX_LIGHT, PX_SHADE, PX_DARK = (240, 197, 121), (252, 232, 170), (176, 130, 52), (58, 42, 8)
+PX_RUBY = (222, 44, 80)
+
+
+def pixel_crown(dot: tuple[int, int, int] | None = None, ring: bool = False,
+                size: int = 64) -> Image.Image:
+    """The golden crown lifted by the golden wind, as a 28x28 pixel sprite."""
+    im = Image.new("RGBA", (28, 28), PX_TILE + (255,))
+    d = ImageDraw.Draw(im)
+    d.rectangle((0, 0, 27, 27), outline=PX_EDGE)
+    d.rectangle((1, 1, 26, 26), outline=PX_EDGE2)
+    # the wind: two gusts curling up under the crown
+    for y, x0, x1, col in ((24, 5, 19, PX_SHADE), (22, 8, 22, PX_GOLD)):
+        d.line((x0, y, x1, y), fill=col)
+    d.line((19, 24, 21, 24), fill=PX_SHADE)
+    d.point((22, 23), fill=PX_SHADE)
+    d.point((23, 22), fill=PX_GOLD)
+    d.point((23, 21), fill=PX_LIGHT)
+    d.line((4, 25, 11, 25), fill=PX_GOLD)
+    # the crown: dark edge first, then gold
+    body = [(6, 18), (5, 8), (10, 12), (14, 5), (18, 12), (23, 8), (22, 18)]
+    d.polygon(body, fill=PX_GOLD, outline=PX_DARK)
+    d.rectangle((6, 16, 22, 20), fill=PX_GOLD, outline=PX_DARK)
+    d.line((7, 17, 21, 17), fill=PX_LIGHT)
+    d.line((7, 19, 21, 19), fill=PX_SHADE)
+    for x, y in ((5, 7), (14, 4), (23, 7)):  # a bead on each point
+        d.rectangle((x - 1, y - 1, x, y), fill=PX_LIGHT, outline=PX_DARK)
+    d.rectangle((13, 17, 14, 19), fill=PX_RUBY)
+    d.point((13, 17), fill=(255, 150, 170))
+    for x in (9, 18):
+        d.point((x, 14), fill=PX_LIGHT)
+    if dot is not None:
+        c = dot + (255,)
+        if ring:
+            d.rectangle((17, 17, 27, 27), outline=c)
+        d.rectangle((19, 19, 25, 25), fill=c, outline=PX_DARK)
+        d.rectangle((20, 20, 21, 21), fill=(255, 255, 255, 255))
+    return im.resize((size, size), Image.NEAREST)
+
+
+def save_ico(path, size_list=(16, 24, 32, 48, 64, 128, 256)) -> None:
+    """An .ico of the pixel crown with every size scaled nearest-neighbour
+    (Pillow's own ICO writer would smooth them)."""
+    base = pixel_crown(size=28)
+    layers = []
+    for n in size_list:
+        b = io.BytesIO()
+        base.resize((n, n), Image.NEAREST).save(b, "PNG")
+        layers.append(b.getvalue())
+    off = 6 + 16 * len(layers)
+    out = struct.pack("<HHH", 0, 1, len(layers))
+    for n, blob in zip(size_list, layers):
+        out += struct.pack("<BBBBHHII", n % 256, n % 256, 0, 0, 1, 32, len(blob), off)
+        off += len(blob)
+    with open(path, "wb") as f:
+        f.write(out + b"".join(layers))
+
+
 def golden_wind(dot: tuple[int, int, int] | None = None, ring: bool = False,
                 size: int = 64) -> Image.Image:
     """The emblem: a golden crown lifted by the golden wind (taking command
     of the computer). The name is kept: everything that draws the icon
-    calls this."""
+    calls this. Pixel or legacy by overlay.pixel."""
+    if pixel_on():
+        return pixel_crown(dot, ring, size)
+    return smooth_crown(dot, ring, size)
+
+
+def smooth_crown(dot: tuple[int, int, int] | None = None, ring: bool = False,
+                 size: int = 64) -> Image.Image:
+    """The legacy v2 crown (smooth)."""
     img = Image.new("RGBA", (BIG, BIG), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     # A dark edge first, so the gold reads on a light taskbar too.
@@ -91,10 +183,14 @@ def set_app_identity() -> None:
     from .config import PROJECT_ROOT
 
     try:
-        ico = PROJECT_ROOT / "data" / "app-crown.ico"  # renamed when the art changes
+        pix = pixel_on()
+        ico = PROJECT_ROOT / "data" / ("app-crown-px.ico" if pix else "app-crown.ico")
         if not ico.exists():
             ico.parent.mkdir(parents=True, exist_ok=True)
-            golden_wind(size=256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+            if pix:
+                save_ico(ico)
+            else:
+                smooth_crown(size=256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
                               rf"Software\Classes\AppUserModelId\{APP_ID}") as key:
             winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_NAME)

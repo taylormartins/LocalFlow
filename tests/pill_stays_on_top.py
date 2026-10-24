@@ -17,11 +17,19 @@ GW_HWNDPREV = 3
 
 
 def covered(hwnd) -> bool:
-    """Is any visible window above it that overlaps it?"""
+    """Is any visible window above it that overlaps it? (Other apps' tiny
+    topmost helper windows elsewhere on screen don't count.)"""
+    from ctypes import wintypes
+
+    mine, other = wintypes.RECT(), wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(mine))
     above = user32.GetWindow(hwnd, GW_HWNDPREV)
     while above:
         if user32.IsWindowVisible(above):
-            return True
+            user32.GetWindowRect(above, ctypes.byref(other))
+            if (other.left < mine.right and other.right > mine.left
+                    and other.top < mine.bottom and other.bottom > mine.top):
+                return True
         above = user32.GetWindow(above, GW_HWNDPREV)
     return False
 

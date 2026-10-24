@@ -36,7 +36,9 @@ from . import layers
 from .config import OverlayConfig
 from .engine import Engine, State
 from .layers import KEY
+from . import pixel
 from .platform import IS_MAC
+from .themes import effective
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class Overlay:
 
         self._themes = Current()
         self._fonts_for = None  # the theme the Tk fonts were made for
-        self._theme = self._themes.get(cfg.theme)
+        self._theme = self._themes.get(effective(cfg))
         # Numbered click labels (command mode), drawn by the Tk thread.
         self._labels: list = []
         self._labels_version = 0
@@ -272,10 +274,13 @@ class Overlay:
         import tkinter as tk
 
         self.s = s = layers.scale()
-        self.w, self.h = int(250 * s), int(42 * s)
+        self.pw, self.h = int(250 * s), int(42 * s)  # the legacy pill
+        # The window is wide enough for the pixel pill too; each theme draws
+        # centred in it (the rest is transparent).
+        self.w = max(self.pw, (pixel.PILL_U + 2) * pixel.cell(s))
         # Room under the waveform for two lines of live text. The window is
         # always this tall (transparent where unused); the pill grows upward.
-        self.text_area = int(44 * s) if self.live else 0
+        self.text_area = max(int(44 * s), (pixel.TEXT_U + 1) * pixel.cell(s)) if self.live else 0
         self.H = self.h + self.text_area
 
         from .platform import tk_first
@@ -370,7 +375,7 @@ class Overlay:
         tokens = [(word, dim) for word in context] + [(word, text) for word in current]
         if cut:
             tokens.insert(0, ("…", dim))
-        width = self.w - 36 * self.s
+        width = self.pw - 36 * self.s
 
         lines: list = []
         font = self.live_fonts[-1]
@@ -409,7 +414,7 @@ class Overlay:
         """The click labels' theme (overlay.label_theme) and a font maker."""
         from . import themes
 
-        theme = themes.label_theme(self.cfg.label_theme, self._themes.get(self.cfg.theme))
+        theme = themes.label_theme(self.cfg.label_theme, self._themes.get(effective(self.cfg)))
 
         def font(px: float) -> tuple:
             # Sizes come in as Tk's negative pixels; the sign was once kept
@@ -567,7 +572,7 @@ class Overlay:
             layers.hide(self.help_hwnd)
             return
         s = self.s
-        theme = self._themes.get(self.cfg.theme)
+        theme = self._themes.get(effective(self.cfg))
         # Dark text behind a light sheet muddies it sooner than light behind dark.
         bg = theme.bg.lstrip("#")
         light = len(bg) == 6 and sum(int(bg[i:i + 2], 16) for i in (0, 2, 4)) > 3 * 150
@@ -666,7 +671,7 @@ class Overlay:
             layers.hide(self.cam_hwnd)
             return
         _, looking, screen, error, _ = state
-        theme = self._themes.get(self.cfg.theme)
+        theme = self._themes.get(effective(self.cfg))
         s = self.s
         w, h = int(CAM_W * s), int(CAM_H * s)
         c = self.cam_canvas
@@ -728,14 +733,14 @@ class Overlay:
             layers.hide(self.fx_hwnd)
             return
         size = int(FX_SIZE * self.s)
-        theme = self._themes.get(self.cfg.theme)
+        theme = self._themes.get(effective(self.cfg))
         themes.paste_burst(c, theme, size / 2, size / 2, self.s, p)
         self.fx_win.attributes("-alpha", max(0.05, 1.0 - p ** 2))
         layers.show(self.fx_hwnd, x - size // 2, y - size // 2, size, size)
 
     def _theme_fonts(self, theme) -> None:
         """Tk fonts for the theme's family and size (remade when it changes)."""
-        if self._fonts_for == (theme.font, theme.font_size):
+        if self._fonts_for == (theme.font, theme.font_size, theme.pixel):
             return
         import tkinter.font as tkfont
 
@@ -748,13 +753,14 @@ class Overlay:
         base = theme.font_size
         self.live_fonts = [tkfont.Font(root=self.root, family=theme.font, size=-int(px * s))
                            for px in (base, base - 1, base - 2, base - 3)]
-        self._fonts_for = (theme.font, theme.font_size)
+        self._fonts_for = (theme.font, theme.font_size, theme.pixel)
         self._layout_key = None
         if self.live:
             # Two lines of live text in this font. A bigger font than the
             # window was made for pushed the top of the pill (and its border)
             # out of the window, so the window grows to fit.
             need = 2 * self.live_fonts[0].metrics("linespace") + int(10 * s)
+            need = max(need, (pixel.TEXT_U + 1) * pixel.cell(s))
             if need != self.text_area:
                 self.text_area = need
                 self.H = self.h + need
@@ -774,7 +780,7 @@ class Overlay:
     def _restyle(self) -> None:
         """A new theme, label look or size (Settings) redraws what's up now:
         the command sheet stayed in the old theme until it was reopened."""
-        theme = self._themes.get(self.cfg.theme)
+        theme = self._themes.get(effective(self.cfg))
         key = (id(theme), self.cfg.label_theme, self.cfg.label_size)
         if key == getattr(self, "_style_key", key):
             self._style_key = key
@@ -834,11 +840,19 @@ class Overlay:
 
         from . import themes
 
-        c, s, w, h, H = self.canvas, self.s, self.w, self.h, self.H
-        theme = self._theme = self._themes.get(self.cfg.theme)
+        c, s, w, h, H = self.canvas, self.s, self.pw, self.h, self.H
+        theme = self._theme = self._themes.get(effective(self.cfg))
         self._theme_fonts(theme)
         state_colour = themes.colour_for(theme, self._colour, RED)
         c.delete("all")
+        alpha = max(0.2, min(float(self.cfg.opacity), 1.0))
+        if alpha != getattr(self, "_alpha", None):
+            self.root.attributes("-alpha", alpha)  # see what's behind the pill
+            self._alpha = alpha
+        if theme.pixel:
+            self._frame_pixel(theme, mode, state_colour)
+            self._show()
+            return
         lines, line_h = self._live_layout() if mode in ("recording", "busy") else ([], 0)
         text_h = len(lines) * line_h + int(8 * s) if lines else 0
         while lines and H - h - text_h < 0:  # never past the top of the window
@@ -849,10 +863,6 @@ class Overlay:
         themes.pill(c, theme, 0, y0, w - 1, H - 1, h / 2 if not lines else 16 * s, s, now)
         mid = y0 + h / 2
         elapsed = now - self._since
-        alpha = max(0.2, min(float(self.cfg.opacity), 1.0))
-        if alpha != getattr(self, "_alpha", None):
-            self.root.attributes("-alpha", alpha)  # see what's behind the pill
-            self._alpha = alpha
 
         for row, words in enumerate(lines):
             y = y0 + h - 4 * s + row * line_h
@@ -909,4 +919,31 @@ class Overlay:
             label = self._fit(self._label, w - 40 * s - 14 * s)
             c.create_text(40 * s, mid, text=label, anchor="w", fill=theme.text, font=self.font)
 
+        c.move("all", (self.w - self.pw) // 2, 0)  # centred in the (wider) window
         self._show()
+
+    def _frame_pixel(self, theme, mode: str, state_colour: str) -> None:
+        """A pixel theme's pill: pixel.draw does the whole picture."""
+        now = time.monotonic()
+        live = None
+        if mode in ("recording", "busy") and self.live is not None and self.live.text:
+            from .live import display_words
+
+            context, current, cut = display_words(
+                self.live.text, self.cfg.live_context_words, self.cfg.live_max_words)
+            live = (context, current, cut)
+        if mode == "recording":
+            self.levels.append(self.engine.recorder.level)
+            if not self.engine.cleanup_this_run:
+                kind = "raw"
+            elif self.engine.cleaner.uses_llm and self._llm_ready:
+                kind = "llm"
+            else:
+                kind = "rules"
+            pixel.draw(self.canvas, theme, 0, self.H, self.w, self.s, now, "recording",
+                       levels=self.levels, dot_kind=kind, elapsed=now - self._since,
+                       live=live, speech=self.cfg.speech_rms)
+            return
+        pixel.draw(self.canvas, theme, 0, self.H, self.w, self.s, now,
+                   mode if mode in ("busy", "done", "command", "notice", "message") else "message",
+                   label=self._label, glyph=self._glyph, colour=state_colour, live=live)

@@ -36,6 +36,7 @@ import random
 import time
 from dataclasses import asdict, dataclass, fields, replace
 
+from . import pixel
 from .config import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
@@ -43,9 +44,10 @@ log = logging.getLogger(__name__)
 STORE = PROJECT_ROOT / "themes.json"
 
 WAVE_STYLES = ("bars", "capsules", "hairlines", "line", "zigzag", "prism", "dots", "dotgrid",
-               "glyphs", "scribble", "halftone", "flames", "wind")
-BORDERS = ("plain", "bevel", "ornate", "prism", "sketch", "rule", "flame", "frost")
-DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square", "flame", "snowflake")
+               "glyphs", "scribble", "halftone", "flames", "wind", "led", "blade", "rune", "bolt")
+BORDERS = ("plain", "bevel", "ornate", "prism", "sketch", "rule", "flame", "frost", "pixel")
+DOT_STYLES = ("circle", "stardust", "gem", "cursor", "sketch", "square", "flame", "snowflake",
+              "orb", "shield", "star", "bolt")
 
 
 @dataclass
@@ -71,6 +73,8 @@ class Theme:
     accent: str = ""
     #: Black and white only: errors take the accent too (they keep their "!").
     mono: bool = False
+    #: A pixel look (pixel.LOOKS) drawn by pixel.py instead of the shapes here.
+    pixel: str = ""
 
 
 ROYAL = Theme(
@@ -124,11 +128,25 @@ ICE = Theme(
     wave="#e6f8ff", dim="#1b2b36", wave_style="wind", dot="snowflake",
     font="Segoe UI Variable Display", font_size=13, accent="#a6e4ff",
 )
-#: The theme LocalFlow starts with (overlay.theme = "royal").
+
+
+def _pixel_theme(key: str) -> Theme:
+    look = pixel.LOOKS[key]
+    p = look.pal
+    return Theme(name=look.title.title(), bg=p["canvas"], text=p["text"], edge=p["line"],
+                 border="pixel", round=0.0, wave=p["accent"], dim=p["line"], wave_style=look.wave,
+                 dot=look.dot, font=pixel.FAMILY, font_size=16, accent=p["accent"], pixel=key)
+
+
+#: The new look (overlay.pixel): four pixel themes, shown first in Settings.
+PIXEL = {f"pixel-{k}": _pixel_theme(k) for k in pixel.LOOKS}
+#: The theme LocalFlow starts with when the pixel themes are ticked off
+#: (overlay.theme = "royal"): the legacy v2 look.
 DEFAULT = ROYAL
 BUILT_IN = {"royal": ROYAL, "gemstone": GEMSTONE, "silver": SILVER, "smooth": SMOOTH,
             "modern": MODERN, "fire": FIRE, "ice": ICE,
-            "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER}
+            "classic": CLASSIC, "matrix": MATRIX, "doodle": DOODLE, "newspaper": NEWSPAPER,
+            **PIXEL}
 
 
 #: Smallest text on the labels and the command sheet: 13 px = 10 pt at 100%
@@ -149,6 +167,8 @@ def _from_dict(name: str, d: dict) -> Theme:
         t.wave_style = "bars"
     if t.border not in BORDERS:
         t.border = "plain"
+    if t.pixel not in pixel.LOOKS:
+        t.pixel = ""
     if t.dot not in DOT_STYLES:
         t.dot = "circle"
     try:
@@ -196,6 +216,20 @@ def all_themes() -> dict[str, Theme]:
     for k, t in load_custom().items():
         out.setdefault(k, t)
     return out
+
+
+def legacy_themes() -> dict[str, Theme]:
+    """The pre-pixel themes (legacy v2) and your own: what the ticker returns to."""
+    return {k: t for k, t in all_themes().items() if k not in PIXEL}
+
+
+def effective(ov) -> str:
+    """The theme name in use for an OverlayConfig: a pixel theme while
+    overlay.pixel is on, else the legacy overlay.theme."""
+    if getattr(ov, "pixel", False):
+        key = f"pixel-{(getattr(ov, 'pixel_theme', '') or 'block').lower()}"
+        return key if key in PIXEL else "pixel-block"
+    return ov.theme
 
 
 def resolve(name: str) -> Theme:
@@ -275,6 +309,8 @@ def hue(h: float, sat: float = 0.55, val: float = 1.0) -> str:
 
 def dot_colour(theme: Theme, kind: str) -> str:
     """The recording dot. Its three meanings stay apart in every theme."""
+    if theme.pixel:
+        return pixel.DOTS[kind]
     if theme.dot == "gem":
         return GEMS[kind]
     if theme.dot == "stardust":
@@ -294,6 +330,8 @@ def dot_colour(theme: Theme, kind: str) -> str:
 
 
 def font(theme: Theme, s: float, bold: bool = False, size: int | None = None) -> tuple:
+    if theme.pixel:  # Silkscreen only looks right in whole multiples of 8 px
+        return (pixel.tk_family(), -pixel.pixel_px((size or theme.font_size) * s))
     px = -int((size or theme.font_size) * s)
     if bold and theme.font == "Segoe UI":
         return ("Segoe UI Semibold", px)
@@ -345,6 +383,9 @@ def _diamond(c, cx, cy, size, fill, outline):
 def pill(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, r: float, s: float,
          t: float = 0.0) -> None:
     """The pill's body and border. Everything stays inside x0..x1, y0..y1."""
+    if theme.pixel:
+        pixel.panel(c, theme, x0, y0, x1, y1, s, t)
+        return
     r *= theme.round
     edge = theme.edge
     if not edge:
@@ -518,6 +559,9 @@ def label_box(c, theme: Theme, x0: float, y0: float, x1: float, y1: float, s: fl
               text: str = "", font=None) -> None:
     """A click label (or window chip, or grid number) in the theme's look:
     its colours, its font and a small version of its border."""
+    if theme.pixel:
+        pixel.label_box(c, theme, x0, y0, x1, y1, s, text)
+        return
     edge = theme.edge or marker(theme)
     h = y1 - y0
     r = h / 2 * theme.round * (0.5 if theme.border in ("ornate", "rule") else 0.8)
@@ -586,6 +630,9 @@ def paste_burst(c, theme: Theme, cx: float, cy: float, s: float, p: float) -> No
     progress ``p`` (0 .. 1). Fire: flames leap up. Ice: crystals fly out.
     Royal (stardust): gold sparkles. Gemstone: rainbow glints. Anything
     else: a ripple in its accent."""
+    if theme.pixel:
+        pixel.burst(c, theme, cx, cy, s, p)
+        return
     ease = 1 - (1 - p) ** 3
     accent = theme.accent or theme.edge or theme.text
     if theme.dot == "flame" or theme.border == "flame":
@@ -643,6 +690,9 @@ def paste_burst(c, theme: Theme, cx: float, cy: float, s: float, p: float) -> No
 
 def recording_dot(c, theme: Theme, cx: float, cy: float, s: float, colour: str, t: float) -> None:
     """The pulsing "recording" mark, in the theme's style."""
+    if theme.pixel:
+        pixel.dot_at(c, theme, cx, cy, s, colour, t)
+        return
     pulse = math.sin(t * 5)
     if theme.dot == "stardust":
         _stardust(c, cx, cy, s, colour, t)
@@ -760,6 +810,9 @@ _GLYPHS = "01ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456
 def wave(c, theme: Theme, levels, x0: float, x1: float, mid: float, max_h: float, s: float,
          speech: float, t: float = 0.0) -> None:
     """The live level meter, newest on the right, in the theme's style."""
+    if theme.pixel:
+        pixel.wave_at(c, theme, levels, x0, x1, mid, max_h, s, speech, t)
+        return
     levels = list(levels)
     n = len(levels) or 1
     step = (x1 - x0) / n

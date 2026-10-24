@@ -124,6 +124,13 @@ class Preview:
         t = time.monotonic() - self.t0
         c.delete("all")
         x, y = 12, 12
+        if theme.pixel:
+            from . import pixel
+
+            now = time.monotonic()
+            pixel.preview(c, theme, x - 4, y, w + 8, now, "recording")
+            pixel.preview(c, theme, x - 4, y + h + 12, w + 8, now, "done")
+            return
         # Recording.
         now = time.monotonic()
         themes.pill(c, theme, x, y, x + w, y + h, h / 2, s, now)
@@ -246,7 +253,7 @@ class Showcase:
         dim = themes.blend(look.text, look.bg, 0.4)
         text_font = themes.font(look, 1.0, size=12)
         c.create_text(lx + 14, ly + 12, anchor="nw", fill=dim, font=text_font,
-                      text='Windows - say "switch to" and a number')
+                      text='Windows - say a number' if look.pixel else 'Windows - say "switch to" and a number')
         for i, row in enumerate(("Inbox  (Mail)", "Budget.xlsx  (Excel)", "Terminal")):
             y = ly + 40 + i * 34
             themes.label_box(c, look, lx + 14, y, lx + 46, y + 28, 1.0, str(i + 1), bold(13))
@@ -261,8 +268,10 @@ class Showcase:
         pdim = themes.blend(pill.text, pill.bg, 0.4)
         head = ("Segoe UI Semibold", -(themes.LABEL_MIN + 2))
         say, does = ("Segoe UI Semibold", -themes.LABEL_MIN), ("Segoe UI", -themes.LABEL_MIN)
+        if pill.pixel:  # Silkscreen, whole multiples of 8 px
+            head = say = does = themes.font(pill, 1.0, size=16)
         c.create_text(sx + 18, sy + 18, anchor="nw", fill=accent, font=head,
-                      text='Say a command  ·  "hide commands" to close')
+                      text='Say a command' if pill.pixel else 'Say a command  ·  "hide commands" to close')
         c.create_text(sx + 18, sy + 50, anchor="nw", fill=accent, font=head, text="Windows")
         c.create_line(sx + 18, sy + 72, sx + sw - 18, sy + 72,
                       fill=themes.blend(accent, pill.bg, 0.6))
@@ -497,17 +506,97 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
 
     tab = _scroller(nb, "Appearance")
     card = _card(tab, "Theme", "How the pill looks. It changes as soon as you pick one.")
-    body = ttk.Frame(card, style="Card.TFrame")
+    current = tk.StringVar(value=cfg.overlay.theme.lower())  # the legacy theme
+    state["theme_var"] = current
+    use_pixel = tk.BooleanVar(value=cfg.overlay.pixel)
+    pixel_key = tk.StringVar(value=(cfg.overlay.pixel_theme or "block").lower())
+
+    def active():
+        """The theme being edited and previewed: the pixel pick, or the legacy one."""
+        if use_pixel.get():
+            return themes.PIXEL.get(f"pixel-{pixel_key.get()}", themes.PIXEL["pixel-block"])
+        return themes.resolve(current.get())
+
+    holder = ttk.Frame(card, style="Card.TFrame")  # keeps the two boxes where they belong
+    holder.configure(borderwidth=0)
+    pixel_box = ttk.Frame(holder, style="Card.TFrame")
+    pixel_box.configure(borderwidth=0)
+    legacy_box = ttk.Frame(holder, style="Card.TFrame")
+    legacy_box.configure(borderwidth=0)
+
+    def switch(on: bool | None = None):
+        if on is not None:
+            use_pixel.set(on)
+            _save("overlay", "pixel", on)
+        pixel_box.pack_forget()
+        legacy_box.pack_forget()
+        (pixel_box if use_pixel.get() else legacy_box).pack(fill="x", pady=(8, 0))
+
+    tick = ttk.Checkbutton(card, text="Pixel themes  (the new look; untick for the legacy v2 themes)",
+                           variable=use_pixel, command=lambda: switch(use_pixel.get()))
+    tick.pack(anchor="w")
+    holder.pack(fill="x")
+    state["pixel_var"] = use_pixel
+
+    # -- the pixel selector: four live tiles, click one --------------------
+    from . import pixel as pixel_mod
+
+    tiles = {}
+
+    def pick_pixel(key: str):
+        pixel_key.set(key)
+        _save("overlay", "pixel_theme", key)
+
+    TILE_W, TILE_H = 304, 96
+    grid = ttk.Frame(pixel_box, style="Card.TFrame")
+    grid.configure(borderwidth=0)
+    grid.pack(anchor="w")
+    for n, key in enumerate(pixel_mod.LOOKS):
+        cv = tk.Canvas(grid, width=TILE_W, height=TILE_H, bg=PANEL, highlightthickness=0,
+                       cursor="hand2")
+        cv.grid(row=n // 2, column=n % 2, padx=(0, 10), pady=(0, 10))
+        cv.bind("<Button-1>", lambda _e, k=key: pick_pixel(k))
+        tiles[key] = cv
+
+    t0 = time.monotonic()
+
+    def tile_tick():
+        try:
+            now = time.monotonic() - t0
+            for key, cv in tiles.items():
+                th = themes.PIXEL[f"pixel-{key}"]
+                look = pixel_mod.LOOKS[key]
+                chosen = key == pixel_key.get()
+                cv.delete("all")
+                g = pixel_mod.Grid(cv, 3, 3, 3)
+                edge = look.pal["accent"] if chosen else look.pal["line"]
+                g.rect(0, 0, 100, 31, mix_hex(edge, "#000000", 0.0))
+                g.rect(1, 1, 98, 29, look.pal["shadow"])
+                pixel_mod.preview(cv, th, 9, 7, 280, now, "recording")
+                g.text(5, 22, look.title, look.pal["accent"] if chosen else look.pal["muted"])
+                g.text(95, 22, "ON" if chosen else "", look.pal["accent"], anchor="e")
+            pixel_box.after(70, tile_tick)
+        except tk.TclError:
+            pass
+
+    def mix_hex(a, b, t):
+        return pixel_mod.mix(a, b, t)
+
+    tile_tick()
+    state["refresh_themes"] = lambda: None
+
+    # -- legacy v2: the original list, untouched ---------------------------
+    ttk.Label(legacy_box, text="Legacy v2 themes (the smooth, readable ones)",
+              style="Muted.TLabel").pack(anchor="w", pady=(0, 6))
+    body = ttk.Frame(legacy_box, style="Card.TFrame")
     body.configure(borderwidth=0)
     body.pack(fill="x")
     left = ttk.Frame(body, style="Card.TFrame")
     left.configure(borderwidth=0)
     left.pack(side="left", fill="y", padx=(0, 16))
-    current = tk.StringVar(value=cfg.overlay.theme.lower())
-    state["theme_var"] = current
 
     def names():
-        return {k: t.name for k, t in themes.all_themes().items()}
+        return {k: t.name for k, t in themes.legacy_themes().items()}
 
     def pick():
         _save("overlay", "theme", current.get())
@@ -522,13 +611,13 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
 
     fill()
     state["refresh_themes"] = fill
-    prev = Preview(body, lambda: themes.resolve(current.get()))
+    prev = Preview(body, active)
     prev.canvas.pack(side="left")
+    switch()
 
     def preview_all():
         """Everything in the theme: the label look and size as picked below."""
-        Showcase(tab, lambda: themes.resolve(current.get()),
-                 lambda: state["label_look"](), lambda: state["label_size"]())
+        Showcase(tab, active, lambda: state["label_look"](), lambda: state["label_size"]())
 
     ttk.Button(card, text="Preview theme  (labels, windows, commands)", style="Small.TButton",
                command=preview_all).pack(anchor="w", pady=(8, 0))
@@ -572,7 +661,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     size_scale.bind("<ButtonRelease-1>",
                     lambda _e: _save("overlay", "label_size", int(size_var.get())))
     state["label_look"] = lambda: themes.label_theme(by_name.get(look_var.get(), "match"),
-                                                     themes.resolve(current.get()))
+                                                     active())
     state["label_size"] = lambda: int(size_var.get())
     sample = tk.Canvas(card, width=320, height=76, bg=PANEL, highlightthickness=0)
     sample.pack(anchor="w", pady=(6, 2))
@@ -581,7 +670,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
         """Two labels on pretend buttons and a window's number, as they'll look."""
         try:
             theme = themes.label_theme(by_name.get(look_var.get(), "match"),
-                                       themes.resolve(current.get()))
+                                       active())
             sample.delete("all")
             mark = themes.marker(theme)
             import tkinter.font as tkfont

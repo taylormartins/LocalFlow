@@ -115,6 +115,11 @@ token = ""
 # speech, dim = silence), a spinner while transcribing/cleaning, a check when
 # the text is pasted. Click-through and never takes focus.
 enabled = true
+# The pixel themes (Silkscreen type, square beveled shapes, a segmented border).
+# false = the legacy v2 themes below, exactly as before.
+pixel = true
+# Which pixel theme: "block", "knight", "wizard" or "electric".
+pixel_theme = "block"
 margin = 18
 # Per-block RMS that counts as speech (bright bars). Typical room noise ~0.005.
 speech_rms = 0.009

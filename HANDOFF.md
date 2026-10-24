@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-19 at v1.32.1, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.33.0, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -98,7 +98,8 @@ learned.json, layouts.json, themes.json, history.jsonl, wake/, models/   private
 | `desktop.py` | Win32 / UI Automation: keys, windows, monitors, labels, arranging, layouts, the caret. |
 | `edit.py` | Edit by voice (rules first, LLM for the rest). |
 | `overlay.py` | Every on-screen layer: the pill, labels, window list, command sheet, paste effect, camera pill. One Tk thread. |
-| `themes.py` | Theme data and every drawing function the overlay and Settings share. |
+| `themes.py` | Theme data and every drawing function the overlay and Settings share (legacy v2 shapes; pixel themes dispatch to `pixel.py`). |
+| `pixel.py` | The pixel themes (default since 1.33): Silkscreen text, the segmented-border body, four looks (block, knight, wizard, electric), sprites, LED-style meters. House style: `C:\Code\design`. |
 | `settings.py` | The Settings window (its own process): Appearance, Theme builder, Dictation, Listening, Sounds, Camera. |
 | `tray.py` | The tray icon and menu; applies Settings changes live (`LIVE_SETTINGS`). |
 | `camera.py` | Camera mode: the watcher thread, gaze geometry, calibration. |
@@ -292,7 +293,11 @@ asking them.
   and a comment), a control in `settings.py`, its key in
   `tray.LIVE_SETTINGS` if it should apply live, and a line in
   `config.example.toml`.
-- **A new theme**: a `Theme(...)` in `themes.py` and an entry in
+- **A new pixel theme**: a `Look(...)` in `pixel.LOOKS` (eleven palette
+  roles, a border kind, a dot sprite, a wave style); `themes.PIXEL` builds
+  the `Theme` from it. Render with `tools/shot_pixel.py` and look; run
+  `tests/pixel_themes.py`. Read `C:\Code\design\GOLDEN_FLOW_DESIGN_STANDARD.md` first.
+- **A new legacy theme**: a `Theme(...)` in `themes.py` and an entry in
   `BUILT_IN`. The drawing helpers (`marker`, `label_box`, `paste_burst`)
   take the theme, so the overlay and the Settings preview follow. Render it
   and look.
@@ -432,6 +437,7 @@ or user phrases in that language.
 | 1.31.1 | Ollama's orphaned model runners (5-6 GB each, left when its server is killed or updated) are found and killed; restarting Ollama kills the whole tree. Golden Flow's own ~4 GB is the CUDA + two Whisper models baseline (measured fresh), not a leak. |
 | 1.32.0 | The pill no longer vanishes while you click around: it re-asserts its place on top twice a second (another topmost window, e.g. a call bar or security popup, used to bury it for good) and reappears if the system hides it (tests/pill_stays_on_top.py, with a control). Also merges the downstairs PC's phrase-sensitivity slider (always_on.voice_sensitivity). |
 | 1.32.1 | "Cancel" after the stop phrase now stops the work at once: Engine._abortable abandons a running cleanup/style call instead of waiting it out (up to 20 s) and discarding the result; the raw words still go to history (tests/cancel_midway.py, with a control). The abandoned Ollama request finishes on its own, so an immediate re-dictation can queue behind it briefly. |
+| 1.33.0 | **Pixel themes** (the house style in C:/Code/design): Pixel Block, Knight, Wizard, Electric, drawn by `pixel.py` (Silkscreen text, segmented border, sprites, LED/blade/rune/bolt meters); default on. `overlay.pixel` / `overlay.pixel_theme`; unticking returns to the untouched legacy v2 themes. Settings > Appearance: tick + four live tiles. Pixel crown icon (`icon.pixel_crown`, nearest-neighbour .ico). Click labels, window list, command sheet and paste burst follow the pixel look. Tests: `tests/pixel_themes.py` (real overlay via PrintWindow, with a control). Standard: `C:/Code/design/GOLDEN_FLOW_DESIGN_STANDARD.md`. |
 
 ## What's next (the user wants these pitched at the end of each job)
 

@@ -50,7 +50,7 @@ LIVE_SETTINGS = {
     "always_on": ("default_mode", "command_mode_seconds", "idle_stop_seconds", "command_llm",
                   "cancel_words", "exit_words", "quick", "quick_stop", "quick_send", "do_words", "phrase_words", "command_phrases",
                   "code_words", "voice_sensitivity"),
-    "overlay": ("theme", "opacity", "label_opacity", "label_theme", "label_size",
+    "overlay": ("theme", "pixel", "pixel_theme", "opacity", "label_opacity", "label_theme", "label_size",
                 "paste_effect"),
     "history": ("enabled",),
     "camera": ("enabled", "cameras", "gate_start", "hold_commands", "fps"),
@@ -669,10 +669,10 @@ class Tray:
             if "always_on.code_words" in changed and "always_on.quick" not in changed:
                 lis.grammar.set_code_words(
                     cur.always_on.code_words if cur.always_on.quick else [])
-        if "overlay.theme" in changed:
-            from .themes import resolve
+        if {"overlay.theme", "overlay.pixel", "overlay.pixel_theme"} & set(changed):
+            from .themes import effective, resolve
 
-            self.engine.notice(f"Theme: {resolve(cur.overlay.theme).name}", "ok", 3)
+            self.engine.notice(f"Theme: {resolve(effective(cur.overlay)).name}", "ok", 3)
         try:
             self.icon.update_menu()
         except Exception:

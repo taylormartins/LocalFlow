@@ -172,17 +172,23 @@ expect("click labels: 'match' follows the pill, 'yellow' is the original, or any
 from localflow import overlay  # noqa: E402
 
 fake = overlay.Overlay.__new__(overlay.Overlay)
-fake.cfg, fake._themes = cfg.overlay, themes.Current()
+fake.cfg, fake._themes = copy.deepcopy(cfg.overlay), themes.Current()
+fake.cfg.pixel = False  # the legacy themes keep exact sizes; pixel ones snap to Silkscreen's 8
 _, label_font = fake._label_look()
 expect("label numbers come out the size asked for (Tk's negative pixels once made them all 8)",
        abs(label_font(-20)[1]) == 20 and abs(label_font(-60)[1]) == 60,
        f"{label_font(-20)} {label_font(-60)}")
 expect("label size has a 10 pt floor", themes.LABEL_MIN >= 13)
+fake.cfg.pixel = True
+_, pixel_font = fake._label_look()
+expect("pixel labels use Silkscreen in whole multiples of 8 px",
+       all(abs(pixel_font(-n)[1]) % 8 == 0 for n in (14, 20, 33, 60)), str(pixel_font(-20)))
 import copy as _copy  # noqa: E402
 
 shown = overlay.Overlay.__new__(overlay.Overlay)
 shown.cfg, shown._themes = _copy.deepcopy(cfg.overlay), themes.Current()
 shown.cfg.theme = "royal"
+shown.cfg.pixel = False  # the legacy theme is what's being switched here
 shown._help, shown._list, shown._labels = [("Windows", [])], [], [(1, (0, 0, 9, 9))]
 shown._help_version = shown._list_version = shown._labels_version = 0
 shown._restyle()
