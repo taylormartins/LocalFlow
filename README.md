@@ -1,4 +1,4 @@
-# ♛ Golden Flow
+﻿# â™› Golden Flow
 
 *(Formerly LocalFlow. The code, the folder, the commands and the scheduled
 tasks are still called `localflow`; only the name you see changed.)*
@@ -31,7 +31,7 @@ your machine, there is no account, and nothing costs money.
   (all gold, crown points), **Dark**, **Light**, **Knight** (stone, battlements,
   swords for the meter), **Wizard** (cast a spell), **Electric** (lightning),
   **Leaf** (a leaf storm), **Dragon** (flames in blue, purple, pink and cyan) and **Legal**
-  (navy and brass: scales of justice, columns). Settings and its tabs wear the look too. The default is the **legacy v2**
+  (navy and brass: scales of justice, stacked books). Settings and its tabs wear the look too. The default is the **legacy v2**
   themes (Royal, Gemstone, Fire, Ice and more), untouched; unticking returns to them. They
   dress the pill, the tray icon, the click labels, the command sheet and a
   little burst where text lands.
@@ -42,8 +42,8 @@ your machine, there is no account, and nothing costs money.
   dictate from your phone.
 - **Picking this up as a developer?** Start with [HANDOFF.md](HANDOFF.md).
 
-Measured on an RTX 4070 Ti with `large-v3-turbo`: 21 s of speech → 1.7 s
-transcription + 0.6 s LLM cleanup, about 12× realtime.
+Measured on an RTX 4070 Ti with `large-v3-turbo`: 21 s of speech â†’ 1.7 s
+transcription + 0.6 s LLM cleanup, about 12Ã— realtime.
 
 ---
 
@@ -58,7 +58,7 @@ cd LocalFlow
 .\install.cmd
 ```
 
-No git? Click **Code ▸ Download ZIP** on GitHub, unzip it anywhere (say
+No git? Click **Code â–¸ Download ZIP** on GitHub, unzip it anywhere (say
 `Documents\LocalFlow`), and double-click **`install.cmd`**.
 
 The installer is safe to re-run at any time. It:
@@ -103,8 +103,8 @@ sentences. With an NVIDIA GPU (8 GB+ VRAM recommended):
 1. Install [Ollama](https://ollama.com/download).
 2. Run `.\install.cmd -PullModel -Cleanup llm`.
 
-You can switch between the two at any time: tray ▸ **Settings...** ▸
-**Dictation** ▸ **Clean up with**: **Algorithmic** or a model name.
+You can switch between the two at any time: tray â–¸ **Settings...** â–¸
+**Dictation** â–¸ **Clean up with**: **Algorithmic** or a model name.
 
 ### Locked-down networks (corporate proxy, no huggingface.co)
 
@@ -155,15 +155,15 @@ the latest*, or *Version 1.12.0 - 1.13.0 available*. LocalFlow checks GitHub
 at startup and every 6 hours, and says so on screen when a new version comes
 out.
 
-Right-click the tray icon ▸ **Update to 1.x** (or **Check for updates**). It
+Right-click the tray icon â–¸ **Update to 1.x** (or **Check for updates**). It
 fetches the latest version, installs anything new (dependencies, models), and
 restarts LocalFlow. It runs with no window. Each step shows on the on-screen
 pill and as a notification (Windows can hide notifications; the pill always
 shows):
 
-- *Checking for updates…*
-- *Updating to 1.13.0…*, then the step it's on (*Updating: Python and
-  dependencies…*), then LocalFlow restarts (the tray icon may vanish for a
+- *Checking for updatesâ€¦*
+- *Updating to 1.13.0â€¦*, then the step it's on (*Updating: Python and
+  dependenciesâ€¦*), then LocalFlow restarts (the tray icon may vanish for a
   minute while new parts install). If nothing moves for 5 minutes it says
   *Update stuck?* and which step, rather than leaving you guessing.
 - *Updated to LocalFlow 1.13.0*, shown by the restarted LocalFlow straight
@@ -242,7 +242,7 @@ uv run localflow clean "um so send it tuesday no wait wednesday"
 Use the raw keys when you need exact text: code, quotes, anywhere a helpful
 rewrite would be wrong.
 
-**Choosing keys.** Tray ▸ **Settings...** ▸ **Dictation** ▸ **Dictation keys**,
+**Choosing keys.** Tray â–¸ **Settings...** â–¸ **Dictation** â–¸ **Dictation keys**,
 and tick any mix of the following. Changes apply immediately, with no restart:
 
 | Key | Raw (verbatim) version |
@@ -271,7 +271,7 @@ no keys at all. For example, say *"Okay listen, Marigold"*, dictate, then say
 *"That will be all"*. The text is pasted just as if you'd used a hotkey, minus
 both phrases.
 
-**Setting it up.** Right-click the tray icon ▸ **Set up always-on
+**Setting it up.** Right-click the tray icon â–¸ **Set up always-on
 phrases...**:
 
 1. Type a start phrase and a stop phrase. Pick ones you'd never say by
@@ -286,7 +286,7 @@ phrases...**:
 4. Under each take you'll see what LocalFlow heard. Those spellings are learned
    too, because the listener will hear your voice the same way next time.
    Click a take to record it again.
-5. **Save**. Listening starts right away. Turn it on or off with tray ▸
+5. **Save**. Listening starts right away. Turn it on or off with tray â–¸
    **Always-on listening**.
 
 The stop phrase is also looked for in the live transcript (the dictation
@@ -301,18 +301,18 @@ people naturally say with a comma.
 
 While dictating hands-free, a hotkey tap or Esc also ends it. So does 45
 seconds of silence (`always_on.idle_stop_seconds`), so a forgotten stop phrase
-can't record the room indefinitely. Settings ▸ **Listening** ▸ **Dictation ends after** changes that
+can't record the room indefinitely. Settings â–¸ **Listening** â–¸ **Dictation ends after** changes that
 (30 s to 5 min, or **Never**), or say "dictation timeout two minutes" /
 "dictation timeout never" in command mode.
 
-**Microphone.** Tray ▸ **Microphone**: *System default (follows Windows)*,
+**Microphone.** Tray â–¸ **Microphone**: *System default (follows Windows)*,
 or pick a specific mic. Always-on follows the microphone. If the mic it's
 listening on stops, or Windows switches its default (a USB-C dock unplugged, a
 headset plugged in), it reopens on the right one within a few seconds and the
 pill says which. Use **Refresh the list** for a mic plugged in after LocalFlow
 started.
 
-**Paste where I started.** Settings ▸ **Dictation** ▸ **Paste where I started**. The text goes to
+**Paste where I started.** Settings â–¸ **Dictation** â–¸ **Paste where I started**. The text goes to
 the window you were in when the dictation began (start phrase or hotkey), not
 wherever you've clicked since. So you can start a message in a terminal or a
 chat box, then keep working in other windows while you talk.
@@ -363,13 +363,13 @@ your PC:
 
 | What | Where |
 |---|---|
-| Start and stop phrases (checked against your voice) | tray ▸ Set up always-on phrases |
-| Words that throw a dictation away or leave command mode | Settings ▸ Listening ▸ Escape words |
-| Your own way to say any command ("bring up {name} = switch", "fire away = submit") | Settings ▸ Listening ▸ Your own words |
-| Your own words for command mode, dictation mode, yes, no, remember, forget, edit mode, default mode, goodnight | Settings ▸ Listening ▸ Your own words |
-| The do word, quick mode's end and send words, code words | Settings ▸ Listening |
-| Phrasings learned from your misses ("remember that") | by voice; Settings ▸ Listening ▸ Learned phrases |
-| Sounds, themes, label look and size, the paste effect | Settings ▸ Sounds / Appearance / Theme builder |
+| Start and stop phrases (checked against your voice) | tray â–¸ Set up always-on phrases |
+| Words that throw a dictation away or leave command mode | Settings â–¸ Listening â–¸ Escape words |
+| Your own way to say any command ("bring up {name} = switch", "fire away = submit") | Settings â–¸ Listening â–¸ Your own words |
+| Your own words for command mode, dictation mode, yes, no, remember, forget, edit mode, default mode, goodnight | Settings â–¸ Listening â–¸ Your own words |
+| The do word, quick mode's end and send words, code words | Settings â–¸ Listening |
+| Phrasings learned from your misses ("remember that") | by voice; Settings â–¸ Listening â–¸ Learned phrases |
+| Sounds, themes, label look and size, the paste effect | Settings â–¸ Sounds / Appearance / Theme builder |
 
 The built-in words keep working alongside yours, and your own ones show at
 the end of the command sheet. One limit: the listening side is English for
@@ -378,7 +378,7 @@ Dictation itself can be another language (`whisper.language`), but your
 start phrase and commands need English words until the listener gets a
 multilingual model.
 
-**Quick mode: for talking fast.** Tray ▸ **Quick mode**, or Settings ▸
+**Quick mode: for talking fast.** Tray â–¸ **Quick mode**, or Settings â–¸
 Listening. Off by default. One breath does it all, with no waiting for the
 start sound:
 
@@ -390,7 +390,7 @@ start sound:
   Settings (`always_on.quick_stop`, `quick_send`).
 - **Code words** (quick mode only): your own one-word shorthand for any
   command, said on its own after the start phrase or in command mode, e.g.
-  `go = submit`, `nope = scratch`, `chrome = switch chrome` (Settings ▸
+  `go = submit`, `nope = scratch`, `chrome = switch chrome` (Settings â–¸
   Listening, `always_on.code_words`). Short real words work better than
   single letters, which Whisper often mishears; filler like "ok" or "so"
   can't be one.
@@ -399,49 +399,49 @@ start sound:
 followed by **"command mode"**, or by a command itself ("Okay listen,
 Marigold. Switch to Chrome."). The pill turns teal and everything you say is
 taken as a command until you say **"exit"**, the stop phrase, or nothing for
-30 seconds (`always_on.command_mode_seconds`). Settings ▸ **Listening** ▸ **Command mode ends after**
+30 seconds (`always_on.command_mode_seconds`). Settings â–¸ **Listening** â–¸ **Command mode ends after**
 sets it (15 s to 10 min, or **Never**), or say **"command timeout two
 minutes"** / **"command timeout never"**. The start phrase still starts a
-dictation from command mode. Tray ▸ **Command mode** switches it on and off
+dictation from command mode. Tray â–¸ **Command mode** switches it on and off
 too. To live in command mode instead, make it the default (see
 *Switching between commands and dictation*). Commands work without an LLM:
 
 | Say | Does |
 |---|---|
 | switch to / go to / show / select / pull up *Chrome*, *the terminal*, *budget* | brings that window forward (by app name or window title). Spell a name that keeps being misheard: "select n o t i o n" |
-| show windows · show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen, and the same number on every open window's top-left corner, drawn above everything (the list too), even for a window behind another one. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move window 8 to screen 1", "move window 4 to the top right of monitor 2" |
-| move it to monitor 2 · move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
-| center *[the Twitch window]* · move the window to the middle of the screen | centres a window on its screen |
+| show windows Â· show me all the open windows | a numbered list of every open window, by title (each terminal tab's name) and screen, and the same number on every open window's top-left corner, drawn above everything (the list too), even for a window behind another one. Then **"switch to 3"** or just **"3"**; numbers work everywhere a name does: "close 2", "move window 8 to screen 1", "move window 4 to the top right of monitor 2" |
+| move it to monitor 2 Â· move it to the top right of monitor 3 | screens are numbered left to right; **"show monitors"** puts each one's number on it |
+| center *[the Twitch window]* Â· move the window to the middle of the screen | centres a window on its screen |
 | move it to the next / previous monitor | moves the window to another screen |
-| arrange windows · tile windows · arrange windows on monitor 3 | tiles every window that's open (not minimised) on each screen, or one screen, so all can be seen: as equal as can be, each tile shaped like a window (three on a portrait screen stack; three on a wide one sit side by side). "undo" puts them all back |
-| arrange windows in columns · in rows · in a grid · main window · cascade windows | other styles: side by side, stacked, a grid, the front window big with the rest beside it, overlapping. **"next arrangement"** (or "shuffle my windows") tries the next style each time; all take "on monitor N" |
-| swap 2 and 4 · switch windows 4 and 2 · swap Chrome with Spotify | the two windows trade places and sizes (numbers from "show windows"); a maximised one stays maximised on the other's screen; "undo" swaps them back |
-| save layout as *work* · save layout | remembers where every window is (and which app it is) under that name, or "default"; kept in `layouts.json`, this PC only |
-| layout *work* · restore layout *work* | puts every window back as saved, starting apps that aren't open and placing them as their windows appear; "undo" puts them back. **"list layouts"** and **"delete layout work"** |
-| show labels · show me numbered click labels | puts a number on everything clickable in the window in front |
-| click *17* · double click *17* · right click *17* | clicks numbered item 17; the labels stay up, renumbered for whatever the click opened, until "hide labels" |
-| type into *12* hello there · fill in *12* with my name | types into numbered field 12 |
+| arrange windows Â· tile windows Â· arrange windows on monitor 3 | tiles every window that's open (not minimised) on each screen, or one screen, so all can be seen: as equal as can be, each tile shaped like a window (three on a portrait screen stack; three on a wide one sit side by side). "undo" puts them all back |
+| arrange windows in columns Â· in rows Â· in a grid Â· main window Â· cascade windows | other styles: side by side, stacked, a grid, the front window big with the rest beside it, overlapping. **"next arrangement"** (or "shuffle my windows") tries the next style each time; all take "on monitor N" |
+| swap 2 and 4 Â· switch windows 4 and 2 Â· swap Chrome with Spotify | the two windows trade places and sizes (numbers from "show windows"); a maximised one stays maximised on the other's screen; "undo" swaps them back |
+| save layout as *work* Â· save layout | remembers where every window is (and which app it is) under that name, or "default"; kept in `layouts.json`, this PC only |
+| layout *work* Â· restore layout *work* | puts every window back as saved, starting apps that aren't open and placing them as their windows appear; "undo" puts them back. **"list layouts"** and **"delete layout work"** |
+| show labels Â· show me numbered click labels | puts a number on everything clickable in the window in front |
+| click *17* Â· double click *17* Â· right click *17* | clicks numbered item 17; the labels stay up, renumbered for whatever the click opened, until "hide labels" |
+| type into *12* hello there Â· fill in *12* with my name | types into numbered field 12 |
 | show grid | a numbered 3x3 grid over the window, for apps whose buttons have no names. A number zooms into that cell; **"click 5"** clicks the middle of cell 5 (double/right click too) |
 | open / launch *Notepad*, *Spotify*, *youtube dot com* | switches to it if it's open, starts it if not; opens websites |
 | minimize / maximize / restore / close *[name]* | the window in front, or the one named |
 | click / press *Send*, *Reply all*, *File* | clicks a button, link, tab or menu item by its name |
 | type *running five minutes late* | types the words |
-| submit / press enter · new line · tab · escape · backspace | keys |
-| scratch that · undo · redo · select all · copy · cut · paste · save · find | editing |
-| scroll up / down · page up / down · go to the top / bottom | moving around |
-| new tab · new *Chrome* tab · close tab · next / previous tab · reopen tab · go back / forward · refresh | browsers and tabbed apps |
-| move *[it / Chrome]* to the top right · bottom left · left half · right · top half | fills that quarter or half of the window's own monitor |
-| switch window · show desktop | windows |
-| undo last command · take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
+| submit / press enter Â· new line Â· tab Â· escape Â· backspace | keys |
+| scratch that Â· undo Â· redo Â· select all Â· copy Â· cut Â· paste Â· save Â· find | editing |
+| scroll up / down Â· page up / down Â· go to the top / bottom | moving around |
+| new tab Â· new *Chrome* tab Â· close tab Â· next / previous tab Â· reopen tab Â· go back / forward Â· refresh | browsers and tabbed apps |
+| move *[it / Chrome]* to the top right Â· bottom left Â· left half Â· right Â· top half | fills that quarter or half of the window's own monitor |
+| switch window Â· show desktop | windows |
+| undo last command Â· take that back | reverses the last command where it can be: a moved window goes back exactly, a switch goes back, a new tab closes, a closed tab reopens, a scroll scrolls back, typed text is deleted |
 | undo | the app's own undo (Ctrl+Z); right after a window or tab command, undoes that command instead |
-| put the computer to sleep · go to sleep | the response sound (three clicks), then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
-| night time routine · monitors off · turn off the screens | the night routine: every monitor goes off, the PC and the mic stay on (it won't sleep until you touch the keyboard or mouse, so agents keep working). Any key or mouse move brings the monitors back. In one breath: *start phrase*, "do", "night time routine" |
+| put the computer to sleep Â· go to sleep | the response sound (three clicks), then say **"goodnight"** within 10 seconds to sleep; anything else cancels |
+| night time routine Â· monitors off Â· turn off the screens | the night routine: every monitor goes off, the PC and the mic stay on (it won't sleep until you touch the keyboard or mouse, so agents keep working). Any key or mouse move brings the monitors back. In one breath: *start phrase*, "do", "night time routine" |
 | change default mode | the response sound, then say **"command mode"** or **"dictation mode"**. Or in one go: "default mode command mode" |
-| command timeout *two minutes* · dictation timeout *never* | how long command mode waits in silence, and how long a dictation does, before ending; "never" turns it off |
-| make this shorter · make it more formal · turn this into bullet points · fix the punctuation | rewrites the selected text, or (nothing selected) your last dictation. See *Editing by voice* |
+| command timeout *two minutes* Â· dictation timeout *never* | how long command mode waits in silence, and how long a dictation does, before ending; "never" turns it off |
+| make this shorter Â· make it more formal Â· turn this into bullet points Â· fix the punctuation | rewrites the selected text, or (nothing selected) your last dictation. See *Editing by voice* |
 | edit mode | everything you say is an edit to the selected text ("shorter", "translate it to French") until "exit" |
 | forget that | drops the phrase just learned |
-| paste that again · show history | re-pastes the last dictation · opens the history window |
+| paste that again Â· show history | re-pastes the last dictation Â· opens the history window |
 
 **"Show commands"** (or "what can I say") puts every command on screen: a
 see-through, click-through sheet in your theme's colours against the right
@@ -485,7 +485,7 @@ Ollama. The tray shows **Ollama: answering / not running / not answering /
 model not found**. When it stops answering, the pill and a notification say
 so once, dictation carries on with algorithmic cleanup straight away (no
 waiting out a timeout on every dictation), and command mode skips the LLM.
-**Restart Ollama** (in the tray while it's in trouble, and always in Settings ▸
+**Restart Ollama** (in the tray while it's in trouble, and always in Settings â–¸
 **Dictation**) stops and restarts it and loads the model again.
 When it's back, you're told that too. "Model not found" usually means the
 drive the models live on isn't connected; a restart won't fix that.
@@ -507,7 +507,7 @@ without the "make this" ("shorter", "more casual", "translate it to French"),
 while other commands keep working. "Exit" goes back to plain command mode. In
 terminals the copy is Ctrl+Shift+C, so nothing is ever interrupted.
 
-**Dictation history.** Tray ▸ **Dictation history...** (or "show history" in
+**Dictation history.** Tray â–¸ **Dictation history...** (or "show history" in
 command mode) lists everything you've dictated, newest first. Type to search
 (every word must match). **Enter** or double-click pastes the selected one
 into the window you were in, **Ctrl+C** copies it, **Del** deletes it, and
@@ -527,7 +527,7 @@ becomes home instead. It's on from the start, and every dictation (start
 phrase, stop phrase) comes back to it. Its timeout still applies: set
 **"command timeout never"** to keep it on all the time. After a timeout or
 "exit", it's back after your next dictation. Say "change default mode", then "dictation mode",
-to go back. Settings ▸ **Listening** ▸ **Default mode** does the same
+to go back. Settings â–¸ **Listening** â–¸ **Default mode** does the same
 (`always_on.default_mode`). In command mode everything you say is checked as
 a command, so with the LLM on, a conversation nearby can send requests to
 it.
@@ -552,7 +552,7 @@ worked, it offers to remember it. Say "remember that" and next time it runs
 straight away, without the LLM (so it works on a PC without one too). Numbers
 have to match exactly, so "move 8 to monitor 2" never replays "...monitor 1".
 **"Forget that"** drops the phrase just learned. A remembered answer that
-closes or sends something still asks for "yes" first. It never learns without your yes. Settings ▸ **Listening** ▸ **Learned
+closes or sends something still asks for "yes" first. It never learns without your yes. Settings â–¸ **Listening** â–¸ **Learned
 phrases** lists them; select one and **Forget** it. They're kept in `learned.json`
 on this PC only.
 
@@ -601,7 +601,7 @@ amber: "Inserted - LLM off, basic cleanup". The tray icon also turns red. Turn t
 **Live text.** While you talk, the sentence you're speaking appears under the
 waveform, updated about once a second. When you move on to a new sentence, the
 last few words of the previous one stay visible, dimmed. The text shrinks to fit
-two lines, and very long sentences show "…" plus the newest words. It's display
+two lines, and very long sentences show "â€¦" plus the newest words. It's display
 only: the pasted text still comes from the full transcription after you stop.
 Tune it under `[overlay]`: `live_text`, `live_interval`, `live_context_words`,
 `live_max_words`, `live_window`. On a PC without an NVIDIA GPU, the live text
@@ -609,18 +609,18 @@ comes from the small `base.en` model (shared with always-on) reading the last
 10 seconds, about every 1.5 s. It pauses between passes so at least half the
 CPU stays free. `live_cpu_model = ""` turns it off there.
 
-**Character and tone.** Needs Ollama. Settings ▸ **Dictation** ▸ **Character** and
+**Character and tone.** Needs Ollama. Settings â–¸ **Dictation** â–¸ **Character** and
 **Tone**. They stack: Rogue + Rage is one rewrite. Characters: humanize,
 professional, tech professional, doctor, rogue, robot, caring mother, defiant
 worker, plus your own under `[style.characters]`, e.g.
 `pirate = "a salty pirate captain; nautical slang, gruff but cheerful"`. Tones
 follow Plutchik's wheel of emotions: joy, trust, fear, surprise, sadness, disgust,
-anger and anticipation, each at mild / moderate / intense (annoyance → anger →
-rage). The pill shows "Styling: …" while it works. Raw mode (Shift+Caps) never
+anger and anticipation, each at mild / moderate / intense (annoyance â†’ anger â†’
+rage). The pill shows "Styling: â€¦" while it works. Raw mode (Shift+Caps) never
 styles. If the rewrite fails the safety checks (answered your dictation instead
 of rewriting it, added profanity or threats, dropped what you said, or grew far
 too long), you get the plain cleaned text and the pill says "Inserted - style
-skipped". **Style model ▸** in the tray picks the model for this. With "Same as
+skipped". **Style model â–¸** in the tray picks the model for this. With "Same as
 cleanup" (qwen2.5:7b), cleanup runs and then styling runs, adding about 0.35 s.
 A bigger model such as **gemma4:12B** gives much stronger voices. When the style
 model differs from the cleanup model, it does cleanup *and* style in a single
@@ -636,7 +636,7 @@ research and educational use and may not be redistributed. It is therefore
 `data/` (gitignored) and builds `data/tone_vocab.json`. Without it, tones use
 only the built-in word lists in `style.py`.
 
-**Cleanup model.** Settings ▸ **Dictation** ▸ **Clean up with**.
+**Cleanup model.** Settings â–¸ **Dictation** â–¸ **Clean up with**.
 **Algorithmic (no LLM, instant)** needs nothing. Below it are your installed
 Ollama models. LocalFlow unloads the old one and loads the new one in the
 background, and the choice is saved to `config.toml`.
@@ -651,7 +651,7 @@ barely-there "faint pop" once the text has actually been pasted. Esc cancels
 silently, and a failed paste plays no paste sound. A fourth, the **response
 sound** (three clicks), means a command is waiting for your answer: sleep's
 "goodnight", a "yes" to an LLM plan, "change default mode", or a "remember
-that" offer. Plain commands never play it. Settings ▸ **Sounds** has each of
+that" offer. Plain commands never play it. Settings â–¸ **Sounds** has each of
 the four, to choose from tick, pop, faint pop, blip, click, triple click,
 chime up, chime down, soft or none, a **Play** button, and the volume. Picking
 one plays it and saves it to `config.toml`. Under `[sounds]` you can also give a path to your
@@ -659,7 +659,7 @@ own `.wav`. The start cue is silenced out of the recording, because Whisper can
 turn a lone "pop" into made-up text.
 
 **Settings and themes.** The tray menu keeps only what you use day to day.
-Everything else is in tray ▸ **Settings...**, a black and gold window with
+Everything else is in tray â–¸ **Settings...**, a black and gold window with
 tabs:
 
 - **Appearance**: the pill's **theme**: ten live **pixel** tiles to click
@@ -765,7 +765,7 @@ starts it at login (a launchd agent). The crown appears in the menu bar.
   Option for raw text. (Caps Lock can't be a dictation key on a Mac.)
 - **Permissions**: the first time, macOS asks for the Python that runs it:
   **Microphone**, **Accessibility** (it presses Cmd+V and keys), **Input
-  Monitoring** (to hear the dictation key). Allow them in System Settings ▸
+  Monitoring** (to hear the dictation key). Allow them in System Settings â–¸
   Privacy & Security, then restart it: `launchctl kickstart -k
   gui/$(id -u)/com.goldenflow.localflow`.
 - **What works**: dictation with the key and always-on, paste where you
@@ -778,7 +778,7 @@ starts it at login (a launchd agent). The crown appears in the menu bar.
   closing windows, saved layouts, numbered click labels and the grid, and
   the paste effect. They need macOS Accessibility and come next; until then
   they say so.
-- Updates: menu bar ▸ Update (or `bash update.sh`). Whisper runs on the CPU
+- Updates: menu bar â–¸ Update (or `bash update.sh`). Whisper runs on the CPU
   (int8), which is fast on Apple silicon.
 
 ## Commands
@@ -799,7 +799,7 @@ uv run localflow enroll               # set up always-on start/stop phrases
 uv run localflow listen               # try always-on in the console (--file clip.wav)
 ```
 
-Working on the code? Read **[ARCHITECTURE.md](ARCHITECTURE.md)** — it covers the
+Working on the code? Read **[ARCHITECTURE.md](ARCHITECTURE.md)** â€” it covers the
 module layout, the design decisions, and the non-obvious traps that each cost
 real debugging time. Integration checks live in `tests/`:
 
@@ -811,7 +811,7 @@ uv run python tests/bench_models.py      # latency vs quality across models
 uv run python tests/hotkeys.py           # hold / toggle / cancel state machine
 ```
 
-`record` is the fastest way to check your mic actually works — it prints the peak
+`record` is the fastest way to check your mic actually works â€” it prints the peak
 signal level, so a silent mic shows up immediately.
 
 ---
@@ -819,9 +819,9 @@ signal level, so a silent mic shows up immediately.
 ## How it works
 
 ```
-mic ──► Whisper ──► cleanup (Ollama or rules) ──► clipboard ──► Ctrl+V into focused app
-                                    │
-phone (PWA) ──► HTTP ───────────────┘──► text back to phone
+mic â”€â”€â–º Whisper â”€â”€â–º cleanup (Ollama or rules) â”€â”€â–º clipboard â”€â”€â–º Ctrl+V into focused app
+                                    â”‚
+phone (PWA) â”€â”€â–º HTTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜â”€â”€â–º text back to phone
 ```
 
 Both front-ends share one engine (`engine.py`), so the phone gets exactly the
@@ -834,11 +834,11 @@ simulating keystrokes and handles Unicode correctly. If an app refuses paste, se
 
 **The cleanup pass** is the interesting part. A raw transcript of
 *"So um, I want to add a dash attack. Actually no, make it a dodge roll instead"*
-becomes *"I want to add a dodge roll to the player character."* — it resolves
+becomes *"I want to add a dodge roll to the player character."* â€” it resolves
 self-corrections, not just filler.
 
 The real risk with an LLM in this position is that it *answers* your dictation
-instead of transcribing it — say "can you hear me?" and get back "Yes, I can hear
+instead of transcribing it â€” say "can you hear me?" and get back "Yes, I can hear
 you." A system prompt alone does not stop a 7B model doing this. Four things do:
 
 1. **Few-shot examples** (`FEW_SHOT` in `cleanup.py`) demonstrating questions
@@ -847,7 +847,7 @@ you." A system prompt alone does not stop a 7B model doing this. Four things do:
 2. **Temperature 0**, so the behaviour is reproducible.
 3. **An opener check** that rejects output starting with an acknowledgement the
    speaker never said ("Yes,", "Sure,", "Of course"). It compares against the raw
-   text with leading filler stripped, so a legitimate "so I think…" → "I think…"
+   text with leading filler stripped, so a legitimate "so I thinkâ€¦" â†’ "I thinkâ€¦"
    is not mistaken for one.
 4. **A length-ratio and code-block check**, catching the case where it answers at
    length or emits a function you only asked it to describe.
@@ -860,7 +860,7 @@ three times each for stability. One cosmetic miss remains: very short imperative
 ("tell me a joke") sometimes get a question mark.
 
 If you hit a case where it answers you, add the input and the correct output to
-`FEW_SHOT` — that list is the intended place to teach it.
+`FEW_SHOT` â€” that list is the intended place to teach it.
 
 **Algorithmic cleanup** (`rules.py`) is the no-LLM alternative: about 2 ms, no
 Ollama, no GPU. Because it never writes words of its own, it can't answer you.
@@ -870,11 +870,11 @@ It only deletes, punctuates and recases:
   are plainly filler (", you know,", "at like sixty")
 - stutters: "the the", "I think, I think", "w- we"
 - self-corrections with a spoken marker ("no wait", "actually no", ", I mean",
-  "or rather", "scratch that"): "send it Tuesday no wait Wednesday" →
+  "or rather", "scratch that"): "send it Tuesday no wait Wednesday" â†’
   "Send it Wednesday."
 - spoken commands: "comma", "period", "question mark", "new line", "new
   paragraph", "open quote" / "close quote"
-- sentence case, "i" → "I", "dont" → "don't", days and months, your
+- sentence case, "i" â†’ "I", "dont" â†’ "don't", days and months, your
   `vocabulary.terms` spelled exactly, and a closing "." or "?"
 
 Where a rule would have to guess, it leaves the words alone. What it can't do is
@@ -903,13 +903,13 @@ Three things make that work:
   nothing at all.
 - **The few-shot prefix is cached by Ollama.** Those 670 prompt tokens re-evaluate
   in ~12ms, so the examples that keep it honest are nearly free. Do not trim them
-  for speed — they are not what costs you.
+  for speed â€” they are not what costs you.
 - **Output length drives the rest.** Generation runs at ~90 tok/s, and the model
   rewrites your whole sentence, so time scales with how much you said.
 
 **If cleanup feels slow, it is almost always VRAM contention, not the model.**
 Measured on a 12 GB card: with a game engine editor open and three Ollama models
-pinned, the same call took **12–20 seconds** instead of 0.4s. Diagnose with:
+pinned, the same call took **12â€“20 seconds** instead of 0.4s. Diagnose with:
 
 ```powershell
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
@@ -943,7 +943,7 @@ Everything lives in `config.toml`. The interesting knobs:
 | `vocabulary.terms` | Proper nouns Whisper mangles. Fed to Whisper as a decoding hint *and* to the cleanup model as a spelling authority. |
 | `vocabulary.replacements` | Literal find/replace applied last. |
 
-The vocabulary list is worth maintaining — it is the difference between
+The vocabulary list is worth maintaining â€” it is the difference between
 "post gress" and "PostgreSQL".
 
 ---
@@ -971,23 +971,23 @@ tailscale serve --bg 8123
 tailscale serve status    # prints your https://<machine>.<tailnet>.ts.net URL
 ```
 
-That URL is HTTPS, valid only inside your tailnet, and reachable from anywhere —
+That URL is HTTPS, valid only inside your tailnet, and reachable from anywhere â€”
 coffee shop, phone on cellular, wherever.
 
 ### 3. Add it to the home screen
 
-On the iPhone, open that URL in **Safari** (not Chrome — only Safari can install
-PWAs on iOS), then **Share → Add to Home Screen**. Launch it from the icon so it
+On the iPhone, open that URL in **Safari** (not Chrome â€” only Safari can install
+PWAs on iOS), then **Share â†’ Add to Home Screen**. Launch it from the icon so it
 runs fullscreen without browser chrome.
 
 ### 4. Paste in the token
 
-Tap the ⚙ icon and enter the `server.token` value from `config.toml`. Then hold
+Tap the âš™ icon and enter the `server.token` value from `config.toml`. Then hold
 the big button, speak, release, and tap **Copy**.
 
 > **What the iPhone cannot do:** insert text directly into other apps. iOS only
 > allows that from a native keyboard extension, which needs a Mac, Xcode, and an
-> Apple Developer account. Until then the flow is dictate → Copy → paste. If you
+> Apple Developer account. Until then the flow is dictate â†’ Copy â†’ paste. If you
 > later want the real thing, the server API is already the right shape for a
 > native client to talk to.
 
@@ -995,7 +995,7 @@ the big button, speak, release, and tap **Copy**.
 
 The token is checked with a constant-time comparison, and Tailscale means the
 port is never exposed to the public internet. Leaving `server.token` empty
-disables auth entirely — only reasonable if you also set
+disables auth entirely â€” only reasonable if you also set
 `server.host = "127.0.0.1"`.
 
 ---
@@ -1010,7 +1010,7 @@ uv run localflow install-startup --remove   # uninstall
 ```
 
 That writes `LocalFlow.lnk` into your Startup folder, pointing at the venv's
-`pythonw.exe` — no console window, and it does not depend on `uv` being on PATH
+`pythonw.exe` â€” no console window, and it does not depend on `uv` being on PATH
 at login. To start it right now without logging out, double-click
 `localflow.vbs`.
 
@@ -1033,12 +1033,12 @@ uv run localflow level
 ```
 
 It prints a live dB bar and a verdict, then tells you what to do. `silent` means
-no signal at all — check the gain knob, the 48V switch if your mic needs phantom
+no signal at all â€” check the gain knob, the 48V switch if your mic needs phantom
 power, the cable, and Windows mic privacy settings. `quiet` means speech is
 present but Whisper's VAD will discard some of it. The meter tells you which
 **Mic boost** to pick.
 
-**Mic is quiet even when you're close to it.** Settings ▸ **Dictation** ▸
+**Mic is quiet even when you're close to it.** Settings â–¸ **Dictation** â–¸
 **Mic boost**:
 
 | Setting | Boost | When |
@@ -1050,7 +1050,7 @@ present but Whisper's VAD will discard some of it. The meter tells you which
 Auto never turns anything down, leaves recordings that are already loud
 alone, and won't boost an empty room. If a recording has no clear speech above
 the background, it isn't touched. It never lifts the background above about
-−40 dB, so Whisper isn't handed amplified hiss to invent words from. Loud
+âˆ’40 dB, so Whisper isn't handed amplified hiss to invent words from. Loud
 peaks after a boost go through a soft limiter rather than hard clipping. New
 installs start on Auto. Fix the mic's own gain first if it has a knob: a
 software boost raises the noise along with the voice.
@@ -1058,7 +1058,7 @@ software boost raises the noise along with the voice.
 Two non-obvious causes, both seen in practice:
 
 - **Windows capture volume.** Separate from an interface's physical gain knob and
-  it can reset on reboot. Sound settings → Input → your mic → Volume. At 50% it
+  it can reset on reboot. Sound settings â†’ Input â†’ your mic â†’ Volume. At 50% it
   halves everything.
 - **A wedged host API.** MME in particular will open the device happily and then
   deliver no audio at all. The recorder now detects a capture with zero blocks,
@@ -1079,13 +1079,13 @@ roughly halve throughput. `nvidia-smi` and `ollama ps` will show you what is
 resident. On a CPU-only machine, use `whisper.model = "base.en"` for speed.
 
 **Cleanup times out.**
-VRAM pressure — Whisper, the cleanup model, and whatever else you have open do
+VRAM pressure â€” Whisper, the cleanup model, and whatever else you have open do
 not all fit. Either close the other GPU app, drop to a smaller cleanup model, or
 pick **Algorithmic** in the tray. A failed LLM call falls back to the algorithmic
 cleanup either way.
 
 **The hotkey also triggers something in the focused app.**
-It should not — the Win32 event filter suppresses the bound keys specifically.
+It should not â€” the Win32 event filter suppresses the bound keys specifically.
 If a particular app still sees it, that app is reading the raw input device;
 rebind to something unusual like `<ctrl>+<alt>+d`.
 
@@ -1098,7 +1098,7 @@ Windows blocks input from a normal process into an elevated one. Re-run
 ## Camera mode (part one: attention)
 
 LocalFlow can use your webcams to know whether you're looking at your
-screens, and which one. Off by default: Settings ▸ **Camera** (or tray ▸
+screens, and which one. Off by default: Settings â–¸ **Camera** (or tray â–¸
 Camera mode).
 
 1. **Install camera support** (MediaPipe and OpenCV, about 150 MB, kept
@@ -1130,7 +1130,7 @@ is recorded. Only the calibration (directions, no pictures) is saved, in
 
 ## License and credits
 
-MIT © Taylor Martins. See [LICENSE](LICENSE).
+MIT Â© Taylor Martins. See [LICENSE](LICENSE).
 
 Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (OpenAI
 Whisper via CTranslate2), [Ollama](https://ollama.com),
