@@ -105,6 +105,10 @@ expect("every command is on the command sheet", not missing, str(missing))
 g = Grammar()
 expect("a built-in escape word", g.is_one(["never", "mind"], g.cancel))
 expect("...not yet one of your own", not g.is_one(["abort", "mission"], g.cancel))
+rep = ["Cancel,", "cancel,", "cancel!"]
+expect("control: the plain match misses a repeated cancel", not g.is_one(rep, g.cancel))
+expect("a repeated cancel is a cancel", g.is_cancel(rep) and g.is_cancel(["never", "mind"] * 2))
+expect("...but a mix with talk is not", not g.is_cancel(["cancel", "the", "order", "please"]))
 new = copy.deepcopy(cfg)
 new.always_on.cancel_words = ["abort mission"]
 new.always_on.exit_words = ["over and out"]

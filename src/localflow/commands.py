@@ -1747,6 +1747,19 @@ class Grammar:
                 best = Parsed(c, arg, score, where=where, label=label)
         return best
 
+    def is_cancel(self, words: list[str]) -> bool:
+        """A cancel word, or the same one said over and over ("cancel, cancel,
+        cancel" when the first didn't seem to take)."""
+        from .wake import normalise
+
+        w = normalise(" ".join(words))
+        if self.is_one(w, self.cancel):
+            return True
+        for k in (1, 2, 3):
+            if len(w) >= 2 * k and len(w) % k == 0 and w == w[:k] * (len(w) // k)                     and self.is_one(w[:k], self.cancel):
+                return True
+        return False
+
     def is_one(self, words: list[str], forms: list[list[str]]) -> bool:
         words = trim(words)
         return bool(words) and any(

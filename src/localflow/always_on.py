@@ -975,7 +975,7 @@ class Listener:
         """ "Cancel" (or "scratch that") after the stop phrase: throw the
         dictation away before it's pasted, or delete it if it's already in.
         The window stays open, so "command mode" can follow."""
-        if not self.grammar.is_one(texts, self.grammar.cancel):
+        if not self.grammar.is_cancel(texts):
             p = self.grammar.parse(texts)
             if p is None or p.command.name != "scratch":
                 return False

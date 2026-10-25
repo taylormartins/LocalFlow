@@ -88,7 +88,7 @@ class Look:
     title: str
     blurb: str
     pal: dict
-    border: str      # block | dark | stone | arcane | spark | leaf | flame | legal | royal
+    border: str      # block | dark | ink | swirl | stone | arcane | spark | leaf | flame | legal | royal
     dot: str         # orb | shield | star | bolt | leaf | flame | scales | crown | moon | sun
     wave: str        # led | blade | rune | bolt | vine | flame | stack | iris | gems | bar
     sparks: tuple = field(default_factory=tuple)
@@ -164,6 +164,18 @@ LOOKS: dict[str, Look] = {
              hi="#8f9db8", accent="#b89b5e", accentdark="#3e3214", text="#ece6d6", muted="#a9a698",
              accent2="#8f9db8"),
         "legal", "scales", "stack", ("#b89b5e", "#ece6d6", "#ffffff")),
+    "notebook": Look(
+        "notebook", "PIXEL NOTEBOOK", "BLACK INK ON PAPER",
+        _pal(canvas="#f7f7f3", panel="#e9e9e3", raised="#d9d9d2", line="#8a8a84", shadow="#ffffff",
+             hi="#ffffff", accent="#111111", accentdark="#c9c9c2", text="#111111", muted="#55554f",
+             accent2="#333333"),
+        "ink", "pen", "scribble", ("#111111", "#555555")),
+    "chaos": Look(
+        "chaos", "PIXEL CHAOS", "DOWN THE BLACK HOLE",
+        _pal(canvas="#08030f", panel="#150a26", raised="#25103f", line="#5a22a8", shadow="#030107",
+             hi="#b07cff", accent="#a85cff", accentdark="#2e0f5c", text="#f3e8ff", muted="#b79be6",
+             accent2="#e8c4ff"),
+        "swirl", "hole", "swirl", ("#a85cff", "#e8c4ff", "#6a2fd0", "#ffffff")),
 }
 
 
@@ -339,6 +351,17 @@ def _segment_colour(look: Look, i: int, n: int, step: int) -> str:
         v = round((math.sin(i * 0.5 - step * 0.6) + 1) / 2 * 3) / 3
         col = mix(p["shadow"], p["line"], v * 0.8)
         return mix(col, p["shadow"], 0.4) if i % 2 else col
+    if look.border == "ink":
+        # a pen's line: black, a few strokes pressed lighter, the nib running round
+        pen = (step // 2) % n
+        if i in (pen, (pen + 1) % n):
+            return "#000000"
+        return mix(p["accent"], p["canvas"], 0.45 if _hash(i, 3) % 5 == 0 else 0.0)
+    if look.border == "swirl":
+        # two waves chasing each other round the edge: a whirlpool's arms
+        v = round((math.sin(i * 0.38 + step * 1.1) + math.sin(i * 0.95 - step * 0.7) + 2) / 4 * 4) / 4
+        col = mix(p["shadow"], p["accent"], v / 0.75) if v <= 0.75 else p["accent2"]
+        return mix(col, p["shadow"], 0.35) if i % 2 else col
     if look.border == "stone":
         # Brick: two greys, with one gold glint walking round (a torch passing).
         glint = (step // 2) % n
@@ -432,6 +455,20 @@ def _extras(look: Look, g: Grid, wu: int, hu: int, t: float) -> None:
             col = look.sparks[(h // 7) % len(look.sparks)]
             for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)):
                 g.rect(x + dx, y + dy, 1, 1, col)
+    elif look.border == "swirl":
+        # lights circling the edge, the inner ones faster: matter falling in
+        per = 2 * (wu + hu - 2)
+        for k in range(8):
+            pos = int(t * (18 + 9 * (k % 2)) + k * per / 8) % per
+            if pos < wu:
+                x, y = pos, 0
+            elif pos < wu + hu - 1:
+                x, y = wu - 1, pos - wu + 1
+            elif pos < 2 * wu + hu - 2:
+                x, y = wu - 1 - (pos - wu - hu + 2), hu - 1
+            else:
+                x, y = 0, hu - 1 - (pos - 2 * wu - hu + 3)
+            g.rect(x, y, 1, 1, look.sparks[1 + k % 2 * 2])
     elif look.border == "leaf":
         for k in range(4):
             x = int((t * 15 + k * wu / 4) % (wu + 6)) - 3
@@ -584,6 +621,46 @@ _SUN_CORE = ["...XXX...",
              "..XhXXX..",
              "..XXXXX..",
              "...XXX..."]
+_PEN = ["......oo.",
+        ".....oXXo",
+        "....oXXo.",
+        "...oXXo..",
+        "..oXXo...",
+        ".oXho....",
+        "ohXo.....",
+        "oXo......",
+        "oo......."]
+_PEN_B = ["......oo.",
+          ".....oXXo",
+          "....oXXo.",
+          "...oXXo..",
+          "..oXXo...",
+          ".oXho....",
+          "ohXo.....",
+          "oXo.....o",
+          "oo.....oo"]
+
+
+def _hole(phase: int) -> list[str]:
+    """A black hole: a dark core and spiral arms, turned a quarter each frame."""
+    rows = []
+    for y in range(9):
+        row = ""
+        for x in range(9):
+            dx, dy = x - 4, y - 4
+            r = math.hypot(dx, dy)
+            if r > 4.3:
+                row += "."
+            elif r < 1.5:
+                row += "k"
+            else:
+                arm = (math.atan2(dy, dx) / (2 * math.pi) * 2 + r * 0.5 - phase / 4) % 1
+                row += ("h" if r > 3.2 else "X") if arm < 0.5 else "o"
+        rows.append(row)
+    return rows
+
+
+_HOLES = [_hole(i) for i in range(4)]
 _STAR = ["....X....",
          "....X....",
          "...XhX...",
@@ -655,6 +732,10 @@ def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
         if b:
             g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
             g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
+    elif look.dot == "pen":
+        g.sprite(cx - 4, cy - 4, _PEN_B if b else _PEN, pal)
+    elif look.dot == "hole":
+        g.sprite(cx - 4, cy - 4, _HOLES[int(t * 5) % 4], {**pal, "k": "#000000"})
     elif look.dot == "moon":
         g.sprite(cx - 4, cy - 4, _MOON, _dot_pal(mix(colour, "#000000", 0.35)))
         g.rect(cx + 2, cy - 2 + b, 1, 1, look.sparks[1])
@@ -718,7 +799,7 @@ def level_height(level: float) -> float:
 
 
 #: Art pixels from one bar to the next (swords and bolts need a gap).
-PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "stack": 5, "iris": 4}
+PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "stack": 5, "iris": 4, "scribble": 4, "swirl": 4}
 
 
 def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, speech: float,
@@ -826,6 +907,28 @@ def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, s
                 g.rect(x, base - 1 - y, 2, 1, c)
                 g.rect(x + 2, base - 1 - y, 1, 1, mix(c, "#2a2540", 0.45))
             g.rect(x, base - h - 1, 2, 1, "#b9a6ff")
+        elif look.wave == "scribble":
+            # a pen scribbling up: zig-zag strokes, a dot of ink at the tip
+            if not loud:
+                g.rect(x, base - 1, 3, 1, p["line"])
+                continue
+            prev = None
+            for y in range(max(2, h)):
+                cur = (0, 2)[(y // 2 + i + st // 2) % 2]
+                lo, hi = (cur, cur) if prev is None else (min(prev, cur), max(prev, cur))
+                g.rect(x + lo, base - 1 - y, hi - lo + 1, 1, p["accent"])
+                prev = cur
+            g.rect(x + 1, base - h - 1, 1, 1, p["accent"])
+        elif look.wave == "swirl":
+            # a whirlpool: rows that wind round a line, purple to white at the tip
+            if not loud:
+                g.rect(x + 1, base - 1, 2, 1, p["line"])
+                continue
+            tints = (p["accent"], p["hi"], p["accent2"], p["hi"], p["accent"])
+            for y in range(h):
+                off = round(math.sin(y * 0.9 + i * 0.8 + t * 6) * 1.0) + 1
+                g.rect(x + off, base - 1 - y, 2, 1,
+                       "#ffffff" if y == h - 1 else tints[(y // 2 + st + i) % 5])
         elif look.wave == "gems":
             if not loud:
                 g.rect(x + 1, base - 1, 1, 1, p["line"])

@@ -82,8 +82,8 @@ ov.theme = "gemstone"
 expect("the ticker off returns to the legacy theme", themes.effective(ov) == "gemstone")
 expect("legacy keeps its own pick while pixel is on", OverlayConfig().theme == "royal")
 expect("legacy list has no pixel themes", not any(k.startswith("pixel-") for k in themes.legacy_themes()))
-expect("ten pixel themes", sorted(themes.PIXEL) == sorted(f"pixel-{k}" for k in (
-    "block", "royal", "dark", "light", "knight", "wizard", "electric", "leaf", "dragon", "legal")))
+expect("twelve pixel themes", sorted(themes.PIXEL) == sorted(f"pixel-{k}" for k in (
+    "block", "royal", "dark", "light", "knight", "wizard", "electric", "leaf", "dragon", "legal", "notebook", "chaos")))
 
 print("the real overlay window, each theme")
 cfg = Config()

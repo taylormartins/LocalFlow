@@ -639,7 +639,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     holder.pack(fill="x")
     state["pixel_var"] = use_pixel
 
-    # -- the pixel selector: ten live tiles, click one --------------------
+    # -- the pixel selector: twelve live tiles, click one --------------------
     from . import pixel as pixel_mod
 
     tiles = {}
@@ -657,7 +657,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     for n, key in enumerate(pixel_mod.LOOKS):
         cv = tk.Canvas(grid, width=TILE_W, height=TILE_H, bg=PANEL, highlightthickness=0,
                        cursor="hand2")
-        cv.grid(row=n // 2, column=n % 2, padx=(0, 10), pady=(0, 10))
+        cv.grid(row=n // 3, column=n % 3, padx=(0, 10), pady=(0, 10))
         cv.bind("<Button-1>", lambda _e, k=key: pick_pixel(k))
         tiles[key] = cv
 
@@ -673,14 +673,15 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
                 chosen = key == pixel_key.get()
                 cv.delete("all")
                 g = pixel_mod.Grid(cv, 0, 0, k)
-                light = key == "light"  # its dark brown shadow is too pale to carry the name
+                light = key in ("light", "notebook")  # its dark brown shadow is too pale to carry the name
                 g.rect(0, 0, wu, hu, look.pal["accent"] if chosen else look.pal["line"])
                 g.rect(1, 1, wu - 2, hu - 2, "#2a2520" if light else look.pal["shadow"])
                 pixel_mod.preview(cv, th, (TILE_W - pixel_mod.PILL_U * k) // 2, pixel_mod.CREST_U * k, 0, now,
                                   "recording")
-                g.text(4, hu - 9, look.title, look.pal["accent"] if chosen else
+                on = "#ffffff" if key == "notebook" else look.pal["accent"]  # black ink needs a pale name
+                g.text(4, hu - 9, look.title, on if chosen else
                        "#d9d0bb" if light else look.pal["muted"])
-                g.text(wu - 4, hu - 9, "ON" if chosen else "", look.pal["accent"], anchor="e")
+                g.text(wu - 4, hu - 9, "ON" if chosen else "", on, anchor="e")
             pixel_box.after(70, tile_tick)
         except tk.TclError:
             pass
