@@ -49,10 +49,12 @@ CAP_U = 5
 #: Rows between the top edge and the first line of live text: the border is 2
 #: rows, the bevel 1, the knight's merlons dip one more, and a row of air.
 TEXT_PAD = 5
+#: Rows cut from the gap between the last line of text and the pill row.
+TEXT_TAIL = 2
 #: Looks whose outline rises above the pill (flames, crown points): rows each uses.
 CRESTS = {"flame": 4, "royal": 5}
 CREST_U = max(CRESTS.values())
-TEXT_U = 2 * LINE_U + TEXT_PAD + 2 + CREST_U
+TEXT_U = 2 * LINE_U + TEXT_PAD - TEXT_TAIL + 2 + CREST_U
 
 #: What the recording mark's colour means; the same in every pixel look
 #: (chrome is themed, data keeps its true colour).
@@ -86,9 +88,9 @@ class Look:
     title: str
     blurb: str
     pal: dict
-    border: str      # block | stone | arcane | spark | leaf | flame | legal | royal
+    border: str      # block | dark | stone | arcane | spark | leaf | flame | legal | royal
     dot: str         # orb | shield | star | bolt | leaf | flame | scales | crown | moon | sun
-    wave: str        # led | blade | rune | bolt | vine | flame | columns | gems | bar
+    wave: str        # led | blade | rune | bolt | vine | flame | stack | iris | gems | bar
     sparks: tuple = field(default_factory=tuple)
 
 
@@ -119,13 +121,13 @@ LOOKS: dict[str, Look] = {
         _pal(canvas="#0c0c0f", panel="#16161b", raised="#202028", line="#3c3c48", shadow="#040405",
              hi="#707080", accent="#c8cad8", accentdark="#33333d", text="#e8e8ee", muted="#8c8c9c",
              accent2="#9aa0ff"),
-        "block", "moon", "bar", ("#c8cad8", "#ffffff")),
+        "dark", "moon", "bar", ("#c8cad8", "#ffffff")),
     "light": Look(
         "light", "PIXEL LIGHT", "DAYLIGHT",
         _pal(canvas="#f3eee2", panel="#e6dfcf", raised="#d9d0bb", line="#b7a98a", shadow="#4a4234",
              hi="#ffffff", accent="#e6a010", accentdark="#f0d79a", text="#2a2520", muted="#6f6656",
              accent2="#d9572b"),
-        "block", "sun", "bar", ("#e6a010", "#d9572b")),
+        "block", "sun", "iris", ("#e6a010", "#d9572b")),
     "knight": Look(
         "knight", "PIXEL KNIGHT", "STONE, STEEL AND GOLD",
         _pal(canvas="#15171d", panel="#22262f", raised="#2f3440", line="#5f6878", shadow="#0a0b0e",
@@ -161,7 +163,7 @@ LOOKS: dict[str, Look] = {
         _pal(canvas="#121a26", panel="#1b2636", raised="#273649", line="#4d5d78", shadow="#070b12",
              hi="#8f9db8", accent="#b89b5e", accentdark="#3e3214", text="#ece6d6", muted="#a9a698",
              accent2="#8f9db8"),
-        "legal", "scales", "columns", ("#b89b5e", "#ece6d6", "#ffffff")),
+        "legal", "scales", "stack", ("#b89b5e", "#ece6d6", "#ffffff")),
 }
 
 
@@ -332,6 +334,11 @@ def _segment_colour(look: Look, i: int, n: int, step: int) -> str:
         v = round((math.sin(i * 0.5 - step * 0.9) + 1) / 2 * 3) / 3
         col = mix(p["line"], p["accent"], v)
         return mix(col, p["shadow"], 0.28) if i % 2 else col
+    if look.border == "dark":
+        # blacks and dark greys, a slow swell running round
+        v = round((math.sin(i * 0.5 - step * 0.6) + 1) / 2 * 3) / 3
+        col = mix(p["shadow"], p["line"], v * 0.8)
+        return mix(col, p["shadow"], 0.4) if i % 2 else col
     if look.border == "stone":
         # Brick: two greys, with one gold glint walking round (a torch passing).
         glint = (step // 2) % n
@@ -649,11 +656,11 @@ def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
             g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
             g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
     elif look.dot == "moon":
-        g.sprite(cx - 4, cy - 4, _MOON, pal)
+        g.sprite(cx - 4, cy - 4, _MOON, _dot_pal(mix(colour, "#000000", 0.35)))
         g.rect(cx + 2, cy - 2 + b, 1, 1, look.sparks[1])
         g.rect(cx + 1 + 2 * b, cy + 2, 1, 1, look.pal["muted"])
     elif look.dot == "sun":
-        sun(g, cx, cy, pal, b)
+        sun(g, cx, cy, _dot_pal(mix(colour, "#ffffff", 0.2)), b)
     else:
         g.sprite(cx - 4, cy - 4, _ORB_B if b else _ORB, pal)
 
@@ -711,7 +718,7 @@ def level_height(level: float) -> float:
 
 
 #: Art pixels from one bar to the next (swords and bolts need a gap).
-PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "columns": 4}
+PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "stack": 5, "iris": 4}
 
 
 def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, speech: float,
@@ -797,19 +804,28 @@ def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, s
                 else:
                     off = 1 + (_hash(i, st) % 3 - 1 if y == h - 1 and h > 3 else 0)
                     g.rect(x + off, row, 1, 1, mix(col, "#ffffff", 0.8 if y == h - 1 else 0.3))
-        elif look.wave == "columns":
-            # a courthouse column: capital, fluted shaft, base
+        elif look.wave == "stack":
+            # a pile of books and papers: each layer two rows, nudged left or right
             if not loud:
                 g.rect(x, base - 1, 3, 1, p["line"])
                 continue
-            hh = max(3, h)
-            g.rect(x, base - hh, 3, 1, p["accent"])
-            g.rect(x, base - 1, 3, 1, p["accent"])
-            for y in range(1, hh - 1):
-                row = base - 1 - y
-                g.rect(x, row, 1, 1, p["muted"])
-                g.rect(x + 1, row, 1, 1, p["text"])
-                g.rect(x + 2, row, 1, 1, p["muted"])
+            tints = (p["accent"], p["text"], p["hi"], mix(p["accent"], p["shadow"], 0.45))
+            for b in range(max(1, round(h / 2))):
+                col = tints[(i + b) % 4]
+                nudge = _hash(i * 5 + b, 3) % 2
+                g.rect(x + nudge, base - 2 - b * 2, 3, 1, col)
+                g.rect(x + nudge, base - 1 - b * 2, 3, 1, mix(col, p["shadow"], 0.45))
+        elif look.wave == "iris":
+            # iridescent: purple at the foot to light blue at the tip, shimmering
+            if not loud:
+                g.rect(x, base - 1, 2, 1, p["line"])
+                continue
+            tones = ("#7a52ff", "#8f6cff", "#6f8cff", "#52a8ff", "#6ad0ff")
+            for y in range(h):
+                c = tones[min(4, y * 5 // max(1, h) + ((st + i) // 3) % 2)]
+                g.rect(x, base - 1 - y, 2, 1, c)
+                g.rect(x + 2, base - 1 - y, 1, 1, mix(c, "#2a2540", 0.45))
+            g.rect(x, base - h - 1, 2, 1, "#b9a6ff")
         elif look.wave == "gems":
             if not loud:
                 g.rect(x + 1, base - 1, 1, 1, p["line"])
@@ -880,7 +896,7 @@ def draw(c, theme, x0: float, y1: float, w_px: float, s: float, now: float, mode
     k = cell(s)
     wu = max(40, int(w_px // k))
     lines = live_lines(look, *live, wu - 10) if live and live[1] + live[0] else []
-    extra = len(lines) * LINE_U + TEXT_PAD if lines else 0
+    extra = len(lines) * LINE_U + TEXT_PAD - TEXT_TAIL if lines else 0
     hu = ROW_U + extra
     ox = x0 + (w_px - wu * k) // 2
     oy = y1 - hu * k
@@ -897,15 +913,16 @@ def draw(c, theme, x0: float, y1: float, w_px: float, s: float, now: float, mode
         for x, word, col in line:
             g.text(5 + x, TEXT_PAD + j * LINE_U, word, col)
     mid = hu - (ROW_U + 1) // 2
+    up = (1 + (look.dot in ("shield", "star", "bolt"))) if lines else 0
     if mode == "recording":
-        dot(g, look, 9, mid, DOTS.get(dot_kind, DOTS["llm"]), now)
+        dot(g, look, 9, mid - up, DOTS.get(dot_kind, DOTS["llm"]), now)
         secs = int(elapsed)
         stamp = f"{secs // 60}:{secs % 60:02d}"
         g.text(wu - 5, mid - 2, stamp, p["text"], anchor="e")
         x_end = wu - 5 - text_w(stamp) - 4
         wave(g, look, levels, 17, x_end, mid + 5, 7, speech, now)
     else:
-        badge(g, look, 9, mid, mode, colour or p["accent"], now, glyph)
+        badge(g, look, 9, mid - up, mode, colour or p["accent"], now, glyph)
         g.text(17, mid - 2, fit(label, wu - 17 - 6), p["text"])
 
 
