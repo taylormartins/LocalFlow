@@ -149,7 +149,8 @@ class OverlayConfig:
     #: segmented border, per the house style in C:/Code/design). Off returns
     #: to the legacy v2 themes above, untouched.
     pixel: bool = False
-    #: Which pixel theme: "block" (plain castle gold), "knight", "wizard", "electric".
+    #: Which pixel theme: "block" (plain castle gold), "royal", "dark", "light", "knight",
+    #: "wizard", "electric", "leaf", "dragon" or "legal".
     pixel_theme: str = "block"
     #: How solid the pill is: 1.0 solid, down to 0.2 to see what's behind it.
     opacity: float = 1.0

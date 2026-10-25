@@ -26,6 +26,65 @@ GOLD = "#d4af37"
 GOLD_HI = "#f0cf63"
 TEXT = "#efe6cf"
 MUTED = "#9d916f"
+ON_GOLD = BLACK  # text on the gold fill
+#: True while a pixel look dresses the window (Silkscreen headings, the look's colours).
+PIXEL_ON = False
+
+_ORIGINAL = {n: globals()[n] for n in ("BLACK", "PANEL", "FIELD", "LINE", "GOLD", "GOLD_HI", "TEXT",
+                                       "MUTED", "ON_GOLD")}
+
+
+def _palette() -> dict:
+    return {n: globals()[n] for n in _ORIGINAL}
+
+
+def _set_palette(pixel_on: bool, key: str = "block") -> None:
+    """Dress the window in the pixel look's colours (the look picked for the
+    pill), or return to its own black and gold."""
+    global PIXEL_ON
+    g = globals()
+    PIXEL_ON = bool(pixel_on)
+    if not pixel_on:
+        g.update(_ORIGINAL)
+        return
+    from . import pixel
+
+    p = pixel.LOOKS.get((key or "block").lower(), pixel.LOOKS["block"]).pal
+    g.update(BLACK=p["canvas"], PANEL=p["panel"], FIELD=p["raised"], LINE=p["line"],
+             GOLD=p["accent"], GOLD_HI=pixel.mix(p["accent"], "#ffffff", 0.35), TEXT=p["text"],
+             MUTED=p["muted"], ON_GOLD=p["shadow"])
+
+
+def _recolour(root, mapping: dict) -> None:
+    """Re-paint the plain tk widgets (the ttk ones follow their style)."""
+    from tkinter import ttk
+
+    opts = ("bg", "fg", "highlightbackground", "highlightcolor", "activebackground",
+            "activeforeground", "selectbackground", "selectforeground", "insertbackground",
+            "troughcolor", "disabledforeground")
+    stack = [root]
+    while stack:
+        w = stack.pop()
+        stack.extend(w.winfo_children())
+        if isinstance(w, ttk.Widget):
+            continue
+        for o in opts:
+            try:
+                cur = str(w.cget(o)).lower()
+                if cur in mapping:
+                    w.configure(**{o: mapping[cur]})
+            except Exception:
+                pass
+
+
+def _restyle(root, pixel_on: bool, key: str) -> None:
+    """Switch the open window to another look at once."""
+    old = _palette()
+    _set_palette(pixel_on, key)
+    new = _palette()
+    _style(root)
+    root.configure(bg=BLACK)
+    _recolour(root, {o.lower(): new[n] for n, o in old.items() if o.lower() != new[n].lower()})
 
 TIMEOUTS = {
     "command": [15, 30, 60, 120, 300, 600, 0],
@@ -49,35 +108,47 @@ def _style(root) -> None:
     st = ttk.Style(root)
     st.theme_use("clam")
     base = ("Segoe UI", 10)
+    f_head, f_title = ("Georgia", 12, "bold"), ("Georgia", 18, "bold")
+    f_tab, f_btn, f_small = ("Segoe UI Semibold", 10), ("Segoe UI Semibold", 10), ("Segoe UI Semibold", 9)
+    if PIXEL_ON:
+        from . import pixel
+
+        fam, dpi = pixel.tk_family(), root.winfo_fpixels("1i") / 96
+
+        def sz(px):
+            return -pixel.pixel_px(px * dpi)
+
+        f_head, f_title = (fam, sz(12)), (fam, sz(18))
+        f_tab = f_btn = f_small = (fam, sz(8))
     st.configure(".", background=BLACK, foreground=TEXT, fieldbackground=FIELD, font=base,
                  bordercolor=LINE, lightcolor=LINE, darkcolor=LINE, troughcolor=FIELD,
-                 selectbackground=GOLD, selectforeground=BLACK, insertcolor=GOLD,
+                 selectbackground=GOLD, selectforeground=ON_GOLD, insertcolor=GOLD,
                  focuscolor=GOLD)
     st.configure("TFrame", background=BLACK)
     st.configure("Card.TFrame", background=PANEL, bordercolor=LINE, relief="solid", borderwidth=1)
     st.configure("TLabel", background=BLACK, foreground=TEXT)
     st.configure("Card.TLabel", background=PANEL, foreground=TEXT)
     st.configure("Muted.TLabel", background=PANEL, foreground=MUTED, font=("Segoe UI", 9))
-    st.configure("Head.TLabel", background=PANEL, foreground=GOLD, font=("Georgia", 12, "bold"))
-    st.configure("Title.TLabel", background=BLACK, foreground=GOLD, font=("Georgia", 18, "bold"))
+    st.configure("Head.TLabel", background=PANEL, foreground=GOLD, font=f_head)
+    st.configure("Title.TLabel", background=BLACK, foreground=GOLD, font=f_title)
     st.configure("Sub.TLabel", background=BLACK, foreground=MUTED, font=("Segoe UI", 9))
     st.configure("TNotebook", background=BLACK, borderwidth=0, tabmargins=(8, 6, 8, 0))
     st.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(14, 6),
-                 bordercolor=LINE, font=("Segoe UI Semibold", 10))
+                 bordercolor=LINE, font=f_tab)
     st.map("TNotebook.Tab", background=[("selected", BLACK)],
            foreground=[("selected", GOLD), ("active", GOLD_HI)])
     for w in ("TCheckbutton", "TRadiobutton"):
         # Gold when on: clam fills the indicator with indicatorbackground.
         st.configure(w, background=PANEL, foreground=TEXT, indicatorbackground=FIELD,
-                     indicatorforeground=BLACK, indicatormargin=(0, 0, 6, 0),
+                     indicatorforeground=ON_GOLD, indicatormargin=(0, 0, 6, 0),
                      upperbordercolor=GOLD, lowerbordercolor=GOLD)
         st.map(w, indicatorbackground=[("selected", GOLD), ("pressed", GOLD_HI)],
                background=[("active", PANEL)], foreground=[("active", GOLD_HI)])
     st.configure("TButton", background=FIELD, foreground=GOLD, bordercolor=GOLD,
-                 padding=(10, 4), font=("Segoe UI Semibold", 10))
+                 padding=(10, 4), font=f_btn)
     st.map("TButton", background=[("active", GOLD), ("pressed", GOLD_HI)],
-           foreground=[("active", BLACK), ("pressed", BLACK)])
-    st.configure("Small.TButton", padding=(8, 1), font=("Segoe UI Semibold", 9))
+           foreground=[("active", ON_GOLD), ("pressed", ON_GOLD)])
+    st.configure("Small.TButton", padding=(8, 1), font=f_small)
     st.configure("Vertical.TScrollbar", background=FIELD, troughcolor=BLACK, bordercolor=BLACK,
                  arrowcolor=GOLD, lightcolor=FIELD, darkcolor=FIELD)
     st.map("Vertical.TScrollbar", background=[("active", LINE)])
@@ -92,7 +163,7 @@ def _style(root) -> None:
     root.option_add("*TCombobox*Listbox.background", FIELD)
     root.option_add("*TCombobox*Listbox.foreground", TEXT)
     root.option_add("*TCombobox*Listbox.selectBackground", GOLD)
-    root.option_add("*TCombobox*Listbox.selectForeground", BLACK)
+    root.option_add("*TCombobox*Listbox.selectForeground", ON_GOLD)
     root.option_add("*TCombobox*Listbox.font", base)
 
 
@@ -528,17 +599,18 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
         if on is not None:
             use_pixel.set(on)
             _save("overlay", "pixel", on)
+            _restyle(state["root"], on, pixel_key.get()) if "root" in state else None
         pixel_box.pack_forget()
         legacy_box.pack_forget()
         (pixel_box if use_pixel.get() else legacy_box).pack(fill="x", pady=(8, 0))
 
-    tick = ttk.Checkbutton(card, text="Pixel themes  (the new look; untick for the legacy v2 themes)",
+    tick = ttk.Checkbutton(card, text="Pixel themes  (untick for the legacy v2 themes)",
                            variable=use_pixel, command=lambda: switch(use_pixel.get()))
     tick.pack(anchor="w")
     holder.pack(fill="x")
     state["pixel_var"] = use_pixel
 
-    # -- the pixel selector: four live tiles, click one --------------------
+    # -- the pixel selector: ten live tiles, click one --------------------
     from . import pixel as pixel_mod
 
     tiles = {}
@@ -546,6 +618,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     def pick_pixel(key: str):
         pixel_key.set(key)
         _save("overlay", "pixel_theme", key)
+        _restyle(state["root"], True, key) if "root" in state else None
 
     k = pixel_mod.cell(1.0)
     TILE_W, TILE_H = 232, 74
@@ -571,11 +644,13 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
                 chosen = key == pixel_key.get()
                 cv.delete("all")
                 g = pixel_mod.Grid(cv, 0, 0, k)
+                light = key == "light"  # its dark brown shadow is too pale to carry the name
                 g.rect(0, 0, wu, hu, look.pal["accent"] if chosen else look.pal["line"])
-                g.rect(1, 1, wu - 2, hu - 2, look.pal["shadow"])
+                g.rect(1, 1, wu - 2, hu - 2, "#2a2520" if light else look.pal["shadow"])
                 pixel_mod.preview(cv, th, (TILE_W - pixel_mod.PILL_U * k) // 2, 3 * k, 0, now,
                                   "recording")
-                g.text(4, hu - 9, look.title, look.pal["accent"] if chosen else look.pal["muted"])
+                g.text(4, hu - 9, look.title, look.pal["accent"] if chosen else
+                       "#d9d0bb" if light else look.pal["muted"])
                 g.text(wu - 4, hu - 9, "ON" if chosen else "", look.pal["accent"], anchor="e")
             pixel_box.after(70, tile_tick)
         except tk.TclError:
@@ -1147,7 +1222,7 @@ def _listening(nb, cfg: Config) -> None:
     from .commands import BY_NAME, LEARNED, Parsed, describe
 
     lst = tk.Listbox(card, height=8, bg=FIELD, fg=TEXT, selectbackground=GOLD,
-                     selectforeground=BLACK, highlightthickness=0, bd=0, font=("Segoe UI", 10),
+                     selectforeground=ON_GOLD, highlightthickness=0, bd=0, font=("Segoe UI", 10),
                      activestyle="none")
     lst.pack(fill="x", pady=(4, 6))
     keys: list[str] = []
@@ -1217,10 +1292,15 @@ def main(cfg: Config) -> int:
     from .icon import set_app_identity, window_setup
 
     set_app_identity()
+    _set_palette(cfg.overlay.pixel, cfg.overlay.pixel_theme)
+    if PIXEL_ON:
+        from . import pixel
+
+        pixel.register_font()
     root = tk.Tk()
     window_setup(root, "Settings")
     root.configure(bg=BLACK)
-    root.geometry("760x640")
+    root.geometry("900x660" if PIXEL_ON else "760x640")
     root.minsize(620, 420)
     try:
         root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72)
@@ -1246,7 +1326,7 @@ def main(cfg: Config) -> int:
         side="left", pady=(8, 0))
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True, padx=8, pady=8)
-    state: dict = {}
+    state: dict = {"root": root}
     for build in (_appearance, _builder):
         build(nb, cfg, state)
     for build in (_dictation, _listening, _sounds, _camera):

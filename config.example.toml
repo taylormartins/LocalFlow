@@ -118,7 +118,8 @@ enabled = true
 # The pixel themes (Silkscreen type, square beveled shapes, a segmented border).
 # false = the legacy v2 themes below, exactly as before.
 pixel = false
-# Which pixel theme: "block", "knight", "wizard" or "electric".
+# Which pixel theme: "block", "royal", "dark", "light", "knight", "wizard",
+# "electric", "leaf", "dragon" or "legal".
 pixel_theme = "block"
 margin = 18
 # Per-block RMS that counts as speech (bright bars). Typical room noise ~0.005.

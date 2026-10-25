@@ -13,7 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
-from PIL import ImageGrab  # noqa: E402
+from ctypes import wintypes  # noqa: E402
+
+from PIL import Image  # noqa: E402
 
 from localflow import pixel, themes  # noqa: E402
 
@@ -46,8 +48,34 @@ for n, key in enumerate(keys):
 root.update()
 time.sleep(0.4)
 root.update()
-x0, y0 = c.winfo_rootx(), c.winfo_rooty()
-img = ImageGrab.grab((x0, y0, x0 + c.winfo_width(), y0 + c.winfo_height()))
+
+
+def grab(hwnd, w, h):
+    """The window's own pixels (PrintWindow), never the desktop behind it."""
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    sdc = user32.GetDC(0)
+    dc = gdi32.CreateCompatibleDC(sdc)
+    bmp = gdi32.CreateCompatibleBitmap(sdc, w, h)
+    gdi32.SelectObject(dc, bmp)
+    user32.PrintWindow(hwnd, dc, 2)
+
+    class BIH(ctypes.Structure):
+        _fields_ = [("s", wintypes.DWORD), ("w", wintypes.LONG), ("h", wintypes.LONG),
+                    ("p", wintypes.WORD), ("b", wintypes.WORD), ("c", wintypes.DWORD),
+                    ("si", wintypes.DWORD), ("x", wintypes.LONG), ("y", wintypes.LONG),
+                    ("u", wintypes.DWORD), ("i", wintypes.DWORD)]
+
+    bi = BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
+    buf = ctypes.create_string_buffer(w * h * 4)
+    gdi32.GetDIBits(dc, bmp, 0, h, buf, ctypes.byref(bi), 0)
+    gdi32.DeleteObject(bmp)
+    gdi32.DeleteDC(dc)
+    user32.ReleaseDC(0, sdc)
+    return Image.frombuffer("RGBA", (w, h), buf, "raw", "BGRA", 0, 1).convert("RGB")
+
+
+hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+img = grab(hwnd, c.winfo_width(), c.winfo_height())
 img.save(out)
 print(out, img.size)
 root.destroy()

@@ -1,6 +1,6 @@
 """The app's icon: a golden crown lifted by the golden wind.
 
-Two drawings. The pixel one (overlay.pixel, opt-in; house style in
+Two drawings. The pixel one (always; house style in
 C:/Code/design) is a 28x28 hand-placed sprite scaled with nearest-neighbour,
 the same picture for the tray, the windows, the notification icon and the
 header. The legacy one is drawn with Pillow at 4x and scaled down smooth.
@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import logging
 import struct
-import time
 
 from PIL import Image, ImageDraw
 
@@ -48,22 +47,11 @@ TIPS = [(30, 62), (128, 34), (226, 62)]
 SWOOSH = [((6, 70, 250, 238), 18, 150), ((40, 120, 226, 250), 30, 128)]
 
 
-_pixel_cache = (0.0, True)
-
 
 def pixel_on() -> bool:
-    """Is the pixel look on (overlay.pixel)? Read from config.toml, at most
-    every few seconds: the tray asks on every state change."""
-    global _pixel_cache
-    now = time.monotonic()
-    if now - _pixel_cache[0] > 3.0:
-        try:
-            from .config import load
-
-            _pixel_cache = (now, bool(load()[0].overlay.pixel))
-        except Exception:
-            _pixel_cache = (now, True)
-    return _pixel_cache[1]
+    """The icon is always the pixel crown (the pixel themes are an opt-in for
+    the pill; the emblem is not). Kept as a function: callers ask it."""
+    return True
 
 
 # The pixel crown, on a 28x28 grid: no anti-aliasing, a dark tile behind it.
@@ -130,7 +118,7 @@ def golden_wind(dot: tuple[int, int, int] | None = None, ring: bool = False,
                 size: int = 64) -> Image.Image:
     """The emblem: a golden crown lifted by the golden wind (taking command
     of the computer). The name is kept: everything that draws the icon
-    calls this. Pixel or legacy by overlay.pixel."""
+    calls this. Always the pixel crown; the smooth one is kept."""
     if pixel_on():
         return pixel_crown(dot, ring, size)
     return smooth_crown(dot, ring, size)

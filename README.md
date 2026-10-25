@@ -26,10 +26,12 @@ your machine, there is no account, and nothing costs money.
   layouts, number everything clickable and click by number, edit text, and
   "do show commands" for a sheet of everything you can say. A click tells you
   each command was heard.
-- **Themes**: four optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
-  beveled shapes, a segmented border): **Pixel Block** (castle gold),
-  **Pixel Knight** (stone and battlements), **Pixel Wizard** (cast a spell)
-  and **Pixel Electric**. The default is the **legacy v2**
+- **Themes**: ten optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
+  beveled shapes, a segmented border): **Block** (castle gold), **Royal**
+  (crown and rubies), **Dark**, **Light**, **Knight** (stone, battlements,
+  swords for the meter), **Wizard** (cast a spell), **Electric** (lightning),
+  **Leaf** (a leaf storm), **Dragon** (blue and purple fire) and **Legal**
+  (gavel and papers). Settings and its tabs wear the look too. The default is the **legacy v2**
   themes (Royal, Gemstone, Fire, Ice and more), untouched; unticking returns to them. They
   dress the pill, the tray icon, the click labels, the command sheet and a
   little burst where text lands.
@@ -660,8 +662,9 @@ turn a lone "pop" into made-up text.
 Everything else is in tray ▸ **Settings...**, a black and gold window with
 tabs:
 
-- **Appearance**: the pill's **theme**: four live **pixel** tiles to click
-  (Pixel Block, Knight, Wizard, Electric; `overlay.pixel_theme`), and a
+- **Appearance**: the pill's **theme**: ten live **pixel** tiles to click
+  (`overlay.pixel_theme`: block, royal, dark, light, knight, wizard, electric,
+  leaf, dragon, legal), and a
   **Pixel themes** tick (`overlay.pixel`); untick it for the legacy v2 list
   below (Royal and the rest), which keeps its own pick. With a live preview, the **pill
   opacity** (down to 20%, to see what's behind it), the click labels' look,
