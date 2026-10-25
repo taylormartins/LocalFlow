@@ -46,7 +46,13 @@ PILL_U = 76
 LINE_U = 7
 CAP_U = 5
 #: Two lines of live text above the pill row, with padding.
-TEXT_U = 2 * LINE_U + 3
+#: Rows between the top edge and the first line of live text: the border is 2
+#: rows, the bevel 1, the knight's merlons dip one more, and a row of air.
+TEXT_PAD = 5
+#: Looks whose outline rises above the pill (flames, crown points): rows each uses.
+CRESTS = {"flame": 4, "royal": 5}
+CREST_U = max(CRESTS.values())
+TEXT_U = 2 * LINE_U + TEXT_PAD + 2 + CREST_U
 
 #: What the recording mark's colour means; the same in every pixel look
 #: (chrome is themed, data keeps its true colour).
@@ -81,8 +87,8 @@ class Look:
     blurb: str
     pal: dict
     border: str      # block | stone | arcane | spark | leaf | flame | legal | royal
-    dot: str         # orb | shield | star | bolt | leaf | flame | gavel | crown | moon | sun
-    wave: str        # led | blade | rune | bolt | vine | flame | docs | gems | bar
+    dot: str         # orb | shield | star | bolt | leaf | flame | scales | crown | moon | sun
+    wave: str        # led | blade | rune | bolt | vine | flame | columns | gems | bar
     sparks: tuple = field(default_factory=tuple)
 
 
@@ -103,11 +109,11 @@ LOOKS: dict[str, Look] = {
              accent2="#f0c579"),
         "block", "orb", "led", ("#f0c579", "#f4e8d1")),
     "royal": Look(
-        "royal", "PIXEL ROYAL", "LONG LIVE THE KING",
-        _pal(canvas="#1a0f26", panel="#2a1840", raised="#3d2460", line="#6b45a0", shadow="#0a0512",
-             hi="#a07ae0", accent="#ffd24a", accentdark="#5a4410", text="#fff3d6", muted="#c9b3e6",
-             accent2="#e03a5a"),
-        "royal", "crown", "gems", ("#ffd24a", "#ffffff", "#e03a5a")),
+        "royal", "PIXEL ROYAL", "A CROWN OF GOLD",
+        _pal(canvas="#1a0f26", panel="#2a1840", raised="#3d2460", line="#8a6d1f", shadow="#0a0512",
+             hi="#c9a23a", accent="#ffd24a", accentdark="#5a4410", text="#fff3d6", muted="#c9b3e6",
+             accent2="#fff0a0"),
+        "royal", "crown", "gems", ("#ffd24a", "#ffffff", "#fff0a0")),
     "dark": Look(
         "dark", "PIXEL DARK", "ALL THE LIGHTS OFF",
         _pal(canvas="#0c0c0f", panel="#16161b", raised="#202028", line="#3c3c48", shadow="#040405",
@@ -149,13 +155,13 @@ LOOKS: dict[str, Look] = {
         _pal(canvas="#120a22", panel="#1d1038", raised="#2c1a55", line="#5a3aa8", shadow="#07030f",
              hi="#8a6cf0", accent="#7ad7ff", accentdark="#2a1a60", text="#f0eaff", muted="#b6a6e6",
              accent2="#c050ff"),
-        "flame", "flame", "flame", ("#7ad7ff", "#c050ff", "#ffffff")),
+        "flame", "flame", "flame", ("#7ad7ff", "#c050ff", "#ff5ad8", "#4ff0ff", "#8a6cf0")),
     "legal": Look(
-        "legal", "PIXEL LEGAL", "ORDER IN THE COURT",
-        _pal(canvas="#1b2230", panel="#263046", raised="#34415e", line="#6f7f9e", shadow="#0b0f18",
-             hi="#aab6cf", accent="#d8b25a", accentdark="#4a3b17", text="#f5efe0", muted="#b9b49f",
-             accent2="#8c2f39"),
-        "legal", "gavel", "docs", ("#d8b25a", "#f5efe0", "#ffffff")),
+        "legal", "PIXEL LEGAL", "THE COURT IS IN SESSION",
+        _pal(canvas="#121a26", panel="#1b2636", raised="#273649", line="#4d5d78", shadow="#070b12",
+             hi="#8f9db8", accent="#b89b5e", accentdark="#3e3214", text="#ece6d6", muted="#a9a698",
+             accent2="#8f9db8"),
+        "legal", "scales", "columns", ("#b89b5e", "#ece6d6", "#ffffff")),
 }
 
 
@@ -344,19 +350,21 @@ def _segment_colour(look: Look, i: int, n: int, step: int) -> str:
         col = mix(p["line"], p["accent"], v)
         return mix(col, p["shadow"], 0.3) if i % 2 else col
     if look.border == "flame":
-        h = _hash(i, step)
-        col = mix(p["accent"], "#ffffff", 0.6) if h % 7 == 0 else p["accent2"] if h % 3 == 0 else p["accent"]
-        return mix(col, p["shadow"], 0.4) if i % 2 else col
+        # fire: every segment is some colour of the flame, re-lit each step
+        col = look.sparks[_hash(i, step) % len(look.sparks)]
+        if _hash(i, step + 5) % 9 == 0:
+            col = mix(col, "#ffffff", 0.65)
+        return mix(col, p["shadow"], 0.35) if i % 2 else col
     if look.border == "legal":
-        # a gilt rule with a burgundy seal walking along it
-        if i % 6 == (step // 2) % 6:
-            return p["accent2"]
-        return mix(p["accent"], p["shadow"], 0.45) if i % 2 else p["accent"]
+        # a brass rule; a slow glint is the only thing that moves
+        if i == (step // 3) % n:
+            return mix(p["accent"], "#ffffff", 0.35)
+        return mix(p["accent"], p["shadow"], 0.5 if i % 2 else 0.3)
     if look.border == "royal":
-        # gold, with a ruby marching through it like a marquee
-        if (i - step // 2) % 4 == 0:
-            return p["accent2"]
-        return mix(p["accent"], p["shadow"], 0.4) if i % 2 else p["accent"]
+        # gold only: a shimmer running round it
+        v = round((math.sin(i * 0.5 - step * 0.9) + 1) / 2 * 3) / 3
+        col = mix(p["line"], p["accent"], v)
+        return mix(col, p["shadow"], 0.3) if i % 2 else col
     # spark: yellow and cyan, any segment may flash white for a step
     if _hash(i, step) % 11 == 0:
         return "#ffffff"
@@ -422,12 +430,6 @@ def _extras(look: Look, g: Grid, wu: int, hu: int, t: float) -> None:
             x = int((t * 15 + k * wu / 4) % (wu + 6)) - 3
             y = (0 if k % 2 else hu - 3) + (1 if int(t * 3 + k) % 2 else 0)
             g.sprite(x, y, _LEAF3, {"X": look.sparks[k % 2], "h": look.sparks[2]})
-    elif look.border == "flame":
-        for k in range(5):
-            x = 5 + _hash(k, 4) % max(1, wu - 10)
-            rise = int(t * 6 + k * 2) % 4
-            if rise < 3:
-                g.rect(x, 3 - rise, 1, 1, look.sparks[(k + rise) % 3] if rise < 2 else look.pal["accent2"])
     elif look.border == "spark":
         s8 = int(t * 9)
         if _hash(s8, 5) % 10 < 6:
@@ -439,6 +441,43 @@ def _extras(look: Look, g: Grid, wu: int, hu: int, t: float) -> None:
                 g.rect(x + i, y + (i % 2 if top else -(i % 2)), 1, 1,
                        "#ffffff" if i % 3 else p["accent"])
             g.rect(x + 5, y + (1 if top else -2), 1, 2, p["accent"])
+
+
+def _crest(look: Look, g: Grid, wu: int, t: float) -> None:
+    """What rises above the top edge, in the CREST_U rows over the pill: the
+    dragon's flames (they flicker), the crown's points."""
+    p = look.pal
+    step = int(t * 8)
+    rows = CRESTS[look.border]
+    if look.border == "flame":
+        # tongues of fire, each a colour of its own, licking left and right
+        n = (wu - 4) // 6
+        x0 = (wu - n * 6) // 2 + 1
+        for j in range(n):
+            x = x0 + j * 6
+            hgt = 1 + _hash(j, step) % 4
+            col = look.sparks[(j + step // 4) % len(look.sparks)]
+            hot = mix(col, "#ffffff", 0.45)
+            sway = _hash(j, step + 7) % 3 - 1
+            g.rect(x, rows - 1, 5, 1, col)
+            if hgt >= 2:
+                g.rect(x + 1, rows - 2, 3, 1, hot if hgt == 2 else col)
+            if hgt >= 3:
+                g.rect(x + 1 + sway, rows - 3, 3, 1, hot)
+            if hgt >= 4:
+                g.rect(x + 2 + sway, rows - 4, 1, 1, mix(col, "#ffffff", 0.8))
+    elif look.border == "royal":
+        # crown points: a pearl, a neck, then a widening spike
+        n = max(1, (wu - 4) // 12)
+        x0 = (wu - n * 12) // 2 + 6
+        for j in range(n):
+            cx = x0 + j * 12 - 1
+            pearl = "#ffffff" if (j + step // 3) % 4 == 0 else p["accent2"]
+            for r, w in enumerate((1, 3, 3, 5, 9)):
+                col = pearl if r < 2 else mix(p["accent"], p["shadow"], 0.3) if r == 4 else p["accent"]
+                g.rect(cx - w // 2, r, w, 1, col)
+                if r >= 2:
+                    g.rect(cx - w // 2, r, 1, 1, p["hi"])
 
 
 # -- sprites -----------------------------------------------------------------------
@@ -500,20 +539,30 @@ _FLAME_B = [".....o...",
             ".oXhhhhXo",
             "..oXhhXo.",
             "...ooooo."]
-_GAVEL = [".ooooooo.",
-          "oXhXXXXXo",
-          "oXhXXXXXo",
-          ".ooooooo.",
-          "....w....",
-          "....w....",
-          "....w....",
-          "....w...."]
-_CROWN = ["X...X...X",
+_SCALES = ["....h....",
+           "XXXXXXXXX",
+           "X...X...X",
+           "X...X...X",
+           "X...X...X",
+           "XXX.X.XXX",
+           ".X..X..X.",
+           "....X....",
+           "..XXXXX.."]
+_SCALES_B = ["....h....",
+             "XXXXXXXXX",
+             "X...X...X",
+             "X...X.XXX",
+             "X...X..X.",
+             "X...X....",
+             "XXX.X....",
+             ".X..X....",
+             "..XXXXX.."]
+_CROWN = ["h...h...h",
+          "X...X...X",
           "XX.XXX.XX",
           "XXXXXXXXX",
-          "XhXXhXXhX",
-          "XXXXXXXXX",
-          "ooooooooo"]
+          "XoXXoXXoX",
+          "XXXXXXXXX"]
 _MOON = ["...ooo...",
          ".ooXXXo..",
          ".oXXXo...",
@@ -592,15 +641,13 @@ def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
         g.sprite(cx - 4 + b, cy - 4, _LEAF, pal)
     elif look.dot == "flame":
         g.sprite(cx - 4, cy - 4, _FLAME_B if b else _FLAME, pal)
-    elif look.dot == "gavel":
-        g.sprite(cx - 4, cy - 4 + b, _GAVEL, {**pal, "w": look.pal["accent"]})
-        if b:
-            g.rect(cx - 4, cy + 4, 9, 1, look.pal["accent"])
+    elif look.dot == "scales":
+        g.sprite(cx - 4, cy - 4, _SCALES_B if b else _SCALES, pal)
     elif look.dot == "crown":
         g.sprite(cx - 4, cy - 3, _CROWN, pal)
         if b:
-            g.rect(cx - 4, cy - 4, 1, 1, look.sparks[1])
-            g.rect(cx + 4, cy - 4, 1, 1, look.sparks[1])
+            g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
+            g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
     elif look.dot == "moon":
         g.sprite(cx - 4, cy - 4, _MOON, pal)
         g.rect(cx + 2, cy - 2 + b, 1, 1, look.sparks[1])
@@ -664,7 +711,7 @@ def level_height(level: float) -> float:
 
 
 #: Art pixels from one bar to the next (swords and bolts need a gap).
-PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "docs": 4}
+PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "columns": 4}
 
 
 def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, speech: float,
@@ -736,26 +783,33 @@ def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, s
                 g.rect(x + 2 * (((y // 2) + i) % 2), base - 1 - y, 1, 1, p["accent"])
             g.rect(x + 1, base - h - 1, 1, 1, p["accent2"])
         elif look.wave == "flame":
+            # a tongue of fire per bar, each its own colour of the flame
+            col = look.sparks[i % len(look.sparks)]
             if not loud:
-                g.rect(x + 1, base - 1, 1, 1, p["accent2"])
+                g.rect(x + 1, base - 1, 1, 1, col)
                 continue
             for y in range(h):
                 row = base - 1 - y
                 if y < max(2, h * 0.55):
-                    g.rect(x, row, 3, 1, p["accent2"] if y < h * 0.25 else p["accent"])
+                    g.rect(x, row, 3, 1, col)
                     if y > 0:
-                        g.rect(x + 1, row, 1, 1, "#ffffff")
+                        g.rect(x + 1, row, 1, 1, mix(col, "#ffffff", 0.7))
                 else:
                     off = 1 + (_hash(i, st) % 3 - 1 if y == h - 1 and h > 3 else 0)
-                    g.rect(x + off, row, 1, 1, p["accent"] if y < h - 1 else "#ffffff")
-        elif look.wave == "docs":
-            # a stack of papers with a burgundy seal on top
+                    g.rect(x + off, row, 1, 1, mix(col, "#ffffff", 0.8 if y == h - 1 else 0.3))
+        elif look.wave == "columns":
+            # a courthouse column: capital, fluted shaft, base
             if not loud:
                 g.rect(x, base - 1, 3, 1, p["line"])
                 continue
-            for y in range(h):
-                g.rect(x, base - 1 - y, 3, 1, p["muted"] if y % 3 == 2 else p["text"])
-            g.rect(x + 1, base - 1 - h, 1, 1, p["accent2"])
+            hh = max(3, h)
+            g.rect(x, base - hh, 3, 1, p["accent"])
+            g.rect(x, base - 1, 3, 1, p["accent"])
+            for y in range(1, hh - 1):
+                row = base - 1 - y
+                g.rect(x, row, 1, 1, p["muted"])
+                g.rect(x + 1, row, 1, 1, p["text"])
+                g.rect(x + 2, row, 1, 1, p["muted"])
         elif look.wave == "gems":
             if not loud:
                 g.rect(x + 1, base - 1, 1, 1, p["line"])
@@ -826,7 +880,7 @@ def draw(c, theme, x0: float, y1: float, w_px: float, s: float, now: float, mode
     k = cell(s)
     wu = max(40, int(w_px // k))
     lines = live_lines(look, *live, wu - 10) if live and live[1] + live[0] else []
-    extra = len(lines) * LINE_U + 3 if lines else 0
+    extra = len(lines) * LINE_U + TEXT_PAD if lines else 0
     hu = ROW_U + extra
     ox = x0 + (w_px - wu * k) // 2
     oy = y1 - hu * k
@@ -835,11 +889,13 @@ def draw(c, theme, x0: float, y1: float, w_px: float, s: float, now: float, mode
     ph = _photo(c, ("body", look.key, wu, hu, step, k),
                 lambda: _scaled(_body(look, wu, hu, step), k))
     c.create_image(g.ox, g.oy, image=ph, anchor="nw")
+    if look.border in CRESTS:
+        _crest(look, Grid(c, ox, oy - (CRESTS[look.border] - 1) * k, k), wu, now)  # its last row sits on the border
     _extras(look, g, wu, hu, now)
 
     for j, line in enumerate(lines):
         for x, word, col in line:
-            g.text(5 + x, 3 + j * LINE_U, word, col)
+            g.text(5 + x, TEXT_PAD + j * LINE_U, word, col)
     mid = hu - (ROW_U + 1) // 2
     if mode == "recording":
         dot(g, look, 9, mid, DOTS.get(dot_kind, DOTS["llm"]), now)

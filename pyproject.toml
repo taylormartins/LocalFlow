@@ -1,6 +1,6 @@
 [project]
 name = "localflow"
-version = "1.34.0"
+version = "1.34.1"
 description = "Golden Flow: free, private voice control and dictation for Windows and macOS. Whisper speech-to-text, LLM or rule-based cleanup, text pasted into any app."
 readme = "README.md"
 license = "MIT"

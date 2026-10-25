@@ -29,6 +29,8 @@ MUTED = "#9d916f"
 ON_GOLD = BLACK  # text on the gold fill
 #: True while a pixel look dresses the window (Silkscreen headings, the look's colours).
 PIXEL_ON = False
+#: The tab font while a pixel look is on (set by _style, shrunk by _size_tabs to fit the screen).
+_TAB: dict = {}
 
 _ORIGINAL = {n: globals()[n] for n in ("BLACK", "PANEL", "FIELD", "LINE", "GOLD", "GOLD_HI", "TEXT",
                                        "MUTED", "ON_GOLD")}
@@ -53,6 +55,28 @@ def _set_palette(pixel_on: bool, key: str = "block") -> None:
     g.update(BLACK=p["canvas"], PANEL=p["panel"], FIELD=p["raised"], LINE=p["line"],
              GOLD=p["accent"], GOLD_HI=pixel.mix(p["accent"], "#ffffff", 0.35), TEXT=p["text"],
              MUTED=p["muted"], ON_GOLD=p["shadow"])
+
+
+def _size_tabs(root, nb, resize: bool = True) -> None:
+    """Pixel tabs are wide: use the biggest whole-multiple size whose tabs fit
+    the screen, and open the window wide enough for them."""
+    from tkinter import font as tkfont
+    from tkinter import ttk
+
+    if not _TAB:
+        return
+    names = [nb.tab(t, "text").upper() for t in nb.tabs()]
+    avail = root.winfo_screenwidth() - 80
+    px = _TAB["px"]
+    while True:
+        f = tkfont.Font(root=root, family=_TAB["family"], size=-px)
+        need = sum(f.measure(n) for n in names) + len(names) * 34 + 60
+        if need <= avail or px <= 8:
+            break
+        px -= 8
+    ttk.Style(root).configure("TNotebook.Tab", font=(_TAB["family"], -px))
+    if resize:
+        root.geometry(f"{min(max(900, need), avail)}x660")
 
 
 def _recolour(root, mapping: dict) -> None:
@@ -83,6 +107,9 @@ def _restyle(root, pixel_on: bool, key: str) -> None:
     _set_palette(pixel_on, key)
     new = _palette()
     _style(root)
+    for w in root.winfo_children():
+        if w.winfo_class() == "TNotebook" and PIXEL_ON:
+            _size_tabs(root, w, resize=False)
     root.configure(bg=BLACK)
     _recolour(root, {o.lower(): new[n] for n, o in old.items() if o.lower() != new[n].lower()})
 
@@ -119,7 +146,9 @@ def _style(root) -> None:
             return -pixel.pixel_px(px * dpi)
 
         f_head, f_title = (fam, sz(12)), (fam, sz(18))
-        f_tab = f_btn = f_small = (fam, sz(8))
+        f_btn = f_small = (fam, sz(8))
+        f_tab = (fam, sz(16))  # the tabs are what you aim at: twice the button size
+        _TAB.update(family=fam, px=-sz(16))
     st.configure(".", background=BLACK, foreground=TEXT, fieldbackground=FIELD, font=base,
                  bordercolor=LINE, lightcolor=LINE, darkcolor=LINE, troughcolor=FIELD,
                  selectbackground=GOLD, selectforeground=ON_GOLD, insertcolor=GOLD,
@@ -647,7 +676,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
                 light = key == "light"  # its dark brown shadow is too pale to carry the name
                 g.rect(0, 0, wu, hu, look.pal["accent"] if chosen else look.pal["line"])
                 g.rect(1, 1, wu - 2, hu - 2, "#2a2520" if light else look.pal["shadow"])
-                pixel_mod.preview(cv, th, (TILE_W - pixel_mod.PILL_U * k) // 2, 3 * k, 0, now,
+                pixel_mod.preview(cv, th, (TILE_W - pixel_mod.PILL_U * k) // 2, pixel_mod.CREST_U * k, 0, now,
                                   "recording")
                 g.text(4, hu - 9, look.title, look.pal["accent"] if chosen else
                        "#d9d0bb" if light else look.pal["muted"])
@@ -1334,6 +1363,8 @@ def main(cfg: Config) -> int:
             build(nb, cfg)
         except Exception:
             log.exception("settings tab failed")
+    if PIXEL_ON:
+        _size_tabs(root, nb)
     root.bind("<Escape>", lambda _e: root.destroy())
     root.after(50, lambda: (root.lift(), root.focus_force()))
     log.info("settings window open (%s)", CONFIG_PATH.name)

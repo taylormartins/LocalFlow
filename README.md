@@ -28,10 +28,10 @@ your machine, there is no account, and nothing costs money.
   each command was heard.
 - **Themes**: ten optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
   beveled shapes, a segmented border): **Block** (castle gold), **Royal**
-  (crown and rubies), **Dark**, **Light**, **Knight** (stone, battlements,
+  (all gold, crown points), **Dark**, **Light**, **Knight** (stone, battlements,
   swords for the meter), **Wizard** (cast a spell), **Electric** (lightning),
-  **Leaf** (a leaf storm), **Dragon** (blue and purple fire) and **Legal**
-  (gavel and papers). Settings and its tabs wear the look too. The default is the **legacy v2**
+  **Leaf** (a leaf storm), **Dragon** (flames in blue, purple, pink and cyan) and **Legal**
+  (navy and brass: scales of justice, columns). Settings and its tabs wear the look too. The default is the **legacy v2**
   themes (Royal, Gemstone, Fire, Ice and more), untouched; unticking returns to them. They
   dress the pill, the tray icon, the click labels, the command sheet and a
   little burst where text lands.

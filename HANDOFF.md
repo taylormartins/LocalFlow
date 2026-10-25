@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.34.0, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.34.1, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -441,6 +441,7 @@ or user phrases in that language.
 | 1.33.1 | The pixel pill was too big (about as wide as the legacy one but twice as tall, text huge). Art pixel `cell(s)` 2.7 -> 1.9 x scale, row 14 -> 13 art px, width 92 -> 76, live-text line pitch 8 -> 7: about 40% smaller each way, still Silkscreen at whole art pixels. Settings tiles now draw the pill at its true size. |
 | 1.33.2 | Legacy themes are the default again; pixel themes are an opt-in tick (`overlay.pixel = false`). Reported "can't switch to a pixel theme": the running app was still pre-1.33 code (Settings is a new process, the pill is not), so it ignored the pixel keys until restarted. |
 | 1.34.0 | Feedback round on the pixel themes. Pill row 13 -> 14 art px and meters 9 -> 7 tall, so the meter clears the border (knight merlons now one row deep). Knight: pointed shield mark, swords as bars (point, blade, guard, red grip, pommel; pitch 4). Electric: jagged one-pixel lightning. Six new looks (ten in all): royal (crown, ruby marquee, jewel pillars), dark (moon), light (sun), leaf (leaf storm, vines), dragon (blue/purple flames), legal (gavel, stacked papers). The app icon is now always the pixel crown. Settings wears the picked look (palette + Silkscreen headings/tabs/buttons; `_set_palette`/`_restyle`, live on pick) and `tools/shot_settings.py` renders it by PrintWindow. |
+| 1.34.1 | Feedback on 1.34.0. Live text now has `TEXT_PAD` = 5 rows under the top edge (it touched the border, worst on Knight). Settings tabs in Silkscreen at 16 x dpi (`_size_tabs` shrinks them only if the screen is too narrow, and widens the window). Royal: gold only (no red) with crown points above the pill (`CRESTS`, drawn by `_crest`; the window has room via `TEXT_U`) and gold jewel pillars. Dragon: every border segment and every flame tongue is a different flame colour; flames lick above the pill. Legal rebuilt to look serious: navy and brass, a calm brass rule with one slow glint, scales of justice mark, courthouse-column meter (no seal, no papers). |
 
 ## What's next (the user wants these pitched at the end of each job)
 
