@@ -88,10 +88,17 @@ def _setup_logging(verbose: bool, log_file: Path | None = None) -> None:
         import faulthandler
 
         try:
-            crash_file = open(log_file.with_name("crash.log"), "a", encoding="utf-8")
+            crash_path = log_file.with_name("crash.log")
+            if crash_path.exists() and crash_path.stat().st_size > 1_000_000:
+                crash_path.replace(crash_path.with_name("crash.old.log"))  # it had grown to 9 MB
+            crash_file = open(crash_path, "a", encoding="utf-8")
             crash_file.write(f"--- started {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()}\n")
             crash_file.flush()
-            faulthandler.enable(crash_file, all_threads=True)
+            # Only the faulting thread: on Windows this handler also fires for the
+            # harmless COM error 0x80010108 (RPC_E_DISCONNECTED, about every
+            # minute), and walking the *other* threads' frames while they run
+            # raced and crashed the app itself (0xC0000005, 9 times in 3 days).
+            faulthandler.enable(crash_file, all_threads=False)
         except OSError as exc:
             root.warning("could not open crash log: %s", exc)
 

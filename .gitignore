@@ -21,6 +21,7 @@ data/
 
 # Runtime crash dumps
 crash.log
+crash.old.log
 
 # Sideloaded Whisper models (localflow import-model)
 models/

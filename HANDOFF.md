@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.35.0, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.35.1, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -444,6 +444,7 @@ or user phrases in that language.
 | 1.34.1 | Feedback on 1.34.0. Live text now has `TEXT_PAD` = 5 rows under the top edge (it touched the border, worst on Knight). Settings tabs in Silkscreen at 16 x dpi (`_size_tabs` shrinks them only if the screen is too narrow, and widens the window). Royal: gold only (no red) with crown points above the pill (`CRESTS`, drawn by `_crest`; the window has room via `TEXT_U`) and gold jewel pillars. Dragon: every border segment and every flame tongue is a different flame colour; flames lick above the pill. Legal rebuilt to look serious: navy and brass, a calm brass rule with one slow glint, scales of justice mark, courthouse-column meter (no seal, no papers). |
 | 1.34.2 | Feedback on 1.34.1. Slimmer live-text pill (`TEXT_TAIL` = 2 rows cut under the text); marks sit a row higher under text, shield / star / bolt two. Dark: its own `dark` border (blacks and dark greys) and a dimmer moon. Light: lighter sun and an iridescent purple-to-light-blue `iris` meter. Legal meter is now `stack` (piles of books and papers) instead of columns. |
 | 1.35.0 | Repeated cancel: `Grammar.is_cancel` accepts a cancel word said over again ("cancel, cancel, cancel"), used by `Listener._cancel_dictation`; the plain `is_one` missed anything over one word longer than the form. Two new looks (twelve; Settings tiles now 3 columns): **Notebook** (black ink on paper: `ink` border with a running nib, pen mark, `scribble` meter) and **Chaos** (purple whirlpool: `swirl` border with circling lights, spinning black-hole mark from `_hole()`, `swirl` meter). |
+| 1.35.1 | Random exits (0xC0000005 in python312.dll, ~every 1-3 h, 2026-10-22..25). crash.log showed each access violation *inside* a faulthandler dump: faulthandler also fires for the harmless COM error 0x80010108 (RPC_E_DISCONNECTED) and, with `all_threads=True`, walked other running threads' frames unsafely and died. Now `all_threads=False`, and crash.log rotates to crash.old.log past 1 MB. If crashes continue, the memory pressure (4 GB private, ~1 GB free of 16) is next. |
 
 ## What's next (the user wants these pitched at the end of each job)
 
