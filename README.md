@@ -174,6 +174,10 @@ If an update was interrupted half way, the tray says *Version 1.13.0 - install
 not finished* and offers **Finish installing 1.13.0**. Updating also notices
 this by itself and completes the install.
 
+**Finding it:** the installer (and every update) adds **Golden Flow** and **Golden Flow Settings** to
+the Start menu and puts **Golden Flow Settings** on the desktop. "Golden Flow" starts or restarts
+the app (it lives in the system tray, under the ^ arrow). `localflow install-shortcuts` makes them again.
+
 Double-clicking `update.cmd` in the LocalFlow folder does the same with
 visible output.
 

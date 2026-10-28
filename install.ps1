@@ -400,6 +400,10 @@ if (-not $NoStartup) {
     }
 }
 
+# Start-menu and desktop shortcuts, so the app and its Settings can be found.
+try { uv run --no-dev localflow install-shortcuts | Out-Null; Ok 'shortcuts: Start menu "Golden Flow" and "Golden Flow Settings" (and one on the desktop)' }
+catch { Note 'could not create the shortcuts (not fatal)' }
+
 # Everything above succeeded: record which code this install is for. The
 # updater installs again whenever this doesn't match (an install that died
 # half way used to leave new code on old dependencies, "up to date").

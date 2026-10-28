@@ -614,6 +614,52 @@ def cmd_install_startup(args, cfg) -> int:
     return 0
 
 
+def cmd_install_shortcuts(args, cfg) -> int:
+    """Start-menu shortcuts (and one on the desktop) so the app and its
+    Settings window can be found: "Golden Flow" (start / restart it) and
+    "Golden Flow Settings". Safe to run again; it rewrites them."""
+    if IS_MAC:
+        print("Shortcuts are for Windows; on a Mac open the Settings from the menu-bar icon.")
+        return 0
+    import os
+
+    import win32com.client
+
+    from .config import PROJECT_ROOT
+    from .icon import save_ico
+
+    pythonw = PROJECT_ROOT / ".venv" / "Scripts" / "pythonw.exe"
+    if not pythonw.exists():
+        print(f"No virtualenv at {pythonw}\nRun `uv sync` first.")
+        return 1
+    ico =PROJECT_ROOT / "data" / "app-crown-px.ico"
+    if not ico.exists():
+        ico.parent.mkdir(parents=True, exist_ok=True)
+        save_ico(ico)
+    programs = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    wscript = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
+    shell = win32com.client.Dispatch("WScript.Shell")
+
+    def make(folder: Path, name: str, target: str, arguments: str, note: str) -> None:
+        link = folder / f"{name}.lnk"
+        sc = shell.CreateShortCut(str(link))
+        sc.TargetPath, sc.Arguments = target, arguments
+        sc.WorkingDirectory = str(PROJECT_ROOT)
+        sc.Description = note
+        sc.IconLocation = str(ico)
+        sc.save()
+        print(f"  {link}")
+
+    start = (wscript, f'"{PROJECT_ROOT / "restart.vbs"}"', f"Start (or restart) {APP_NAME}")
+    settings = (str(pythonw), "-m localflow.cli settings", f"{APP_NAME} Settings: themes, sounds, timeouts")
+    print("Shortcuts:")
+    make(programs, APP_NAME, *start)
+    make(programs, f"{APP_NAME} Settings", *settings)
+    if not args.no_desktop:
+        make(Path(shell.SpecialFolders("Desktop")), f"{APP_NAME} Settings", *settings)
+    return 0
+
+
 def cmd_serve(args, cfg) -> int:
     """Run only the HTTP server (no hotkeys, no tray)."""
     from .engine import Engine
@@ -976,6 +1022,9 @@ def main(argv: list[str] | None = None) -> int:
         "install-startup", help="run the tray app at login", parents=[common]
     )
     p_start.add_argument("--remove", action="store_true", help="uninstall instead")
+    p_sc = sub.add_parser("install-shortcuts", help="Start-menu and desktop shortcuts",
+                          parents=[common])
+    p_sc.add_argument("--no-desktop", action="store_true", help="Start menu only")
     sub.add_parser("serve", help="run only the phone server", parents=[common])
 
     p_rec = sub.add_parser("record", help="record N seconds and transcribe", parents=[common])
@@ -1053,6 +1102,7 @@ def main(argv: list[str] | None = None) -> int:
         "import-model": cmd_import_model,
         "level": cmd_level,
         "install-startup": cmd_install_startup,
+        "install-shortcuts": cmd_install_shortcuts,
         "serve": cmd_serve,
         "record": cmd_record,
         "transcribe": cmd_transcribe,
