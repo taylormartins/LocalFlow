@@ -266,6 +266,9 @@ if ($LASTEXITCODE) {
     if ($LASTEXITCODE) { throw 'uv sync failed - see the output above.' }
 }
 Ok 'environment ready in .venv'
+# uv sync rewrites the tracked uv.lock; leaving it modified would make git
+# refuse the next update. The environment is already built, so put it back.
+if (Test-Path (Join-Path $root '.git')) { git -C $root checkout -- uv.lock 2>$null }
 
 Step 'GPU'
 $gpu = $false

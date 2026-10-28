@@ -113,6 +113,14 @@ if ($before -eq $target -and -not $Force) {
 
 # Tracked files edited by hand would be overwritten: refuse rather than lose
 # them. config.toml, models\ and wake\ are untracked, so they are never touched.
+# uv.lock is the exception: `uv sync` rewrites it on every install (a newer uv
+# writes a newer lockfile revision, and it carries our own version), so it is
+# always dirty after an install and would block every later update. Nothing of
+# the user's is in it: put it back.
+if (git status --porcelain --untracked-files=no -- uv.lock) {
+    Log 'discarding the uv.lock that uv regenerated (it is rewritten on every install)'
+    git checkout -- uv.lock 2>&1 | ForEach-Object { Log "  $_" }
+}
 $dirty = git status --porcelain --untracked-files=no
 if ($dirty) {
     Log 'local changes to LocalFlow files:'

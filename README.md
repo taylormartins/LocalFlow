@@ -181,6 +181,11 @@ Your settings (`config.toml`), always-on phrases (`wake\`) and models are
 never touched. Neither is the startup setup, so updating never asks for
 admin. The details of each run are in `update.log`.
 
+**Update stuck on "local changes ... M uv.lock" (1.35.1 or older)?** Older copies left the
+lockfile that `uv sync` rewrites marked as changed, and git then refused every update. Run
+`git checkout -- uv.lock` in the LocalFlow folder once, then update again. From 1.35.2 on the
+updater and installer clear it themselves.
+
 **Coming from 1.5 or older** (no Update item in the tray yet)? Run this once in
 the LocalFlow folder. It also works if the folder was left on an old release:
 
