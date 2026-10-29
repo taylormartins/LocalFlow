@@ -13,6 +13,7 @@ from pathlib import Path
 from . import APP_NAME
 from .platform import IS_MAC
 from . import config as config_mod
+from . import recovery
 
 
 def _specs(value: str | list[str]) -> list[str]:
@@ -940,6 +941,7 @@ def cmd_run(args, cfg) -> int:
             time.sleep(2.0)  # the overlay's window comes up first
             engine.notice(msg, kind, 12)
             tray.notify(msg + (" - see update.log" if kind == "error" else ""))
+        left_behind = recovery.pending()  # before anything can start recording
         engine.warmup()
         health.start()
         if cfg.camera.enabled:
@@ -962,6 +964,7 @@ def cmd_run(args, cfg) -> int:
             except Exception as exc:
                 logging.getLogger("localflow.always_on").error("always-on failed: %s", exc)
         tray.notify(hint, f"{APP_NAME} ready")
+        recovery.recover_in_background(engine, left_behind)  # what the last run was in the middle of
 
     threading.Thread(target=boot, daemon=True, name="localflow-boot").start()
 

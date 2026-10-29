@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.36.1, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.37.0, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -449,6 +449,7 @@ or user phrases in that language.
 | 1.35.3 | Shortcuts: `localflow install-shortcuts` (`cmd_install_shortcuts`) writes Start-menu "Golden Flow" (restart.vbs) and "Golden Flow Settings" (pythonw -m localflow.cli settings) plus a desktop "Golden Flow Settings", pixel-crown icon; `install.ps1` runs it, so every update adds them. Before this the only shortcut was the hidden Startup-folder one. |
 | 1.36.0 | Three looks (fifteen): **Diamond** (`prism` border: white facets with a very light rainbow, glints above and on the edge; gem mark; `prism` meter with white glints), **Fire** (warm flame colours on the flame border/crest/meter), **Water** (dark ocean: `wave` border and a Great-Wave crest of swells with foam curls, wave-curl mark, `surf` meter). **Bug fixed in `Grid.rect`**: it ended each rectangle one screen pixel short (`- 1`), but Tk fills [x0, x1), so every 1-art-pixel rect (meter bars, sparkles, crest tips) drew as a thin dot with gaps (half of it at 100% scale). It now covers its whole cell, so every look's meter and sparks are bolder than before. |
 | 1.36.1 | Every look has its own mark: Dragon had shared Fire's flame, now a dragon head (`_DRAGON`, sparks of breath at the snout). Check for new looks: no two share a `dot`. |
+| 1.37.0 | **Crash recovery** (`recovery.py`): `Recorder` spools each take to `data/recovery/take-<date>-<time>-<rate>.pcm` (16-bit mono, flushed every second) via `recovery.Spool`; `Engine._process_and_inject(spool=...)` deletes it once `process()` has put the words in history; `cancel()` deletes it; `Engine.shutdown` uses `stop()` so a take in progress survives a restart. `cli.cmd_run` snapshots leftover takes before anything can record, and after "ready" `recovery.recover_in_background` transcribes them (`source="recovered"`), copies the text to the clipboard and notices. A take that fails is renamed `.bad` once (no crash loop); under 2 s or over 3 days is dropped (tests/recovery.py, with controls). **Animated marks drawn in pxl**: `tools/marks.px.js` (14 four-frame animations: orb, crown, moon, sun, shield, star, bolt, leaf, dragon head, scales, pen, gem, flame, wave) is exported by `tools/build_marks.py` to `src/localflow/marks.py`; `pixel.dot()` plays them at their own fps (the black hole stays generated in `_hole`). Edit the .px.js and rebuild, never marks.py. The old hand-typed two-frame sprites are gone. |
 
 ## What's next (the user wants these pitched at the end of each job)
 

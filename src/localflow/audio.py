@@ -17,6 +17,7 @@ import numpy as np
 import sounddevice as sd
 import soxr
 
+from . import recovery
 from .config import AudioConfig
 
 log = logging.getLogger(__name__)
@@ -245,6 +246,10 @@ class Recorder:
         self.auto_gain = 1.0
         #: Total gain applied to the last recording, for the log and `check`.
         self.last_gain = 1.0
+        #: The crash-recovery copy of the take in progress, and of the one just
+        #: stopped (see recovery.py; deleted once the text is safe in history).
+        self._spool: recovery.Spool | None = None
+        self.last_spool = None
 
     @property
     def boost(self) -> str:
@@ -280,6 +285,9 @@ class Recorder:
             return
         block = indata.copy()
         self._chunks.put(block)
+        spool = self._spool
+        if spool is not None:
+            spool.write(block)
         self._live.append(block)  # same array, no extra copy; read by snapshot()
         self._frames += frames
         mic = indata[:, 0]
@@ -328,6 +336,7 @@ class Recorder:
                         self._stream = self._open(device)
                         self.device = device
                         self._max_frames = int(self._rate * self.cfg.max_seconds)
+                        self._spool = recovery.Spool(self._rate)
                         log.info("recording from %s", device or "system default")
                         return
                     except Exception as exc:  # sd raises PortAudioError subclasses
@@ -361,6 +370,7 @@ class Recorder:
             self.device = None  # never blacklist a real device over a fed take
             self._rate = rate
             self._max_frames = int(rate * self.cfg.max_seconds)
+            self._spool = recovery.Spool(rate)
             return True
 
     def feed(self, block: np.ndarray) -> None:
@@ -418,6 +428,10 @@ class Recorder:
         """Stop capture and return the recording. Empty array if nothing usable."""
         with self._lock:
             stream, self._stream = self._stream, None
+            spool, self._spool = self._spool, None
+            if spool is not None:
+                spool.close()
+            self.last_spool = spool.path if spool is not None else None
             self.level = 0.0
             self.external = False
             if stream is None:
@@ -502,7 +516,10 @@ class Recorder:
         return np.ascontiguousarray(audio, dtype=np.float32)
 
     def cancel(self) -> None:
+        """Stop and throw the take away, its recovery copy too."""
         self.stop()
+        recovery.discard(self.last_spool)
+        self.last_spool = None
 
 
 class _External:

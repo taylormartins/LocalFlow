@@ -174,6 +174,11 @@ If an update was interrupted half way, the tray says *Version 1.13.0 - install
 not finished* and offers **Finish installing 1.13.0**. Updating also notices
 this by itself and completes the install.
 
+**If LocalFlow dies mid-dictation** (a crash, a restart, a reboot) what you were saying is not lost:
+while you record, the audio is also kept in `dataecovery\`, and deleted once the text is in
+Dictation history. At the next start LocalFlow transcribes what was left, puts the text in history **and on
+the clipboard**, and says so on the pill. A take under two seconds, or older than three days, is dropped.
+
 **Finding it:** the installer (and every update) adds **Golden Flow** and **Golden Flow Settings** to
 the Start menu and puts **Golden Flow Settings** on the desktop. "Golden Flow" starts or restarts
 the app (it lives in the system tray, under the ^ arrow). `localflow install-shortcuts` makes them again.

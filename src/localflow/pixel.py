@@ -32,6 +32,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from . import marks
+
 log = logging.getLogger(__name__)
 
 ASSETS = Path(__file__).parent / "assets"
@@ -615,101 +617,9 @@ _ORB_B = ["..ooooo..",
           "oXXXXXXXo",
           ".oXXXXXo.",
           "..ooooo.."]
-_SHIELD = ["ooooooooo",
-           "oXXXhXXXo",
-           "oXXXhXXXo",
-           "ohhhhhhho",
-           "oXXXhXXXo",
-           ".oXXhXXo.",
-           "..oXhXo..",
-           "...oXo...",
-           "....o...."]
 _LEAF3 = [".XX",
           "XhX",
           "X.."]
-_LEAF = ["......oo.",
-         "....ooXXo",
-         "..ooXXXXo",
-         ".oXXhXXXo",
-         ".oXhXXXo.",
-         "oXhXXXoo.",
-         "ohXXoo...",
-         "oo.o.....",
-         "o........"]
-_FLAME = ["....o....",
-          "...oXo...",
-          "...oXXo..",
-          "..oXhXXo.",
-          ".oXXhhXXo",
-          ".oXhhhhXo",
-          ".oXhhhhXo",
-          "..oXhhXo.",
-          "...ooooo."]
-_FLAME_B = [".....o...",
-            "....oXo..",
-            "...oXXo..",
-            "..oXhXXo.",
-            ".oXXhhXXo",
-            ".oXhhhhXo",
-            ".oXhhhhXo",
-            "..oXhhXo.",
-            "...ooooo."]
-_SCALES = ["....h....",
-           "XXXXXXXXX",
-           "X...X...X",
-           "X...X...X",
-           "X...X...X",
-           "XXX.X.XXX",
-           ".X..X..X.",
-           "....X....",
-           "..XXXXX.."]
-_SCALES_B = ["....h....",
-             "XXXXXXXXX",
-             "X...X...X",
-             "X...X.XXX",
-             "X...X..X.",
-             "X...X....",
-             "XXX.X....",
-             ".X..X....",
-             "..XXXXX.."]
-_CROWN = ["h...h...h",
-          "X...X...X",
-          "XX.XXX.XX",
-          "XXXXXXXXX",
-          "XoXXoXXoX",
-          "XXXXXXXXX"]
-_MOON = ["...ooo...",
-         ".ooXXXo..",
-         ".oXXXo...",
-         "oXXXo....",
-         "oXXXo....",
-         "oXXXo....",
-         ".oXXXo...",
-         ".ooXXXo..",
-         "...ooo..."]
-_SUN_CORE = ["...XXX...",
-             "..XXXXX..",
-             "..XhXXX..",
-             "..XXXXX..",
-             "...XXX..."]
-_PEN = ["......oo.",
-        ".....oXXo",
-        "....oXXo.",
-        "...oXXo..",
-        "..oXXo...",
-        ".oXho....",
-        "ohXo.....",
-        "oXo......",
-        "oo......."]
-_PEN_B = ["......oo.",
-          ".....oXXo",
-          "....oXXo.",
-          "...oXXo..",
-          "..oXXo...",
-          ".oXho....",
-          "ohXo.....",
-          "oXo.....o",
-          "oo.....oo"]
 
 
 def _hole(phase: int) -> list[str]:
@@ -732,59 +642,6 @@ def _hole(phase: int) -> list[str]:
 
 
 _HOLES = [_hole(i) for i in range(4)]
-_DRAGON = ["o.o......",
-           "oXo..oo..",
-           ".oXXXXXo.",
-           ".XXXeXXXo",
-           "XXXXXXXXX",
-           "XXXXXXoXX",
-           ".XXXXXXXo",
-           "..oXhhXo.",
-           "...ooooo."]
-_GEM = ["..ooooo..",
-        ".ohXhXho.",
-        "ohXXhXXho",
-        "ooooooooo",
-        ".oXhXhXo.",
-        "..oXhXo..",
-        "...oXo...",
-        "....o...."]
-_WAVE = ["...hhhh..",
-         "..hXXXXh.",
-         ".hXXooXXh",
-         ".XXoo..Xh",
-         "XXXo....X",
-         "XXXXo..h.",
-         "XXXXXXXX.",
-         "XXooXXXXX",
-         "XXXXXXXXX"]
-_STAR = ["....X....",
-         "....X....",
-         "...XhX...",
-         "..XXhXX..",
-         "XXXhhhXXX",
-         "..XXhXX..",
-         "...XhX...",
-         "....X....",
-         "....X...."]
-_STAR_B = [".........",
-           "....X....",
-           "....h....",
-           "...XhX...",
-           ".XXhhhXX.",
-           "...XhX...",
-           "....h....",
-           "....X....",
-           "........."]
-_BOLT = ["....XXX",
-         "...XXX.",
-         "..XXX..",
-         ".XXXXXX",
-         "..XXXX.",
-         "...XXX.",
-         "...XX..",
-         "..XX...",
-         "..X...."]
 _TICK = ["....X",
          "...XX",
          "X.XX.",
@@ -801,72 +658,26 @@ def _dot_pal(colour: str) -> dict:
     return {"X": colour, "h": mix(colour, "#ffffff", 0.7), "o": mix(colour, "#000000", 0.62)}
 
 
+def _mark_pal(colour: str) -> dict:
+    """The roles of a drawn mark (tools/marks.px.js): the recording colour with its light and
+    dark, and the glint colours that never change."""
+    return {**_dot_pal(colour), "k": "#000000", "w": "#ffffff", "e": "#ffe85a", "f": "#ff9a3c",
+            "s": "#f4efe0", "p": "#ffd6f0", "b": "#d6e6ff", "c": "#2de6ff"}
+
+
 def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
-    """The recording mark, centred on art pixel (cx, cy); two-step breathing."""
-    b = int(t * 2.5) % 2
-    pal = _dot_pal(colour)
-    if look.dot == "shield":
-        g.sprite(cx - 4, cy - 4, _SHIELD, pal)
-        if b:
-            g.rect(cx - 5, cy - 1, 1, 2, mix(colour, "#000000", 0.5))
-            g.rect(cx + 5, cy - 1, 1, 2, mix(colour, "#000000", 0.5))
-    elif look.dot == "star":
-        g.sprite(cx - 4, cy - 4, _STAR_B if b else _STAR, pal)
-        g.rect(cx - 5 + 7 * b, cy - 4 + 7 * (1 - b), 1, 1, look.sparks[1])
-    elif look.dot == "bolt":
-        g.sprite(cx - 3, cy - 4, _BOLT, pal)
-        if b:
-            g.rect(cx - 5, cy + 1, 1, 1, look.pal["accent2"])
-            g.rect(cx + 4, cy - 3, 1, 1, look.pal["accent2"])
-    elif look.dot == "leaf":
-        g.sprite(cx - 4 + b, cy - 4, _LEAF, pal)
-    elif look.dot == "flame":
-        g.sprite(cx - 4, cy - 4, _FLAME_B if b else _FLAME, pal)
-    elif look.dot == "scales":
-        g.sprite(cx - 4, cy - 4, _SCALES_B if b else _SCALES, pal)
-    elif look.dot == "crown":
-        g.sprite(cx - 4, cy - 3, _CROWN, pal)
-        if b:
-            g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
-            g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
-    elif look.dot == "dragon":
-        g.sprite(cx - 4, cy - 4, _DRAGON, {**pal, "e": "#ffe85a"})
-        for j, c in enumerate(look.sparks[:3]):  # breath: sparks puffing from the snout
-            if (b + j) % 2:
-                g.rect(cx + 5 + j // 2, cy + 1 + j, 1, 1, c)
-    elif look.dot == "gem":
-        g.sprite(cx - 4, cy - 4, _GEM, pal)
-        g.rect(cx - 5 + 9 * b, cy - 3 + b, 1, 1, "#ffffff")
-        g.rect(cx + 4 - 8 * b, cy - 5, 1, 1, "#ffffff")
-        if b:
-            g.rect(cx - 5, cy + 1, 1, 1, "#d6e6ff")
-            g.rect(cx + 5, cy, 1, 1, "#ffd6f0")
-    elif look.dot == "wave":
-        g.sprite(cx - 4, cy - 4, _WAVE, pal)
-        g.rect(cx + 4 - b, cy - 5 + b, 1, 1, look.pal["accent2"])
-        g.rect(cx + 2, cy - 5 + 2 * b, 1, 1, look.pal["accent2"])
-    elif look.dot == "pen":
-        g.sprite(cx - 4, cy - 4, _PEN_B if b else _PEN, pal)
-    elif look.dot == "hole":
-        g.sprite(cx - 4, cy - 4, _HOLES[int(t * 5) % 4], {**pal, "k": "#000000"})
-    elif look.dot == "moon":
-        g.sprite(cx - 4, cy - 4, _MOON, _dot_pal(mix(colour, "#000000", 0.35)))
-        g.rect(cx + 2, cy - 2 + b, 1, 1, look.sparks[1])
-        g.rect(cx + 1 + 2 * b, cy + 2, 1, 1, look.pal["muted"])
+    """The recording mark, centred on art pixel (cx, cy): its animation from
+    marks.py (drawn in pxl), in the recording colour."""
+    if look.dot == "moon":
+        colour = mix(colour, "#000000", 0.35)  # dimmed: the dark look's moon
     elif look.dot == "sun":
-        sun(g, cx, cy, _dot_pal(mix(colour, "#ffffff", 0.2)), b)
-    else:
-        g.sprite(cx - 4, cy - 4, _ORB_B if b else _ORB, pal)
-
-
-def sun(g: Grid, cx: int, cy: int, pal: dict, b: int) -> None:
-    """A disc with rays that swing between plus and cross."""
-    g.sprite(cx - 4, cy - 2, _SUN_CORE, pal)
-    ray = pal["X"]
-    pts = ([(0, -4), (0, -3), (0, 3), (0, 4), (-4, 0), (-3, 0), (3, 0), (4, 0)] if not b else
-           [(-3, -3), (3, -3), (-3, 3), (3, 3), (-4, -4), (4, -4), (-4, 4), (4, 4)])
-    for dx, dy in pts:
-        g.rect(cx + dx, cy + dy, 1, 1, ray)
+        colour = mix(colour, "#ffffff", 0.2)
+    if look.dot == "hole":
+        g.sprite(cx - 4, cy - 4, _HOLES[int(t * 5) % 4], {**_dot_pal(colour), "k": "#000000"})
+        return
+    frames = marks.FRAMES.get(look.dot) or marks.FRAMES["orb"]
+    fps = marks.FPS.get(look.dot, 6)
+    g.sprite(cx - 5, cy - 4, frames[int(t * fps) % len(frames)], _mark_pal(colour))
 
 
 def badge(g: Grid, look: Look, cx: int, cy: int, mode: str, colour: str, t: float, glyph: str) -> None:

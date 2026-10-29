@@ -17,6 +17,7 @@ from enum import Enum
 
 import numpy as np
 
+from . import recovery
 from .audio import QUIET_PEAK, SILENCE_PEAK, Recorder, decode_upload
 from .cleanup import Cleaner, apply_replacements
 from .config import Config
@@ -145,7 +146,7 @@ class Engine:
             self._set_state(State.ERROR, str(exc))
 
     def shutdown(self) -> None:
-        self.recorder.cancel()
+        self.recorder.stop()  # not cancel: a take in progress is kept for recovery
         self.cleaner.close()
         self.stylizer.close()
         self.transcriber.unload()
@@ -191,12 +192,13 @@ class Engine:
         self._discard = False
         audio = self.recorder.stop()
         if audio.size == 0:
+            recovery.discard(self.recorder.last_spool)
             self._set_state(State.ERROR, "no audio captured - check the mic")
             return
         threading.Thread(
             target=self._process_and_inject,
             args=(audio, self._cleanup_enabled_for_run, inject),
-            kwargs={"target": self._target},
+            kwargs={"target": self._target, "spool": self.recorder.last_spool},
             daemon=True,
             name="localflow-pipeline",
         ).start()
@@ -319,15 +321,17 @@ class Engine:
             return
         self._discard = False
         audio = self.recorder.stop()
+        spool = self.recorder.last_spool
         if keep is not None:
             audio = audio[: max(0, keep)]
         if audio.size < 0.3 * 16000:
+            recovery.discard(spool)
             self._set_state(State.IDLE, "nothing said")
             return
         threading.Thread(
             target=self._process_and_inject,
             args=(audio, True, inject, "always-on", transform, done),
-            kwargs={"target": self._target},
+            kwargs={"target": self._target, "spool": spool},
             daemon=True,
             name="localflow-pipeline",
         ).start()
@@ -337,13 +341,15 @@ class Engine:
         transform: Callable[[str], str] | None = None,
         done: Callable[[str], None] | None = None,
         target=None,
+        spool=None,
     ) -> None:
         try:
             result = self.process(audio, cleanup=cleanup, source=source, transform=transform)
         except Exception as exc:
             log.exception("pipeline failed")
             self._set_state(State.ERROR, str(exc))
-            return
+            return  # the recovery copy stays: it is retried at the next start
+        recovery.discard(spool)  # the words are in history now
 
         if getattr(self, "_discard", False):
             self._discard = False
