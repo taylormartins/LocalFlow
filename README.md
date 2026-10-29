@@ -26,7 +26,7 @@ your machine, there is no account, and nothing costs money.
   layouts, number everything clickable and click by number, edit text, and
   "do show commands" for a sheet of everything you can say. A click tells you
   each command was heard.
-- **Themes**: twelve optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
+- **Themes**: fifteen optional **pixel themes** (tick "Pixel themes" in Settings; Silkscreen type, square
   beveled shapes, a segmented border): **Block** (castle gold), **Royal**
   (all gold, crown points), **Dark**, **Light**, **Knight** (stone, battlements,
   swords for the meter), **Wizard** (cast a spell), **Electric** (lightning),
@@ -673,7 +673,7 @@ tabs:
 
 - **Appearance**: the pill's **theme**: twelve live **pixel** tiles to click
   (`overlay.pixel_theme`: block, royal, dark, light, knight, wizard, electric,
-  leaf, dragon, legal), and a
+  leaf, dragon, legal, notebook, chaos, diamond, fire, water), and a
   **Pixel themes** tick (`overlay.pixel`); untick it for the legacy v2 list
   below (Royal and the rest), which keeps its own pick. With a live preview, the **pill
   opacity** (down to 20%, to see what's behind it), the click labels' look,

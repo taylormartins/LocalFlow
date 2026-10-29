@@ -52,7 +52,7 @@ TEXT_PAD = 5
 #: Rows cut from the gap between the last line of text and the pill row.
 TEXT_TAIL = 2
 #: Looks whose outline rises above the pill (flames, crown points): rows each uses.
-CRESTS = {"flame": 4, "royal": 5}
+CRESTS = {"flame": 4, "royal": 5, "prism": 3, "wave": 5}
 CREST_U = max(CRESTS.values())
 TEXT_U = 2 * LINE_U + TEXT_PAD - TEXT_TAIL + 2 + CREST_U
 
@@ -88,7 +88,7 @@ class Look:
     title: str
     blurb: str
     pal: dict
-    border: str      # block | dark | ink | swirl | stone | arcane | spark | leaf | flame | legal | royal
+    border: str      # block | dark | ink | swirl | prism | wave | stone | arcane | spark | leaf | flame | legal | royal
     dot: str         # orb | shield | star | bolt | leaf | flame | scales | crown | moon | sun
     wave: str        # led | blade | rune | bolt | vine | flame | stack | iris | gems | bar
     sparks: tuple = field(default_factory=tuple)
@@ -176,6 +176,24 @@ LOOKS: dict[str, Look] = {
              hi="#b07cff", accent="#a85cff", accentdark="#2e0f5c", text="#f3e8ff", muted="#b79be6",
              accent2="#e8c4ff"),
         "swirl", "hole", "swirl", ("#a85cff", "#e8c4ff", "#6a2fd0", "#ffffff")),
+    "diamond": Look(
+        "diamond", "PIXEL DIAMOND", "ICE ALL OVER IT",
+        _pal(canvas="#0a1018", panel="#14202e", raised="#1f3045", line="#7fa8d0", shadow="#04080e",
+             hi="#e8f6ff", accent="#bfe8ff", accentdark="#2a4766", text="#ffffff", muted="#9fc4e6",
+             accent2="#ffffff"),
+        "prism", "gem", "prism", ("#ffffff", "#d6e6ff", "#ffd6f0", "#d6fff0", "#fff6d6")),
+    "fire": Look(
+        "fire", "PIXEL FIRE", "BURN IT ALL DOWN",
+        _pal(canvas="#140605", panel="#26100a", raised="#3a1a0e", line="#9a3a12", shadow="#080201",
+             hi="#ff9a3c", accent="#ff7a1a", accentdark="#5a1a08", text="#fff1de", muted="#e0a878",
+             accent2="#ffd23a"),
+        "flame", "flame", "flame", ("#ff3b1a", "#ff8a1a", "#ffc21a", "#fff08a", "#ff5a1a")),
+    "water": Look(
+        "water", "PIXEL WATER", "THE GREAT WAVE",
+        _pal(canvas="#06121f", panel="#0c2236", raised="#143555", line="#2a6a9a", shadow="#030a12",
+             hi="#9fd0e8", accent="#4fa3d8", accentdark="#12324e", text="#eaf6ff", muted="#8fb8d4",
+             accent2="#f4efe0"),
+        "wave", "wave", "surf", ("#4fa3d8", "#f4efe0", "#9fd0e8")),
 }
 
 
@@ -275,8 +293,8 @@ class Grid:
         if w <= 0 or h <= 0:
             return
         k = self.k
-        self.c.create_rectangle(self.ox + x * k, self.oy + y * k, self.ox + (x + w) * k - 1,
-                                self.oy + (y + h) * k - 1, fill=colour, outline="")
+        self.c.create_rectangle(self.ox + x * k, self.oy + y * k, self.ox + (x + w) * k,
+                                self.oy + (y + h) * k, fill=colour, outline="")
 
     def text(self, x: int, y: int, s: str, colour: str, scale: int = 1, anchor: str = "w") -> int:
         """Caps-only text; (x, y) is the left / right / centre of the first
@@ -351,6 +369,19 @@ def _segment_colour(look: Look, i: int, n: int, step: int) -> str:
         v = round((math.sin(i * 0.5 - step * 0.6) + 1) / 2 * 3) / 3
         col = mix(p["shadow"], p["line"], v * 0.8)
         return mix(col, p["shadow"], 0.4) if i % 2 else col
+    if look.border == "prism":
+        # a faceted edge: white, with a very light rainbow in every other facet
+        if _hash(i, step // 2) % 4 == 0:
+            return "#ffffff"
+        col = look.sparks[1 + (i + step // 2) % 4]
+        return mix(col, p["shadow"], 0.3) if i % 2 else col
+    if look.border == "wave":
+        # water running round: blues swelling, a fleck of foam on the crests
+        v = round((math.sin(i * 0.5 - step * 0.8) + 1) / 2 * 3) / 3
+        if v == 1 and _hash(i, step) % 3 == 0:
+            return p["accent2"]
+        col = mix(p["line"], p["accent"], v)
+        return mix(col, p["shadow"], 0.3) if i % 2 else col
     if look.border == "ink":
         # a pen's line: black, a few strokes pressed lighter, the nib running round
         pen = (step // 2) % n
@@ -455,6 +486,19 @@ def _extras(look: Look, g: Grid, wu: int, hu: int, t: float) -> None:
             col = look.sparks[(h // 7) % len(look.sparks)]
             for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)):
                 g.rect(x + dx, y + dy, 1, 1, col)
+    elif look.border == "prism":
+        for k in range(12):
+            ph = (step + k * 3) % 6
+            if ph >= 4:
+                continue
+            h = _hash(step // 2 * 7 + k, k)
+            x = 3 + h % max(1, wu - 6)
+            y = 1 if h % 2 else hu - 2
+            col = "#ffffff" if h % 3 else look.sparks[1 + k % 4]
+            g.rect(x, y, 1, 1, col)
+            if ph < 2:
+                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    g.rect(x + dx, y + dy, 1, 1, col)
     elif look.border == "swirl":
         # lights circling the edge, the inner ones faster: matter falling in
         per = 2 * (wu + hu - 2)
@@ -510,6 +554,33 @@ def _crest(look: Look, g: Grid, wu: int, t: float) -> None:
                 g.rect(x + 1 + sway, rows - 3, 3, 1, hot)
             if hgt >= 4:
                 g.rect(x + 2 + sway, rows - 4, 1, 1, mix(col, "#ffffff", 0.8))
+    elif look.border == "prism":
+        # glints above the pill
+        for k in range(6):
+            if (step + k * 2) % 5 >= 3:
+                continue
+            h = _hash(k * 11 + step // 3, k)
+            x = 3 + h % max(1, wu - 6)
+            g.rect(x, 1, 1, 1, "#ffffff")
+            if (step + k) % 3 == 0:
+                g.rect(x - 1, 1, 1, 1, look.sparks[1 + k % 4])
+                g.rect(x + 1, 1, 1, 1, look.sparks[1 + k % 4])
+                g.rect(x, 0, 1, 1, look.sparks[1 + k % 4])
+                g.rect(x, 2, 1, 1, look.sparks[1 + k % 4])
+    elif look.border == "wave":
+        # the Great Wave: a slow rise, a curl of foam, a steep drop, rolling along
+        span, off = 22, int(t * 6)
+        for x in range(2, wu - 2):
+            u = ((x - off) % span) / span
+            h = 1 + round(3 * (u / 0.7)) if u < 0.7 else 4 - round(3 * (u - 0.7) / 0.3)
+            h = max(1, min(4, h))
+            top = rows - h
+            for r in range(top, rows):
+                g.rect(x, r, 1, 1, p["accent2"] if r == top else p["accent"] if r < rows - 1 else p["line"])
+            if 0.6 <= u < 0.8 and top >= 1:
+                g.rect(x, top - 1, 1, 1, p["accent2"] if u >= 0.66 else p["hi"])  # the curl of foam
+                if u >= 0.7 and top >= 2:
+                    g.rect(x, top - 2, 1, 1, p["accent2"])  # a claw
     elif look.border == "royal":
         # crown points: a pearl, a neck, then a widening spike
         n = max(1, (wu - 4) // 12)
@@ -661,6 +732,23 @@ def _hole(phase: int) -> list[str]:
 
 
 _HOLES = [_hole(i) for i in range(4)]
+_GEM = ["..ooooo..",
+        ".ohXhXho.",
+        "ohXXhXXho",
+        "ooooooooo",
+        ".oXhXhXo.",
+        "..oXhXo..",
+        "...oXo...",
+        "....o...."]
+_WAVE = ["...hhhh..",
+         "..hXXXXh.",
+         ".hXXooXXh",
+         ".XXoo..Xh",
+         "XXXo....X",
+         "XXXXo..h.",
+         "XXXXXXXX.",
+         "XXooXXXXX",
+         "XXXXXXXXX"]
 _STAR = ["....X....",
          "....X....",
          "...XhX...",
@@ -732,6 +820,17 @@ def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
         if b:
             g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
             g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
+    elif look.dot == "gem":
+        g.sprite(cx - 4, cy - 4, _GEM, pal)
+        g.rect(cx - 5 + 9 * b, cy - 3 + b, 1, 1, "#ffffff")
+        g.rect(cx + 4 - 8 * b, cy - 5, 1, 1, "#ffffff")
+        if b:
+            g.rect(cx - 5, cy + 1, 1, 1, "#d6e6ff")
+            g.rect(cx + 5, cy, 1, 1, "#ffd6f0")
+    elif look.dot == "wave":
+        g.sprite(cx - 4, cy - 4, _WAVE, pal)
+        g.rect(cx + 4 - b, cy - 5 + b, 1, 1, look.pal["accent2"])
+        g.rect(cx + 2, cy - 5 + 2 * b, 1, 1, look.pal["accent2"])
     elif look.dot == "pen":
         g.sprite(cx - 4, cy - 4, _PEN_B if b else _PEN, pal)
     elif look.dot == "hole":
@@ -799,7 +898,7 @@ def level_height(level: float) -> float:
 
 
 #: Art pixels from one bar to the next (swords and bolts need a gap).
-PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "stack": 5, "iris": 4, "scribble": 4, "swirl": 4}
+PITCH = {"blade": 4, "bolt": 4, "vine": 4, "flame": 4, "stack": 5, "iris": 4, "scribble": 4, "swirl": 4, "surf": 4, "prism": 3}
 
 
 def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, speech: float,
@@ -929,6 +1028,29 @@ def wave(g: Grid, look: Look, levels, x0: int, x1: int, base: int, max_h: int, s
                 off = round(math.sin(y * 0.9 + i * 0.8 + t * 6) * 1.0) + 1
                 g.rect(x + off, base - 1 - y, 2, 1,
                        "#ffffff" if y == h - 1 else tints[(y // 2 + st + i) % 5])
+        elif look.wave == "prism":
+            # light prismatic bars, white glints all round them
+            if not loud:
+                g.rect(x, base - 1, 2, 1, p["line"])
+                continue
+            tints = look.sparks[1:]
+            for y in range(h):
+                g.rect(x, base - 1 - y, 2, 1, tints[(y // 2 + i + st // 3) % len(tints)])
+            g.rect(x, base - h - 1, 2, 1, "#ffffff")
+            for j in range(2):
+                if _hash(i * 3 + j, st) % 3 == 0:
+                    g.rect(x - 1 + _hash(i + j, st + 5) % 4, base - 1 - _hash(i, st + 9 + j) % (h + 2),
+                           1, 1, "#ffffff")
+        elif look.wave == "surf":
+            # swells with foam on top, a flick of spray
+            if not loud:
+                g.rect(x, base - 1, 3, 1, p["line"])
+                continue
+            for y in range(h):
+                g.rect(x, base - 1 - y, 3, 1,
+                       p["accentdark"] if y < h * 0.3 else p["accent"] if y < h - 2 else p["hi"])
+            g.rect(x, base - h, 3, 1, p["accent2"])
+            g.rect(x + 1 + (i + st // 2) % 2, base - h - 1, 1, 1, p["accent2"])
         elif look.wave == "gems":
             if not loud:
                 g.rect(x + 1, base - 1, 1, 1, p["line"])

@@ -639,7 +639,7 @@ def _appearance(nb, cfg: Config, state: dict) -> None:
     holder.pack(fill="x")
     state["pixel_var"] = use_pixel
 
-    # -- the pixel selector: twelve live tiles, click one --------------------
+    # -- the pixel selector: fifteen live tiles, click one --------------------
     from . import pixel as pixel_mod
 
     tiles = {}

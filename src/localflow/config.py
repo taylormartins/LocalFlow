@@ -150,7 +150,7 @@ class OverlayConfig:
     #: to the legacy v2 themes above, untouched.
     pixel: bool = False
     #: Which pixel theme: "block" (plain castle gold), "royal", "dark", "light", "knight",
-    #: "wizard", "electric", "leaf", "dragon", "legal", "notebook" or "chaos".
+    #: "wizard", "electric", "leaf", "dragon", "legal", "notebook", "chaos", "diamond", "fire" or "water".
     pixel_theme: str = "block"
     #: How solid the pill is: 1.0 solid, down to 0.2 to see what's behind it.
     opacity: float = 1.0
