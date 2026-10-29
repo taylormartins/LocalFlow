@@ -5,7 +5,7 @@ For the next developer or agent. Read this first, then
 [README.md](README.md) for what users see, and
 [docs/CAMERA_MODE.md](docs/CAMERA_MODE.md) for the camera plan.
 
-Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.36.0, when the
+Written 2026-10-18 at v1.27.0; last updated 2026-10-24 at v1.36.1, when the
 original developer (a Claude session) handed the project on. Everything
 below is current as of that release.
 
@@ -448,6 +448,7 @@ or user phrases in that language.
 | 1.35.2 | Updater deadlock reported by another user (stranded on 1.31.0, report in Downloads): `uv.lock` is tracked but `uv sync` rewrites it on every install (newer lockfile revision, self-version), so `update.ps1` saw a dirty tree and refused to pull. `update.ps1` now `git checkout -- uv.lock` before its dirty check, `install.ps1` restores it right after `uv sync`, and `.gitattributes` has `uv.lock -text` (no LF/CRLF flip). Stranded copies need `git checkout -- uv.lock` once (README). |
 | 1.35.3 | Shortcuts: `localflow install-shortcuts` (`cmd_install_shortcuts`) writes Start-menu "Golden Flow" (restart.vbs) and "Golden Flow Settings" (pythonw -m localflow.cli settings) plus a desktop "Golden Flow Settings", pixel-crown icon; `install.ps1` runs it, so every update adds them. Before this the only shortcut was the hidden Startup-folder one. |
 | 1.36.0 | Three looks (fifteen): **Diamond** (`prism` border: white facets with a very light rainbow, glints above and on the edge; gem mark; `prism` meter with white glints), **Fire** (warm flame colours on the flame border/crest/meter), **Water** (dark ocean: `wave` border and a Great-Wave crest of swells with foam curls, wave-curl mark, `surf` meter). **Bug fixed in `Grid.rect`**: it ended each rectangle one screen pixel short (`- 1`), but Tk fills [x0, x1), so every 1-art-pixel rect (meter bars, sparkles, crest tips) drew as a thin dot with gaps (half of it at 100% scale). It now covers its whole cell, so every look's meter and sparks are bolder than before. |
+| 1.36.1 | Every look has its own mark: Dragon had shared Fire's flame, now a dragon head (`_DRAGON`, sparks of breath at the snout). Check for new looks: no two share a `dot`. |
 
 ## What's next (the user wants these pitched at the end of each job)
 

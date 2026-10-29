@@ -89,7 +89,7 @@ class Look:
     blurb: str
     pal: dict
     border: str      # block | dark | ink | swirl | prism | wave | stone | arcane | spark | leaf | flame | legal | royal
-    dot: str         # orb | shield | star | bolt | leaf | flame | scales | crown | moon | sun
+    dot: str         # orb | shield | star | bolt | leaf | flame | dragon | scales | crown | moon | sun
     wave: str        # led | blade | rune | bolt | vine | flame | stack | iris | gems | bar
     sparks: tuple = field(default_factory=tuple)
 
@@ -157,7 +157,7 @@ LOOKS: dict[str, Look] = {
         _pal(canvas="#120a22", panel="#1d1038", raised="#2c1a55", line="#5a3aa8", shadow="#07030f",
              hi="#8a6cf0", accent="#7ad7ff", accentdark="#2a1a60", text="#f0eaff", muted="#b6a6e6",
              accent2="#c050ff"),
-        "flame", "flame", "flame", ("#7ad7ff", "#c050ff", "#ff5ad8", "#4ff0ff", "#8a6cf0")),
+        "flame", "dragon", "flame", ("#7ad7ff", "#c050ff", "#ff5ad8", "#4ff0ff", "#8a6cf0")),
     "legal": Look(
         "legal", "PIXEL LEGAL", "THE COURT IS IN SESSION",
         _pal(canvas="#121a26", panel="#1b2636", raised="#273649", line="#4d5d78", shadow="#070b12",
@@ -732,6 +732,15 @@ def _hole(phase: int) -> list[str]:
 
 
 _HOLES = [_hole(i) for i in range(4)]
+_DRAGON = ["o.o......",
+           "oXo..oo..",
+           ".oXXXXXo.",
+           ".XXXeXXXo",
+           "XXXXXXXXX",
+           "XXXXXXoXX",
+           ".XXXXXXXo",
+           "..oXhhXo.",
+           "...ooooo."]
 _GEM = ["..ooooo..",
         ".ohXhXho.",
         "ohXXhXXho",
@@ -820,6 +829,11 @@ def dot(g: Grid, look: Look, cx: int, cy: int, colour: str, t: float) -> None:
         if b:
             g.rect(cx - 4, cy - 4, 1, 1, "#ffffff")
             g.rect(cx + 4, cy - 4, 1, 1, "#ffffff")
+    elif look.dot == "dragon":
+        g.sprite(cx - 4, cy - 4, _DRAGON, {**pal, "e": "#ffe85a"})
+        for j, c in enumerate(look.sparks[:3]):  # breath: sparks puffing from the snout
+            if (b + j) % 2:
+                g.rect(cx + 5 + j // 2, cy + 1 + j, 1, 1, c)
     elif look.dot == "gem":
         g.sprite(cx - 4, cy - 4, _GEM, pal)
         g.rect(cx - 5 + 9 * b, cy - 3 + b, 1, 1, "#ffffff")
